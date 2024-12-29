@@ -1,4 +1,14 @@
-# Transferable Boltzmann Generators
+# Fast Transferable Boltzmann Generators
+
+## Install
+```
+micromamba create name=tbg python=3.11
+pip install -r requirements.txt
+```
+You also need things from the Transferrable Boltzmann Generator codebase.
+https://osf.io/n8vz3/?view_only=1052300a21bd43c08f700016728aa96e
+
+Would clone this for data and models.
 
 ## Datasets
 Datasets and model checkpoints are available for training the Transferable Boltzmann Generators. To compare the performance of these generators on dipeptides against extended MD simulations, we used the 2AA-1-huge dataset. You can find it here: [timewarp datasets](https://huggingface.co/datasets/microsoft/timewarp).
