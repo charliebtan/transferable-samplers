@@ -22,3 +22,23 @@ pre-commit      # hooks for applying linters on commit
 rich            # beautiful text formatting in terminal
 pytest          # tests
 # sh            # for running bash commands in some tests (linux/macos only)
+
+# --------- project-specific --------- #
+einops
+matplotlib
+mdtraj
+networkx
+numpy
+nglview
+openmm
+pot
+scikit-learn
+scipy
+tables
+tensorboard
+torchdiffeq
+torchsde
+tqdm
+jupyterlab
+bgflow @ git+https://github.com/atong01/bgflow.git
+bgmol @ git+https://github.com/atong01/bgmol.git
