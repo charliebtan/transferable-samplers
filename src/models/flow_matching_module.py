@@ -238,19 +238,19 @@ class FlowMatchLitModule(LightningModule):
         log_p = traj[-1][..., -1]
         samples = traj[-1][..., :-1].reshape(batch_size, 4, -1) # TODO hardcode
 
-        return samples, prior_samples, log_p
+        return samples, log_p, prior_samples
     
-    def predict_step(self, batch: torch.Tensor) -> torch.Tensor:
+    def predict_step(self, batch: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Generate a batch of samples
 
         :param batch: A batch of (dummy) data.
-        :return: A tensor of samples.
+        :return: A tuple containing the generated samples, the log probability, and the prior samples.
         """
 
         batch_size = batch.shape[0]
-        samples = self.generate_samples(batch_size, device=batch.device)
+        samples, log_p, prior_samples = self.generate_samples(batch_size, device=batch.device)
 
-        return samples
+        return samples, log_p, prior_samples
 
 if __name__ == "__main__":
     _ = FlowMatchLitModule(None, None, None, None)

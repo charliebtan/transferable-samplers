@@ -1,5 +1,6 @@
 from typing import Any, Dict, List, Tuple
 
+from bgflow.bg import sampling_efficiency
 import hydra
 import rootutils
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
@@ -7,6 +8,7 @@ from lightning.pytorch.loggers import Logger
 import numpy as np
 import torch
 from omegaconf import DictConfig
+
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 torch.set_float32_matmul_precision("high")  # TODO can we use medium instead
@@ -82,14 +84,17 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     log.info("Starting generation!")
     outputs = trainer.predict(model=model, datamodule=datamodule, ckpt_path=cfg.ckpt_path)
 
-    samples, prior_samples, log_p = zip(*outputs)
-    samples = torch.cat(samples, dim=0)
-    prior_samples = torch.cat(prior_samples, dim=0)
-    log_p = torch.cat(log_p, dim=0)
+    samples_proposal, log_p_proposal, samples_prior = zip(*outputs) # TODO rename log_p (proposal)
 
-    np.save("samples.npy", samples.cpu().numpy())
-    np.save("prior_samples.npy", prior_samples.cpu().numpy())
-    np.save("log_p.npy", log_p.cpu().numpy())
+    samples_proposal = torch.cat(samples_proposal, dim=0)
+    samples_prior = torch.cat(samples_prior, dim=0)
+    log_p_proposal = torch.cat(log_p_proposal, dim=0)
+
+    np.save("samples_proposal", samples_proposal.cpu().numpy())
+    np.save("samples_prior", samples_prior.cpu().numpy())
+    np.save("log_p_proposal", log_p_proposal.cpu().numpy())
+
+    log.info(f"Sampling efficiency: {sampling_efficiency(log_p_proposal).item()}") # TODO properly log
 
     metric_dict = trainer.callback_metrics
 
