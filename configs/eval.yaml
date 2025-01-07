@@ -4,6 +4,7 @@ defaults:
   - _self_
   - data: dummy # choose datamodule with `test_dataloader()` for evaluation
   - model: flow_matching
+  - callbacks: eval
   - logger: null
   - trainer: default
   - paths: default
