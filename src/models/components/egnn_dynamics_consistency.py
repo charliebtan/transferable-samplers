@@ -232,12 +232,11 @@ class E_GCL(nn.Module):
 
 
 class EGNN(nn.Module):
-    def __init__(self, in_node_nf, in_edge_nf, hidden_nf, device='cpu', act_fn=nn.SiLU(), n_layers=4, recurrent=True, attention=False, norm_diff=True, out_node_nf=None, tanh=False, coords_range=15, agg='sum'):
+    def __init__(self, in_node_nf, in_edge_nf, hidden_nf, act_fn=nn.SiLU(), n_layers=4, recurrent=True, attention=False, norm_diff=True, out_node_nf=None, tanh=False, coords_range=15, agg='sum'):
         super(EGNN, self).__init__()
         if out_node_nf is None:
             out_node_nf = in_node_nf
         self.hidden_nf = hidden_nf
-        self.device = device
         self.n_layers = n_layers
         self.coords_range_layer = float(coords_range)/self.n_layers
         if agg == 'mean':
@@ -249,8 +248,6 @@ class EGNN(nn.Module):
         self.embedding_out = nn.Linear(self.hidden_nf, out_node_nf)
         for i in range(0, n_layers):
             self.add_module("gcl_%d" % i, E_GCL(self.hidden_nf, self.hidden_nf, self.hidden_nf, edges_in_d=in_edge_nf, act_fn=act_fn, recurrent=recurrent, attention=attention, norm_diff=norm_diff, tanh=tanh, coords_range=self.coords_range_layer, agg=agg))
-
-        self.to(self.device)
 
     def forward(self, h, x, edges, edge_attr=None, node_mask=None, edge_mask=None):
         # Edit Emiel: Remove velocity as input
@@ -271,7 +268,6 @@ class EGNNDynamicsConsistency(nn.Module):
         n_particles,
         n_dimension,
         hidden_nf=32,
-        device="cpu",
         act_fn=torch.nn.SiLU(),
         n_layers=3,
         recurrent=True,
@@ -288,7 +284,6 @@ class EGNNDynamicsConsistency(nn.Module):
                 in_node_nf=2,
                 in_edge_nf=1,
                 hidden_nf=hidden_nf,
-                device=device,
                 act_fn=act_fn,
                 n_layers=n_layers,
                 recurrent=recurrent,
@@ -297,7 +292,6 @@ class EGNNDynamicsConsistency(nn.Module):
                 agg=agg,
             )
 
-        self.device = device
         self._n_particles = n_particles
         self._n_dimension = n_dimension
         self.edges = self._create_edges()
@@ -309,10 +303,10 @@ class EGNNDynamicsConsistency(nn.Module):
     def forward(self, t, xs, d=None):
 
         n_batch = xs.shape[0]
-        edges = self._cast_edges2batch(self.edges, n_batch, self._n_particles)
+        edges = self._cast_edges2batch(self.edges, n_batch, self._n_particles, device=xs.device)
         edges = [edges[0], edges[1]]
         x = xs.reshape(n_batch * self._n_particles, self._n_dimension).clone()
-        h = torch.ones(n_batch, self._n_particles, 2).to(self.device)
+        h = torch.ones(n_batch, self._n_particles, 2, device=xs.device)
         t = torch.tensor(t).to(xs)
         if t.shape != (n_batch, 1):
             t = t.repeat(n_batch)
@@ -348,7 +342,7 @@ class EGNNDynamicsConsistency(nn.Module):
                 cols.append(i)
         return [torch.LongTensor(rows), torch.LongTensor(cols)]
 
-    def _cast_edges2batch(self, edges, n_batch, n_nodes):
+    def _cast_edges2batch(self, edges, n_batch, n_nodes, device):
         if n_batch not in self._edges_dict:
             self._edges_dict = {}
             rows, cols = edges
@@ -356,8 +350,8 @@ class EGNNDynamicsConsistency(nn.Module):
             for i in range(n_batch):
                 rows_total.append(rows + i * n_nodes)
                 cols_total.append(cols + i * n_nodes)
-            rows_total = torch.cat(rows_total).to(self.device)
-            cols_total = torch.cat(cols_total).to(self.device)
+            rows_total = torch.cat(rows_total).to(device)
+            cols_total = torch.cat(cols_total).to(device)
 
             self._edges_dict[n_batch] = [rows_total, cols_total]
         return self._edges_dict[n_batch]    

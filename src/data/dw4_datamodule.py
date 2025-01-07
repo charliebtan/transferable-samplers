@@ -1,11 +1,11 @@
+import os
+import requests
 from typing import Any, Dict, Optional, Tuple
 
 from bgflow.utils import remove_mean
 import numpy as np
-import torch
 from lightning import LightningDataModule
-from torch.utils.data import ConcatDataset, DataLoader, Dataset, random_split
-from torchvision.datasets import MNIST
+from torch.utils.data import DataLoader, Dataset
 from torchvision.transforms import transforms
 
 
@@ -96,12 +96,13 @@ class DW4DataModule(LightningDataModule):
 
         Do not use it to assign state (self.x = y).
         """
-        import requests
 
         response = requests.get(self.hparams.data_url)
 
+        os.makedirs(self.hparams.data_dir, exist_ok=True)
+
         # Save the file in binary (write) mode
-        with open(self.hparams.filename, "wb") as f:
+        with open(self.hparams.data_dir + self.hparams.filename, "wb") as f:
             f.write(response.content)
 
         print(f"File downloaded and saved as: {self.hparams.filename}")
