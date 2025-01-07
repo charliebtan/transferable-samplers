@@ -8,41 +8,15 @@ from lightning import LightningModule
 from torchdyn.core import NeuralODE
 from torchmetrics import MeanMetric
 
+from src.models.components.wrappers import torchdyn_wrapper
+from src.models.proposal_flow_module import ProposalFlowLitModule
 from src.utils.tbg_utils import torchdyn_wrapper
 
-class FlowMatchLitModule(LightningModule):
+class FlowMatchLitModule(ProposalFlowLitModule):
     """
 
     TODO - Add a description.
 
-    A `LightningModule` implements 8 key methods:
-
-    ```python
-    def __init__(self):
-    # Define initialization code here.
-
-    def setup(self, stage):
-    # Things to setup before each stage, 'fit', 'validate', 'test', 'predict'.
-    # This hook is called on every process when using DDP.
-
-    def training_step(self, batch, batch_idx):
-    # The complete training step.
-
-    def validation_step(self, batch, batch_idx):
-    # The complete validation step.
-
-    def test_step(self, batch, batch_idx):
-    # The complete test step.
-
-    def predict_step(self, batch, batch_idx):
-    # The complete predict step.
-
-    def configure_optimizers(self):
-    # Define and configure optimizers and LR schedulers.
-    ```
-
-    Docs:
-        https://lightning.ai/docs/pytorch/latest/common/lightning_module.html
     """
 
     def __init__(
@@ -52,82 +26,23 @@ class FlowMatchLitModule(LightningModule):
         scheduler: torch.optim.lr_scheduler,
         compile: bool,
     ) -> None:
-        """Initialize a `FlowMatchLitModule`.
+        """Initialize a `ProposalFlowLitModule`.
 
         :param net: The model to train.
         :param optimizer: The optimizer to use for training.
         :param scheduler: The learning rate scheduler to use for training.
         """
-        super().__init__()
+        super().__init__(net, optimizer, scheduler, compile)
 
-        # this line allows to access init params with 'self.hparams' attribute
-        # also ensures init params will be stored in ckpt
-        self.save_hyperparameters(logger=False)
 
-        self.net = net
-
-        # loss function
-        self.criterion = torch.nn.MSELoss(reduce="mean")
-
-        # metric objects for calculating and averaging accuracy across batches
-        self.train_loss = MeanMetric()
-
-        ## TODO TODO I'm not sure this is the right place to have this
-
-        self.prior = torch.distributions.MultivariateNormal(
-            torch.zeros(8), torch.eye(8)
-        ) # TODO is this the right place for this?
-
-        # first define system dimensionality and a target energy/distribution
-        # dim = 8
-        # n_particles = 4
-        # n_dimensions = dim // n_particles
-
-        # # now set up a prior
-        # self.prior = MeanFreeNormalDistribution(dim, n_particles, two_event_dims=False)
-
-        # # DW parameters
-        # a=0.9
-        # b=-4
-        # c=0
-        # offset=4
-
-        # self.target = MultiDoubleWellPotential(dim, n_particles, a, b, c, offset, two_event_dims=False)
-
-        # # Initialize divergence estimators
-        # brute_force_estimator = BruteForceEstimator()
-
-        # bb_dynamics = BlackBoxDynamics(
-        #     dynamics_function=self.net,
-        #     divergence_estimator=brute_force_estimator
-        # )
-
-        # self.flow = DiffEqFlow(
-        #     dynamics=bb_dynamics
-        # )
-
-        # # having a flow and a prior, we can now define a Boltzmann Generator
-
-        # self.bg = BoltzmannGenerator(self.prior, self.flow, self.target)
-
-    def forward(self, x: torch.Tensor, t: float) -> torch.Tensor:
+    def forward(self, t: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass through the model `self.net`.
 
         :param x:
         :param t: 
         :return: dx
         """
-        # vt = bg.flow._dynamics._dynamics._dynamics_function(t, x)
-        return self.net(x, t)
-
-    def on_train_start(self) -> None:
-        """Lightning hook that is called when training begins."""
-        # by default lightning executes validation step sanity checks before training starts,
-        # so it's worth to make sure validation metrics don't store results from these checks
-        # self.val_loss.reset()
-        # self.val_acc.reset()
-        # self.val_acc_best.reset()
-        pass
+        return self.net(t, x)
 
     def model_step(
         self, batch: torch.Tensor,
@@ -158,57 +73,6 @@ class FlowMatchLitModule(LightningModule):
 
         return loss
 
-    def training_step(
-        self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
-    ) -> torch.Tensor:
-        """Perform a single training step on a batch of data from the training set.
-
-        :param batch: A batch of data (a tuple) containing the input tensor of images and target
-            labels.
-        :param batch_idx: The index of the current batch.
-        :return: A tensor of losses between model predictions and targets.
-        """
-        loss = self.model_step(batch)
-
-        # update and log metrics
-        self.train_loss(loss)
-        self.log("train/loss", self.train_loss, on_step=False, on_epoch=True, prog_bar=True)
-
-        # return loss or backpropagation will fail
-        return loss
-
-    def setup(self, stage: str) -> None:
-        """Lightning hook that is called at the beginning of fit (train + validate), validate,
-        test, or predict.
-
-        This is a good hook when you need to build models dynamically or adjust something about
-        them. This hook is called on every process when using DDP.
-
-        :param stage: Either `"fit"`, `"validate"`, `"test"`, or `"predict"`.
-        """
-        if self.hparams.compile and stage == "fit":
-            self.net = torch.compile(self.net)
-
-    def configure_optimizers(self) -> Dict[str, Any]:
-        """Choose what optimizers and learning-rate schedulers to use in your optimization.
-        Normally you'd need one. But in the case of GANs or similar you might have multiple.
-
-        Examples:
-            https://lightning.ai/docs/pytorch/latest/common/lightning_module.html#configure-optimizers
-
-        :return: A dict containing the configured optimizers and learning-rate schedulers to be used for training.
-        """
-        optimizer = self.hparams.optimizer(params=self.trainer.model.parameters())
-        if self.hparams.scheduler is not None:
-            scheduler = self.hparams.scheduler(optimizer=optimizer)
-            return {
-                "optimizer": optimizer,
-                "lr_scheduler": {
-                    "scheduler": scheduler,
-                },
-            }
-        return {"optimizer": optimizer}
-
     def generate_samples(self, batch_size: int, n_timesteps: int = 100, device: str = "cpu") -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Generate samples from the model.
 
@@ -237,18 +101,6 @@ class FlowMatchLitModule(LightningModule):
 
         log_p = traj[-1][..., -1]
         samples = traj[-1][..., :-1].reshape(batch_size, 4, -1) # TODO hardcode
-
-        return samples, log_p, prior_samples
-    
-    def predict_step(self, batch: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Generate a batch of samples
-
-        :param batch: A batch of (dummy) data.
-        :return: A tuple containing the generated samples, the log probability, and the prior samples.
-        """
-
-        batch_size = batch.shape[0]
-        samples, log_p, prior_samples = self.generate_samples(batch_size, device=batch.device)
 
         return samples, log_p, prior_samples
 
