@@ -11,6 +11,10 @@ defaults:
   - extras: default
   - hydra: default
 
+data:
+  n_samples: 4196 # how many samples to generate!
+  batch_size: 256 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
+
 task_name: "eval"
 
 tags: ["dev"]

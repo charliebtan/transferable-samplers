@@ -80,10 +80,16 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         log_hyperparameters(object_dict)
 
     log.info("Starting generation!")
-    samples = trainer.predict(model=model, datamodule=datamodule, ckpt_path=cfg.ckpt_path)
+    outputs = trainer.predict(model=model, datamodule=datamodule, ckpt_path=cfg.ckpt_path)
+
+    samples, prior_samples, log_p = zip(*outputs)
     samples = torch.cat(samples, dim=0)
+    prior_samples = torch.cat(prior_samples, dim=0)
+    log_p = torch.cat(log_p, dim=0)
 
     np.save("samples.npy", samples.cpu().numpy())
+    np.save("prior_samples.npy", prior_samples.cpu().numpy())
+    np.save("log_p.npy", log_p.cpu().numpy())
 
     metric_dict = trainer.callback_metrics
 

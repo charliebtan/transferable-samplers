@@ -5,11 +5,10 @@ from bgflow.nn.flow.estimator import BruteForceEstimator
 from bgflow.nn.flow.dynamics import BlackBoxDynamics
 import torch
 from lightning import LightningModule
+from torchdyn.core import NeuralODE
 from torchmetrics import MeanMetric
 
-from torchdyn.core import NeuralODE
-
-
+from src.utils.tbg_utils import torchdyn_wrapper
 
 class FlowMatchLitModule(LightningModule):
     """
@@ -210,33 +209,36 @@ class FlowMatchLitModule(LightningModule):
             }
         return {"optimizer": optimizer}
 
-    def generate_samples(self, batch_size: int, n_timesteps: int = 100, device: str = "cpu") -> Tuple[torch.Tensor, torch.Tensor]:
+    def generate_samples(self, batch_size: int, n_timesteps: int = 100, device: str = "cpu") -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Generate samples from the model.
 
         :param batch_size: The batch size to use for generating samples.
         :param n_timesteps: The number of timesteps to use when generating samples.
         :param device: The device to use for generating samples.
-        :return: A tuple containing the generated samples and their log weights.
+
+        :return: A tuple containing the generated samples, the prior samples, and the log probability.
         """
 
-        node = NeuralODE(self.net, solver="euler")
+        node = NeuralODE(
+            torchdyn_wrapper(self.net),
+            atol=1e-3,
+            rtol=1e-3,
+            solver="dopri5", sensitivity="adjoint"
+        )
 
         prior_samples = self.prior.sample((batch_size,)).to(device)
+        prior_log_p = self.prior.log_prob(prior_samples)
 
         with torch.no_grad():
             traj = node.trajectory(
-                prior_samples,
+                torch.cat([prior_samples, prior_log_p[:, None]], dim=-1),
                 t_span=torch.linspace(0, 1, n_timesteps),
         )
 
-        samples = traj[-1].reshape(batch_size, 4, -1) # TODO hardcode
+        log_p = traj[-1][..., -1]
+        samples = traj[-1][..., :-1].reshape(batch_size, 4, -1) # TODO hardcode
 
-        # div = traj[-1][:, 2]
-
-        # samples, latent, dlogp = self.bg.sample(batch_size, with_latent=True, with_dlogp=True)
-        # log_weights = self.bg.log_weights_given_latent(samples, latent, dlogp, normalize=False)
-
-        return samples
+        return samples, prior_samples, log_p
     
     def predict_step(self, batch: torch.Tensor) -> torch.Tensor:
         """Generate a batch of samples
