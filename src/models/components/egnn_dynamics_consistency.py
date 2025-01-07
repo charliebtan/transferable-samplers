@@ -340,6 +340,11 @@ class EGNNDynamicsConsistency(nn.Module):
                 cols.append(j)
                 rows.append(j)
                 cols.append(i)
+
+        # rows, cols = torch.tril_indices(self._n_particles, self._n_particles, offset=-1)
+        # rows = torch.cat([rows, cols])
+        # cols = torch.cat([cols, rows])
+
         return [torch.LongTensor(rows), torch.LongTensor(cols)]
 
     def _cast_edges2batch(self, edges, n_batch, n_nodes, device):
@@ -352,6 +357,9 @@ class EGNNDynamicsConsistency(nn.Module):
                 cols_total.append(cols + i * n_nodes)
             rows_total = torch.cat(rows_total).to(device)
             cols_total = torch.cat(cols_total).to(device)
+
+            # rows_total = (rows.unsqueeze(0) + torch.arange(n_batch, device=device).unsqueeze(1) * n_nodes).flatten()
+            # cols_total = (cols.unsqueeze(0) + torch.arange(n_batch, device=device).unsqueeze(1) * n_nodes).flatten()
 
             self._edges_dict[n_batch] = [rows_total, cols_total]
         return self._edges_dict[n_batch]    

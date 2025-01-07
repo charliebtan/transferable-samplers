@@ -3,7 +3,7 @@ _target_: src.models.flow_matching_module.FlowMatchLitModule
 optimizer:
   _target_: torch.optim.AdamW
   _partial_: true
-  lr: 0.01
+  lr: 0.005
   weight_decay: 0.1
 
 scheduler:

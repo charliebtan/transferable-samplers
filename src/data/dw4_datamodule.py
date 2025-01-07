@@ -97,15 +97,18 @@ class DW4DataModule(LightningDataModule):
         Do not use it to assign state (self.x = y).
         """
 
-        response = requests.get(self.hparams.data_url)
 
         os.makedirs(self.hparams.data_dir, exist_ok=True)
 
-        # Save the file in binary (write) mode
-        with open(self.hparams.data_dir + self.hparams.filename, "wb") as f:
-            f.write(response.content)
+        if not os.path.exists(self.hparams.data_dir + self.hparams.filename):
+            print(f"Downloading file from {self.hparams.data_url}")
+            response = requests.get(self.hparams.data_url)
 
-        print(f"File downloaded and saved as: {self.hparams.filename}")
+            # Save the file in binary (write) mode
+            with open(self.hparams.data_dir + self.hparams.filename, "wb") as f:
+                f.write(response.content)
+
+            print(f"File downloaded and saved as: {self.hparams.filename}")
 
     def setup(self, stage: Optional[str] = None) -> None:
         """Load data. Set variables: `self.data_train`, `self.data_val`, `self.data_test`.
