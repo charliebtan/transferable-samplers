@@ -229,7 +229,8 @@ class FlowMatchLitModule(LightningModule):
                 t_span=torch.linspace(0, 1, n_timesteps),
         )
 
-        samples = traj[-1][:, :2]
+        samples = traj[-1].reshape(batch_size, 4, -1) # TODO hardcode
+
         # div = traj[-1][:, 2]
 
         # samples, latent, dlogp = self.bg.sample(batch_size, with_latent=True, with_dlogp=True)
