@@ -1,4 +1,5 @@
 from typing import Any, Dict, List, Tuple
+import os
 
 from bgflow.bg import sampling_efficiency
 import hydra
@@ -90,9 +91,12 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     samples_prior = torch.cat(samples_prior, dim=0)
     log_p_proposal = torch.cat(log_p_proposal, dim=0)
 
-    np.save("samples_proposal", samples_proposal.cpu().numpy())
-    np.save("samples_prior", samples_prior.cpu().numpy())
-    np.save("log_p_proposal", log_p_proposal.cpu().numpy())
+    outputs_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir + "/npy_outputs"
+    os.makedirs(outputs_dir, exist_ok=True)
+
+    np.save(outputs_dir + "/samples_proposal", samples_proposal.cpu().numpy())
+    np.save(outputs_dir + "/samples_prior", samples_prior.cpu().numpy())
+    np.save(outputs_dir + "/log_p_proposal", log_p_proposal.cpu().numpy())
 
     log.info(f"Sampling efficiency: {sampling_efficiency(log_p_proposal).item()}") # TODO properly log
 
