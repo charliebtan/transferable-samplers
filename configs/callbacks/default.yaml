@@ -13,10 +13,10 @@ model_checkpoint:
   save_last: True
   auto_insert_metric_name: False
 
-early_stopping:
-  monitor: "val/acc"
-  patience: 100
-  mode: "max"
+# early_stopping:
+#   monitor: "val/acc"
+#   patience: 100
+#   mode: "max"
 
 model_summary:
   max_depth: -1

@@ -63,10 +63,10 @@ class FlowMatchLitModule(LightningModule):
         self.net = net
 
         # loss function
-        self.criterion = torch.nn.MSELoss()
+        self.criterion = torch.nn.MSELoss(reduce="mean")
 
         # metric objects for calculating and averaging accuracy across batches
-        self.train_loss = torch.nn.MSELoss()
+        self.train_loss = MeanMetric()
 
         self.prior = torch.distributions.MultivariateNormal(
             torch.zeros(8), torch.eye(8)
@@ -93,25 +93,23 @@ class FlowMatchLitModule(LightningModule):
 
     def model_step(
         self, batch: torch.Tensor,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> torch.Tensor:
         """Perform a single model step on a batch of data.
 
         :param batch:
 
-        :return: A tuple containing (in order):
-            - A tensor of losses.
-            - A tensor of predictions.
+        :return: - A tensor of losses.
         """
 
-        x_1 = batch
-        x_0 = self.prior.sample((x_1.shape[0],)).to(x_1.device)
-        t = torch.rand(x_1.shape[0], 1, device=x_1.device) # should this be generated here or elsewhere?
+        x1 = batch
+        x0 = self.prior.sample((x1.shape[0],)).to(x1.device)
+        t = torch.rand(x1.shape[0], 1, device=x1.device) # should this be generated here or elsewhere?
 
-        x_t = (1.0 - (1.0 - 1e-5) * t) * x_0 + t * x_1
-        v_t_ref = x_1 - (1.0 - 1e-5) * x_0
+        xt = (1.0 - (1.0 - 1e-5) * t) * x0 + t * x1
+        vt_ref = x1 - (1.0 - 1e-5) * x0
 
-        v_t_pred = self.forward(x_t, t)
-        loss = self.criterion(v_t_pred, v_t_ref)
+        vt_pred = self.forward(t, xt)
+        loss = self.criterion(vt_pred, vt_ref)
 
         # TODO the notebook had what looked like a diffusion target?
         # mu_t = x0 * (1 - t) + x1 * t
@@ -119,7 +117,7 @@ class FlowMatchLitModule(LightningModule):
         # noise = prior.sample(batchsize)
         # x = mu_t + sigma_t * noise
 
-        return loss, v_t_pred
+        return loss
 
     def training_step(
         self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
