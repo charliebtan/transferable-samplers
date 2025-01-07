@@ -139,39 +139,22 @@ dmypy.json
 # JetBrains
 .idea/
 
-# Lightning-Hydra-Template
-configs/local/default.yaml
-data/
-logs/
-wandb/
-.env
-.autoenv
-
-#Vim
-*.sw?
-
-# Slurm
-slurm*.out
-
-# Data and models
-*.pt
+# Data & Models
 *.h5
-*.h5ad
 *.tar
 *.tar.gz
-*.pkl
-*.npy
+
+# Lightning-Hydra-Template
+configs/local/default.yaml
+/data/
+/logs/
+.env
+
+# Aim logging
+.aim
+
 *.npz
-*.csv
-
-# Images
-*.png
-*.svg
-*.gif
-*.jpg
-
-notebooks/figures/
-
-.DS_Store
+*.npy
+*.out
+*.sw?
 *.zip
-AImplicitUnconstrained/

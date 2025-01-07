@@ -1,0 +1,20 @@
+_target_: src.models.flow_matching_module.FlowMatchLitModule
+
+optimizer:
+  _target_: torch.optim.AdamW
+  _partial_: true
+  lr: 0.005
+  weight_decay: 0.1
+
+scheduler:
+  _target_: torch.optim.lr_scheduler.ConstantLR
+  _partial_: true
+  factor: 1.0
+
+net:
+  _target_: src.models.components.egnn_dynamics_consistency.EGNNDynamicsConsistency
+  n_particles: 4
+  n_dimension: 2
+
+# compile model for faster training with pytorch 2.0
+compile: false

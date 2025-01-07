@@ -1,0 +1,23 @@
+# @package _global_
+
+defaults:
+  - _self_
+  - data: dummy # choose datamodule with `test_dataloader()` for evaluation
+  - model: flow_matching
+  - callbacks: eval
+  - logger: null
+  - trainer: default
+  - paths: default
+  - extras: default
+  - hydra: default
+
+data:
+  n_samples: 4196 # how many samples to generate!
+  batch_size: 256 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
+
+task_name: "eval"
+
+tags: ["dev"]
+
+# passing checkpoint path is necessary for evaluation
+ckpt_path: ???
