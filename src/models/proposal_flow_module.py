@@ -1,14 +1,9 @@
 from typing import Any, Dict, Tuple
 
-from bgflow import BoltzmannGenerator, MultiDoubleWellPotential, MeanFreeNormalDistribution, DiffEqFlow
-from bgflow.nn.flow.estimator import BruteForceEstimator
-from bgflow.nn.flow.dynamics import BlackBoxDynamics
 import torch
 from lightning import LightningModule
-from torchdyn.core import NeuralODE
 from torchmetrics import MeanMetric
 
-from src.models.components.wrappers import torchdyn_wrapper
 
 class ProposalFlowLitModule(LightningModule):
     """
@@ -44,19 +39,19 @@ class ProposalFlowLitModule(LightningModule):
         # metric objects for calculating and averaging accuracy across batches
         self.train_loss = MeanMetric()
 
-        ## TODO TODO I'm not sure this is the right place to have this
+        # TODO TODO I'm not sure this is the right place to have this
 
         self.prior = torch.distributions.MultivariateNormal(
             torch.zeros(8), torch.eye(8)
-        ) # TODO is this the right place for this?
+        )  # TODO is this the right place for this?
 
     def on_train_start(self) -> None:
         """Lightning hook that is called when training begins."""
         # by default lightning executes validation step sanity checks before training starts,
         # so it's worth to make sure validation metrics don't store results from these checks
-        # self.val_loss.reset()
-        # self.val_acc.reset()
-        # self.val_acc_best.reset()
+        # self.val_loss.reset()
+        # self.val_acc.reset()
+        # self.val_acc_best.reset()
         pass
 
     def training_step(
@@ -111,16 +106,18 @@ class ProposalFlowLitModule(LightningModule):
         return {"optimizer": optimizer}
 
     def predict_step(self, batch: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Generate a batch of samples
+        """Generate a batch of samples.
 
         :param batch: A batch of (dummy) data.
-        :return: A tuple containing the generated samples, the log probability, and the prior samples.
+        :return: A tuple containing the generated samples, the log probability, and the prior
+            samples.
         """
 
         batch_size = batch.shape[0]
         samples, log_p, prior_samples = self.generate_samples(batch_size, device=batch.device)
 
         return samples, log_p, prior_samples
+
 
 if __name__ == "__main__":
     _ = ProposalFlowLitModule(None, None, None, None)

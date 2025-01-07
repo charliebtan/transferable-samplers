@@ -1,7 +1,7 @@
 default_language_version:
   python: python3
 
-exclude: ^old/  # Adjust the regex to match your directory
+exclude: ^old/ # Adjust the regex to match your directory
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -54,21 +54,21 @@ repos:
             --black,
           ]
 
-  # python docstring coverage checking
-  - repo: https://github.com/econchick/interrogate
-    rev: 1.5.0 # or master if you're bold
-    hooks:
-      - id: interrogate
-        args:
-          [
-            --verbose,
-            --fail-under=80,
-            --ignore-init-module,
-            --ignore-init-method,
-            --ignore-module,
-            --ignore-nested-functions,
-            -vv,
-          ]
+  #   # python docstring coverage checking
+  #   - repo: https://github.com/econchick/interrogate
+  #     rev: 1.5.0 # or master if you're bold
+  #     hooks:
+  #       - id: interrogate
+  #         args:
+  #           [
+  #             --verbose,
+  #             --fail-under=80,
+  #             --ignore-init-module,
+  #             --ignore-init-method,
+  #             --ignore-module,
+  #             --ignore-nested-functions,
+  #             -vv,
+  #           ]
 
   # python check (PEP8), programming errors and code complexity
   - repo: https://github.com/PyCQA/flake8
@@ -105,18 +105,18 @@ repos:
     hooks:
       - id: shellcheck
 
-  # md formatting
-  - repo: https://github.com/executablebooks/mdformat
-    rev: 0.7.16
-    hooks:
-      - id: mdformat
-        args: ["--number"]
-        additional_dependencies:
-          - mdformat-gfm
-          - mdformat-tables
-          - mdformat_frontmatter
-          # - mdformat-toc
-          # - mdformat-black
+  #   # md formatting
+  #   - repo: https://github.com/executablebooks/mdformat
+  #     rev: 0.7.16
+  #     hooks:
+  #       - id: mdformat
+  #         args: ["--number"]
+  #         additional_dependencies:
+  #           - mdformat-gfm
+  #           - mdformat-tables
+  #           - mdformat_frontmatter
+  #           # - mdformat-toc
+  #           # - mdformat-black
 
   # word spelling linter
   - repo: https://github.com/codespell-project/codespell

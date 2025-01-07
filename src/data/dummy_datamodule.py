@@ -1,20 +1,14 @@
-import os
-import requests
 from typing import Any, Dict, Optional, Tuple
 
-from bgflow.utils import remove_mean
-import numpy as np
-from lightning import LightningDataModule
 import torch
-from torch.utils.data import DataLoader, Dataset
-from torchvision.transforms import transforms
+from lightning import LightningDataModule
+from torch.utils.data import DataLoader
 
 # TODO I did it like this because I though it might help with distributed generation
 
-class DummyDataModule(LightningDataModule):
-    """
 
-    TODO (dummy): Add a description.
+class DummyDataModule(LightningDataModule):
+    """TODO (dummy): Add a description.
 
     A `LightningDataModule` implements 7 key methods:
 
@@ -50,8 +44,6 @@ class DummyDataModule(LightningDataModule):
     Read the docs:
         https://lightning.ai/docs/pytorch/latest/data/datamodule.html
     """
-
-    
 
     def __init__(
         self,
@@ -97,6 +89,7 @@ class DummyDataModule(LightningDataModule):
             dataset=torch.zeros((self.hparams.n_samples,)),
             batch_size=self.batch_size_per_device,
         )
+
 
 if __name__ == "__main__":
     _ = DummyDataModule()

@@ -1,18 +1,16 @@
 import os
-import requests
 from typing import Any, Dict, Optional, Tuple
 
-from bgflow.utils import remove_mean
 import numpy as np
+import requests
+from bgflow.utils import remove_mean
 from lightning import LightningDataModule
 from torch.utils.data import DataLoader, Dataset
 from torchvision.transforms import transforms
 
 
 class DW4DataModule(LightningDataModule):
-    """
-
-    TODO (dw4): Add a description.
+    """TODO (dw4): Add a description.
 
     A `LightningDataModule` implements 7 key methods:
 
@@ -49,8 +47,6 @@ class DW4DataModule(LightningDataModule):
         https://lightning.ai/docs/pytorch/latest/data/datamodule.html
     """
 
-    
-
     def __init__(
         self,
         data_dir: str = "data/",
@@ -61,7 +57,7 @@ class DW4DataModule(LightningDataModule):
         dim: int = 2,
         num_particles: int = 4,
         data_url: str = "https://osf.io/download/a28n7/?view_only=8b2bb152b36f4b6cb8524733623aa5c1",
-        filename = "dw4-dataidx.npy",
+        filename="dw4-dataidx.npy",
     ) -> None:
         """Initialize a `DW4DataModule`.
 
@@ -97,12 +93,11 @@ class DW4DataModule(LightningDataModule):
         Do not use it to assign state (self.x = y).
         """
 
-
         os.makedirs(self.hparams.data_dir, exist_ok=True)
 
         if not os.path.exists(self.hparams.data_dir + self.hparams.filename):
             print(f"Downloading file from {self.hparams.data_url}")
-            response = requests.get(self.hparams.data_url)
+            response = requests.get(self.hparams.data_url, timeout=300)
 
             # Save the file in binary (write) mode
             with open(self.hparams.data_dir + self.hparams.filename, "wb") as f:

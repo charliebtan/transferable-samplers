@@ -16,6 +16,5 @@ net:
   n_particles: 4
   n_dimension: 2
 
-
 # compile model for faster training with pytorch 2.0
 compile: false
