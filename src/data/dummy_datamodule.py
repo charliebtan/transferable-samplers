@@ -11,28 +11,6 @@ from torchvision.transforms import transforms
 
 # TODO I did it like this because I though it might help with distributed generation
 
-from torch.utils.data import Dataset
-
-class DummyDataset(Dataset):
-    """
-    A simple dataset that returns tensors of zeros with a specified shape.
-    """
-    def __init__(self, n_samples: int = 4196, sample_shape: Tuple[int, ...] = (3, 64, 64)):
-        """
-        Args:
-            n_samples (int): Number of samples in the dataset.
-            sample_shape (Tuple[int, ...]): Shape of each sample.
-        """
-        self.n_samples = n_samples
-        self.sample_shape = sample_shape
-
-    def __len__(self):
-        return self.n_samples
-
-    def __getitem__(self, idx):
-        # Return a tensor of zeros with the specified shape
-        return torch.zeros(self.sample_shape)
-
 class DummyDataModule(LightningDataModule):
     """
 
@@ -110,8 +88,8 @@ class DummyDataModule(LightningDataModule):
                 )
             self.batch_size_per_device = self.hparams.batch_size // self.trainer.world_size
 
-    def test_dataloader(self) -> DataLoader[Any]:
-        """Create and return the test dataloader.
+    def predict_dataloader(self) -> DataLoader[Any]:
+        """Create and return the predict dataloader.
 
         :return: The test dataloader.
         """

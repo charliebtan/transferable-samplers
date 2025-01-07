@@ -2,7 +2,7 @@
 
 defaults:
   - _self_
-  - data: dw4 # choose datamodule with `test_dataloader()` for evaluation
+  - data: dummy # choose datamodule with `test_dataloader()` for evaluation
   - model: flow_matching
   - logger: null
   - trainer: default

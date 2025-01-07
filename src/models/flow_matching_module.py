@@ -1,11 +1,77 @@
 from typing import Any, Dict, Tuple
 
-from bgflow import BoltzmannGenerator
-from bgmol import MultiDoubleWellPotential
+from bgflow import BoltzmannGenerator, MultiDoubleWellPotential, MeanFreeNormalDistribution, DiffEqFlow
+from bgflow.nn.flow.estimator import BruteForceEstimator
+from bgflow.nn.flow.dynamics import BlackBoxDynamics
 import torch
 from lightning import LightningModule
 from torchmetrics import MeanMetric
 
+from torchdyn.core import NeuralODE
+
+class torch_wrapper(torch.nn.Module):
+    """Wraps model to torchdyn compatible format."""
+
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+
+    def forward(self, x, t, *args, **kwargs):
+        return self.model(torch.cat([x, t.repeat(x.shape[0])[:, None]], 1))
+
+class torch_shortcut_wrapper(torch.nn.Module):
+    """Wraps model to torchdyn compatible format."""
+
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+
+    def forward(self, x, t, *args, **kwargs):
+        dt_base_bootstrap = torch.zeros_like(t)
+        return self.model(torch.cat([x, 
+                                     t.repeat(x.shape[0])[:, None], 
+                                    dt_base_bootstrap.repeat(x.shape[0])[:, None]], 1))
+                    
+
+class cnf_wrapper(torch.nn.Module):
+    """Wraps model to a torchdyn compatible CNF format.
+    Appends an additional dimension representing the change in likelihood
+    over time.
+    """
+
+    def __init__(self, model, likelihood_estimator="exact"):
+        super().__init__()
+        self.model = model
+        self.div_fn, self.eps_fn = self.get_div_and_eps(likelihood_estimator)
+
+    def get_div_and_eps(self, likelihood_estimator):
+        if likelihood_estimator == "exact":
+            return exact_div_fn, None
+        if likelihood_estimator == "hutch_gaussian":
+            return div_fn_hutch_trace, torch.randn_like
+        if likelihood_estimator == "hutch_rademacher":
+
+            def eps_fn(x):
+                return torch.randint_like(x, low=0, high=2).float() * 2 - 1.0
+
+            return div_fn_hutch_trace, eps_fn
+        raise NotImplementedError(
+            f"likelihood estimator {likelihood_estimator} is not implemented"
+        )
+
+    def forward(self, t, x, *args, **kwargs):
+        t = t.squeeze()
+        x = x[..., :-1]
+
+        def vecfield(y):
+            return self.model(torch.cat([y, t[None]]))
+
+        if self.eps_fn is None:
+            div = torch.vmap(self.div_fn(vecfield))(x)
+        else:
+            div = torch.vmap(self.div_fn(vecfield))(x, self.eps_fn(x))
+        dx = self.model(torch.cat([x, t.repeat(x.shape[0])[:, None]], 1))
+        return torch.cat([dx, div[:, None]], dim=-1)
 
 class FlowMatchLitModule(LightningModule):
     """
@@ -76,21 +142,36 @@ class FlowMatchLitModule(LightningModule):
         ) # TODO is this the right place for this?
 
         # first define system dimensionality and a target energy/distribution
-        dim = 8
-        n_particles = 4
-        n_dimensions = dim // n_particles
+        # dim = 8
+        # n_particles = 4
+        # n_dimensions = dim // n_particles
 
-        # DW parameters
-        a=0.9
-        b=-4
-        c=0
-        offset=4
+        # # now set up a prior
+        # self.prior = MeanFreeNormalDistribution(dim, n_particles, two_event_dims=False)
 
-        self.target = MultiDoubleWellPotential(dim, n_particles, a, b, c, offset, two_event_dims=False)
+        # # DW parameters
+        # a=0.9
+        # b=-4
+        # c=0
+        # offset=4
 
-        # having a flow and a prior, we can now define a Boltzmann Generator
+        # self.target = MultiDoubleWellPotential(dim, n_particles, a, b, c, offset, two_event_dims=False)
 
-        self.bg = BoltzmannGenerator(self.prior, self.net, self.target)
+        # # Initialize divergence estimators
+        # brute_force_estimator = BruteForceEstimator()
+
+        # bb_dynamics = BlackBoxDynamics(
+        #     dynamics_function=self.net,
+        #     divergence_estimator=brute_force_estimator
+        # )
+
+        # self.flow = DiffEqFlow(
+        #     dynamics=bb_dynamics
+        # )
+
+        # # having a flow and a prior, we can now define a Boltzmann Generator
+
+        # self.bg = BoltzmannGenerator(self.prior, self.flow, self.target)
 
     def forward(self, x: torch.Tensor, t: float) -> torch.Tensor:
         """Perform a forward pass through the model `self.net`.
@@ -123,6 +204,7 @@ class FlowMatchLitModule(LightningModule):
 
         x1 = batch
         x0 = self.prior.sample((x1.shape[0],)).to(x1.device)
+        #x0 = self.prior.sample(x1.shape[0]).to(x1.device)[0]
         t = torch.rand(x1.shape[0], 1, device=x1.device) # should this be generated here or elsewhere?
 
         xt = (1.0 - (1.0 - 1e-5) * t) * x0 + t * x1
@@ -190,30 +272,44 @@ class FlowMatchLitModule(LightningModule):
             }
         return {"optimizer": optimizer}
 
-    @torch.no_grad()
-    def generate_samples(self, n_samples: int, batch_size: int) -> Tuple[torch.Tensor, torch.Tensor]:
+    def generate_samples(self, batch_size: int, n_timesteps: int = 100, device: str = "cpu") -> Tuple[torch.Tensor, torch.Tensor]:
         """Generate samples from the model.
 
-        :param n_samples: The number of samples to generate.
+        :param batch_size: The batch size to use for generating samples.
+        :param n_timesteps: The number of timesteps to use when generating samples.
+        :param device: The device to use for generating samples.
         :return: A tuple containing the generated samples and their log weights.
         """
-        n_batches = n_samples // batch_size
 
-        sample_batches = []
-        log_weights_batches = []
+        node = NeuralODE(self.net, solver="euler")
 
-        for _ in range(n_batches):    
-            samples, latent, dlogp = self.bg.sample(n_samples, with_latent=True, with_dlogp=True)
-            log_weights = self.bg.log_weights_given_latent(samples, latent, dlogp, normalize=False)
+        prior_samples = self.prior.sample((batch_size,)).to(device)
 
-            sample_batches.append(samples)
-            log_weights_batches.append(log_weights)
-        
-        samples = torch.cat(sample_batches, dim=0)
-        log_weights = torch.cat(log_weights_batches, dim=0)
+        with torch.no_grad():
+            traj = node.trajectory(
+                prior_samples,
+                t_span=torch.linspace(0, 1, n_timesteps),
+        )
 
-        return samples, log_weights
+        samples = traj[-1][:, :2]
+        # div = traj[-1][:, 2]
 
+        # samples, latent, dlogp = self.bg.sample(batch_size, with_latent=True, with_dlogp=True)
+        # log_weights = self.bg.log_weights_given_latent(samples, latent, dlogp, normalize=False)
+
+        return samples
+    
+    def predict_step(self, batch: torch.Tensor) -> torch.Tensor:
+        """Generate a batch of samples
+
+        :param batch: A batch of (dummy) data.
+        :return: A tensor of samples.
+        """
+
+        batch_size = batch.shape[0]
+        samples = self.generate_samples(batch_size, device=batch.device)
+
+        return samples
 
 if __name__ == "__main__":
     _ = FlowMatchLitModule(None, None, None, None)

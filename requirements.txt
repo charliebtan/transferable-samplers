@@ -38,6 +38,7 @@ tables
 tensorboard
 torchdiffeq
 torchsde
+torchdyn
 tqdm
 jupyterlab
 bgflow @ git+https://github.com/atong01/bgflow.git

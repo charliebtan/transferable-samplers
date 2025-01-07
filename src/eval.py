@@ -4,6 +4,8 @@ import hydra
 import rootutils
 from lightning import LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
+import numpy as np
+import torch
 from omegaconf import DictConfig
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
@@ -71,8 +73,11 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         log.info("Logging hyperparameters!")
         log_hyperparameters(object_dict)
 
-    log.info("Starting testing!")
-    trainer.test(model=model, datamodule=datamodule, ckpt_path=cfg.ckpt_path)
+    log.info("Starting generation!")
+    samples = trainer.predict(model=model, datamodule=datamodule, ckpt_path=cfg.ckpt_path)
+    samples = torch.cat(samples, dim=0)
+
+    np.save("samples.npy", samples.cpu().numpy())
 
     metric_dict = trainer.callback_metrics
 
