@@ -1,6 +1,8 @@
 default_language_version:
   python: python3
 
+exclude: ^old/  # Adjust the regex to match your directory
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.4.0
