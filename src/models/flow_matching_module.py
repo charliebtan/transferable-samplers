@@ -1,9 +1,10 @@
 from typing import Any, Dict, Tuple
 
+from bgflow import BoltzmannGenerator
+from bgmol import MultiDoubleWellPotential
 import torch
 from lightning import LightningModule
-from torchmetrics import MaxMetric, MeanMetric
-from torchmetrics.classification.accuracy import Accuracy
+from torchmetrics import MeanMetric
 
 
 class FlowMatchLitModule(LightningModule):
@@ -68,9 +69,28 @@ class FlowMatchLitModule(LightningModule):
         # metric objects for calculating and averaging accuracy across batches
         self.train_loss = MeanMetric()
 
+        ## TODO TODO I'm not sure this is the right place to have this
+
         self.prior = torch.distributions.MultivariateNormal(
             torch.zeros(8), torch.eye(8)
         ) # TODO is this the right place for this?
+
+        # first define system dimensionality and a target energy/distribution
+        dim = 8
+        n_particles = 4
+        n_dimensions = dim // n_particles
+
+        # DW parameters
+        a=0.9
+        b=-4
+        c=0
+        offset=4
+
+        self.target = MultiDoubleWellPotential(dim, n_particles, a, b, c, offset, two_event_dims=False)
+
+        # having a flow and a prior, we can now define a Boltzmann Generator
+
+        self.bg = BoltzmannGenerator(self.prior, self.net, self.target)
 
     def forward(self, x: torch.Tensor, t: float) -> torch.Tensor:
         """Perform a forward pass through the model `self.net`.
@@ -169,6 +189,30 @@ class FlowMatchLitModule(LightningModule):
                 },
             }
         return {"optimizer": optimizer}
+
+    @torch.no_grad()
+    def generate_samples(self, n_samples: int, batch_size: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Generate samples from the model.
+
+        :param n_samples: The number of samples to generate.
+        :return: A tuple containing the generated samples and their log weights.
+        """
+        n_batches = n_samples // batch_size
+
+        sample_batches = []
+        log_weights_batches = []
+
+        for _ in range(n_batches):    
+            samples, latent, dlogp = self.bg.sample(n_samples, with_latent=True, with_dlogp=True)
+            log_weights = self.bg.log_weights_given_latent(samples, latent, dlogp, normalize=False)
+
+            sample_batches.append(samples)
+            log_weights_batches.append(log_weights)
+        
+        samples = torch.cat(sample_batches, dim=0)
+        log_weights = torch.cat(log_weights_batches, dim=0)
+
+        return samples, log_weights
 
 
 if __name__ == "__main__":
