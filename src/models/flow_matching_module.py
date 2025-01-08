@@ -51,23 +51,15 @@ class FlowMatchLitModule(ProposalFlowLitModule):
 
         x1 = batch
         x0 = self.prior.sample((x1.shape[0],)).to(x1.device)
-        # x0 = self.prior.sample(x1.shape[0]).to(x1.device)[0]
         t = torch.rand(
             x1.shape[0], 1, device=x1.device
         )  # should this be generated here or elsewhere?
 
-        xt = (1.0 - (1.0 - 1e-5) * t) * x0 + t * x1
-        vt_ref = x1 - (1.0 - 1e-5) * x0
+        xt = (1.0 - t) * x0 + t * x1
+        vt_ref = x1 - x0
 
         vt_pred = self.forward(t, xt)
         loss = self.criterion(vt_pred, vt_ref)
-
-        # TODO the notebook had what looked like a diffusion target?
-        # mu_t = x0 * (1 - t) + x1 * t
-        # sigma_t = sigma
-        # noise = prior.sample(batchsize)
-        # x = mu_t + sigma_t * noise
-
         return loss
 
     def generate_samples(
@@ -83,7 +75,7 @@ class FlowMatchLitModule(ProposalFlowLitModule):
         """
 
         node = NeuralODE(
-            torchdyn_wrapper(self.net),
+            cnf_wrapper(self.net),
             atol=1e-3,
             rtol=1e-3,
             solver="dopri5",

@@ -47,7 +47,7 @@ class Attention(torch.nn.Module):
         B, T, C = x.size()
         # x = self.norm(x.float()).type(x.dtype)
         q, k, v = self.qkv(x).reshape(B, T, 3 * self.num_heads, -1).transpose(1, 2).chunk(3, dim=1)  # (b, h, t, d)
-
+        # pdb.set_trace()
         if self.sample:
             self.k_cache[which_cache].append(k)
             self.v_cache[which_cache].append(v)
@@ -67,6 +67,7 @@ class Attention(torch.nn.Module):
     def forward_base(
         self, x: torch.Tensor, mask: torch.Tensor | None = None, temp: float = 1.0, which_cache: str = 'cond'
     ) -> torch.Tensor:
+        pdb.set_trace()
         x = x.unsqueeze(1)
         B, T, C = x.size()
         # x = self.norm(x.float()).type(x.dtype)
@@ -196,8 +197,10 @@ class MetaBlock(torch.nn.Module):
         attn_temp: float = 1.0,
         which_cache: str = 'cond',
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        x_in = x[:, i : i + 1]  # get i-th patch but keep the sequence dimension
-        x = self.proj_in(x_in) + pos_embed[i : i + 1]
+        # x_in = x[:, i : i + 1]  # get i-th patch but keep the sequence dimension
+        x_in = x
+        # x = self.proj_in(x_in) + pos_embed[i : i + 1]
+        x = self.proj_in(x_in) + pos_embed
         if self.class_embed is not None:
             if y is not None:
                 x = x + self.class_embed[y]
@@ -233,25 +236,26 @@ class MetaBlock(torch.nn.Module):
     ) -> torch.Tensor:
         x = self.permutation(x)
         pos_embed = self.permutation(self.pos_embed, dim=0)
-        self.set_sample_mode(True)
+        # self.set_sample_mode(True)
         T = x.size(1)
-        for i in range(x.size(1) - 1):
-            za, zb = self.reverse_step(x, pos_embed, i, y, which_cache='cond')
-            if guidance > 0 and guide_what:
-                za_u, zb_u = self.reverse_step(x, pos_embed, i, None, attn_temp=attn_temp, which_cache='uncond')
-                if annealed_guidance:
-                    g = (i + 1) / (T - 1) * guidance
-                else:
-                    g = guidance
-                if 'a' in guide_what:
-                    za = za + g * (za - za_u)
-                if 'b' in guide_what:
-                    zb = zb + g * (zb - zb_u)
+        #for i in range(x.size(1) - 1):
+        za, zb = self.reverse_step(x, pos_embed, i=0)
+        if guidance > 0 and guide_what:
+            za_u, zb_u = self.reverse_step(x, pos_embed, i, None, attn_temp=attn_temp, which_cache='uncond')
+            if annealed_guidance:
+                g = (i + 1) / (T - 1) * guidance
+            else:
+                g = guidance
+            if 'a' in guide_what:
+                za = za + g * (za - za_u)
+            if 'b' in guide_what:
+                zb = zb + g * (zb - zb_u)
 
-            scale = za[:, 0].float().exp().type(za.dtype)  # get rid of the sequence dimension
-            x[:, i + 1] = x[:, i + 1] * scale + zb[:, 0]
+        scale = za[:, 0].float().exp().type(za.dtype)  # get rid of the sequence dimension
+        pdb.set_trace()
+        x = x * scale + zb[:, 0]
         self.set_sample_mode(False)
-        return self.permutation(x, inverse=True)
+        return self.permutation(x, inverse=True), za.mean(dim=[1])
 
 
 class Model(torch.nn.Module):
@@ -341,14 +345,16 @@ class Model(torch.nn.Module):
     ) -> torch.Tensor | list[torch.Tensor]:
         # seq = [self.unpatchify(x)]
         seq = [x]
-        x = x * self.var.sqrt()
+        # x = x * self.var.sqrt()
+        logdets = torch.zeros((), device=x.device)
         for block in reversed(self.blocks):
-            x = block.reverse(x, y, guidance, guide_what, attn_temp, annealed_guidance)
+            x, logdet = block.reverse(x, y, guidance, guide_what, attn_temp, annealed_guidance)
+            logdets = logdets + logdet
             # seq.append(self.unpatchify(x))
             seq.append(x)
         #x = self.unpatchify(x)
 
         if not return_sequence:
-            return x
+            return x, logdet
         else:
             return seq
