@@ -1,19 +1,47 @@
 from typing import Callable
 
 import matplotlib.pyplot as plt
+import numpy as np
 import torch
+from bgflow import MultiDoubleWellPotential
+from bgflow.utils import distance_vectors, distances_from_vectors, remove_mean
+
+# define system dimensionality and a target energy/distribution
+
+DIM = 8
+N_PARTICLES = 4
+N_DIMENSIONS = DIM // N_PARTICLES
+
+# DW parameters
+A = 0.9
+B = -4
+C = 0
+OFFSET = 4
+
+TARGET = MultiDoubleWellPotential(DIM, N_PARTICLES, A, B, C, OFFSET, two_event_dims=False)
+
+# define a MCMC sampler to sample from the target energy
+
+dw4_data = np.load("/Users/chatan/fast-tbg/data/dw4-dataidx.npy", allow_pickle=True)
+all_data = remove_mean(dw4_data[0], N_PARTICLES, N_DIMENSIONS)
+idx = dw4_data[1]
+DATA_HOLDOUT = all_data[idx[-500000:]]
+
+
+def distance_fn(x):
+    x = x.view(-1, N_PARTICLES, N_DIMENSIONS)
+    return distances_from_vectors(distance_vectors(x)).reshape(-1)
 
 
 def energy_histogram(
-    samples_data: torch.Tensor,
     samples_proposal: torch.Tensor,
     importance_weights: torch.Tensor,
-    energy_fn: Callable,
+    save_path: str = None,
 ) -> None:
     """I only made this for DW4 for now."""
 
-    energies_data = energy_fn(samples_data).detach().cpu().numpy()
-    energies_proposal = energy_fn(samples_proposal).detach().cpu().numpy()
+    energies_data = TARGET.energy(DATA_HOLDOUT).detach().cpu().numpy()
+    energies_proposal = TARGET.energy(samples_proposal).detach().cpu().numpy()
 
     min_energy = min(energies_data.min(), energies_proposal.min())
 
@@ -59,17 +87,22 @@ def energy_histogram(
     plt.yticks(fontsize=45)
     plt.legend(fontsize=25)
 
+    plt.savefig(save_path) if save_path else None
+
 
 def distance_histogram(
-    samples_data: torch.Tensor,
     samples_proposal: torch.Tensor,
     importance_weights: torch.Tensor,
-    distance_fn: Callable,
+    save_path: str = None,
 ) -> None:
     """I only made this for DW4 for now."""
 
-    distances_data = distance_fn(samples_data).detach().cpu().numpy()
+    distances_data = distance_fn(DATA_HOLDOUT).detach().cpu().numpy()
     distances_proposal = distance_fn(samples_proposal).detach().cpu().numpy()
+
+    importance_weights = torch.repeat_interleave(
+        importance_weights.flatten(), N_PARTICLES * (N_PARTICLES - 1)
+    )
 
     # TODO maybe useful?
     # def distance_energy(d):
@@ -119,7 +152,9 @@ def distance_histogram(
     )
     plt.xlim(0, 7)
     plt.legend(fontsize=25)
-    plt.xlabel("Dinstance", fontsize=45)
+    plt.xlabel("Distance", fontsize=45)
     plt.xticks(fontsize=45)
     plt.yticks(fontsize=45)
     plt.title("Distance distribution", fontsize=45)
+
+    plt.savefig(save_path) if save_path else None

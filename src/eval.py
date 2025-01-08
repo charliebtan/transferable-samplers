@@ -11,6 +11,8 @@ from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
+from src.utils.dw4_plots import TARGET, distance_histogram, energy_histogram
+
 torch.set_float32_matmul_precision("high")  # TODO can we use medium instead
 # ------------------------------------------------------------------------------------ #
 # the setup_root above is equivalent to:
@@ -91,7 +93,7 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     log_p_proposal = torch.cat(log_p_proposal, dim=0)
 
     outputs_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir + "/npy_outputs"
-    os.makedirs(outputs_dir, exist_ok=True)
+    os.makedirs(outputs_dir)
 
     np.save(outputs_dir + "/samples_proposal", samples_proposal.cpu().numpy())
     np.save(outputs_dir + "/samples_prior", samples_prior.cpu().numpy())
@@ -102,6 +104,27 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     )  # TODO properly log
 
     metric_dict = trainer.callback_metrics
+
+    # destandardize samples
+    samples_proposal = samples_proposal.view(-1, 4, 2)
+    samples_proposal *= torch.tensor([1.8230, 1.8103])
+    samples_proposal = samples_proposal.view(-1, 8)
+
+    # compute importance weights
+
+    logits = -TARGET.energy(samples_proposal).flatten() + log_p_proposal.flatten()
+    max_logits = torch.max(logits)
+    importance_weights = torch.nn.functional.softmax(logits - max_logits)
+
+    plots_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir + "/plots"
+    os.makedirs(plots_dir)
+
+    energy_histogram(
+        samples_proposal, importance_weights, save_path=plots_dir + "/energy_histogram.png"
+    )
+    distance_histogram(
+        samples_proposal, importance_weights, save_path=plots_dir + "/distance_histogram.png"
+    )
 
     return metric_dict, object_dict
 
