@@ -1,7 +1,7 @@
 default_language_version:
   python: python3
 
-exclude: ^old/ # Adjust the regex to match your directory
+exclude: (^old/|^notebooks/)
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
