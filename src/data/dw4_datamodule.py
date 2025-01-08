@@ -3,10 +3,20 @@ from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 import requests
-from bgflow.utils import remove_mean
+import torch
 from lightning import LightningDataModule
 from torch.utils.data import DataLoader, Dataset
-from torchvision.transforms import transforms
+
+# I've just made these constants, I think it's safer as they should be static
+# and it allows me to access them from other files (e.g to destandardize)
+
+DIM = 2
+NUM_PARTICLES = 4
+
+TRAIN_VAL_TEST_SPLIT = (100_000, 500_000, 500_000)
+
+# With centering the train split has per-dim stds of:
+DW4_STD = [1.8230, 1.8103]
 
 
 class DW4DataModule(LightningDataModule):
@@ -50,14 +60,11 @@ class DW4DataModule(LightningDataModule):
     def __init__(
         self,
         data_dir: str = "data/",
-        train_val_test_split: Tuple[int, int, int] = (100_000, 400_000, 500_000),
+        data_url: str = "https://osf.io/download/a28n7/?view_only=8b2bb152b36f4b6cb8524733623aa5c1",
+        filename="dw4-dataidx.npy",
         batch_size: int = 64,
         num_workers: int = 0,
         pin_memory: bool = False,
-        dim: int = 2,
-        num_particles: int = 4,
-        data_url: str = "https://osf.io/download/a28n7/?view_only=8b2bb152b36f4b6cb8524733623aa5c1",
-        filename="dw4-dataidx.npy",
     ) -> None:
         """Initialize a `DW4DataModule`.
 
@@ -72,11 +79,6 @@ class DW4DataModule(LightningDataModule):
         # this line allows to access init params with 'self.hparams' attribute
         # also ensures init params will be stored in ckpt
         self.save_hyperparameters(logger=False)
-
-        # data transformations
-        self.transforms = transforms.Compose(
-            [transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))]
-        )
 
         self.data_train: Optional[Dataset] = None
         self.data_val: Optional[Dataset] = None
@@ -123,12 +125,25 @@ class DW4DataModule(LightningDataModule):
                 )
             self.batch_size_per_device = self.hparams.batch_size // self.trainer.world_size
 
+        # TODO bit odd to do at every setup call? probably not too slow...
+
+        # load the data + tensorize
         dw4_data = np.load(f"{self.hparams.data_dir}{self.hparams.filename}", allow_pickle=True)
-        all_data = remove_mean(dw4_data[0], self.hparams.num_particles, self.hparams.dim)
+        all_data = torch.Tensor(dw4_data[0])
+
+        # split indexes
         idx = dw4_data[1]
-        self.data_train = all_data[idx[:100000]]
-        self.data_val = all_data[idx[100000:500000]]
-        self.data_test = all_data[idx[-500000:]]
+
+        # standardize the data
+        all_data = all_data.reshape(-1, NUM_PARTICLES, DIM)
+        all_data = all_data - all_data.mean(axis=1, keepdims=True)
+        all_data = all_data / torch.tensor([DW4_STD])
+        all_data = all_data.reshape(-1, NUM_PARTICLES * DIM)
+
+        # split the data
+        self.data_train = all_data[idx[: TRAIN_VAL_TEST_SPLIT[0]]]
+        self.data_val = all_data[idx[TRAIN_VAL_TEST_SPLIT[0] : TRAIN_VAL_TEST_SPLIT[1]]]
+        self.data_test = all_data[idx[TRAIN_VAL_TEST_SPLIT[2] :]]
 
     def train_dataloader(self) -> DataLoader[Any]:
         """Create and return the train dataloader.
