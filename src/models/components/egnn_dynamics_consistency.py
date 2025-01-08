@@ -366,12 +366,12 @@ class EGNNDynamicsConsistency(nn.Module):
         # Count function calls
         self.counter = 0
 
-    def forward(self, t, xs, d=None, *args, **kwargs):
-        n_batch = xs.shape[0]
-        edges = self._cast_edges2batch(self.edges, n_batch, self._n_particles, device=xs.device)
+    def forward(self, x, t, d=None, *args, **kwargs):
+        n_batch = x.shape[0]
+        edges = self._cast_edges2batch(self.edges, n_batch, self._n_particles, device=x.device)
         edges = [edges[0], edges[1]]
-        x = xs.reshape(n_batch * self._n_particles, self._n_dimension).clone()
-        h = torch.ones(n_batch, self._n_particles, 2, device=xs.device)
+        x = x.reshape(n_batch * self._n_particles, self._n_dimension).clone()
+        h = torch.ones(n_batch, self._n_particles, 2, device=x.device)
         # t = torch.tensor(t).to(xs)
         if t.shape != (n_batch, 1):  # TODO - dangerous!
             if t.shape == (n_batch,):

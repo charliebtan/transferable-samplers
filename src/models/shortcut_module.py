@@ -43,6 +43,7 @@ class ShortcutLitModule(ProposalFlowLitModule):
         return self.net(t, x, d=d)
 
     def get_targets(self, samples_data, force_t=-1, force_dt=-1):
+        # TODO could refactor but if it ain't broken...
         device = samples_data.device
 
         samples_prior = self.prior.sample((samples_data.shape[0],)).to(device)
@@ -197,7 +198,7 @@ class ShortcutLitModule(ProposalFlowLitModule):
         return loss
 
     def generate_samples(
-        self, batch_size: int, n_timesteps: int = 100, device: str = "cpu"
+        self, batch_size: int, n_timesteps: int = 128, d: int = 7, device: str = "cpu"
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Generate samples from the model.
 
@@ -207,14 +208,9 @@ class ShortcutLitModule(ProposalFlowLitModule):
         :return: A tuple containing the generated samples, the prior samples, and the log
             probability.
         """
+        assert d == math.log2(n_timesteps)
 
-        node = NeuralODE(
-            cnf_wrapper(self.net),
-            atol=1e-3,
-            rtol=1e-3,
-            solver="dopri5",
-            sensitivity="adjoint",
-        )
+        node = NeuralODE(torchdyn_wrapper(self.net, d=7), solver="euler")
 
         prior_samples = self.prior.sample((batch_size,)).to(device)
         prior_log_p = self.prior.log_prob(prior_samples)
