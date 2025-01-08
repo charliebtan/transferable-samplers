@@ -36,7 +36,7 @@ class FlowMatchLitModule(ProposalFlowLitModule):
         :param t:
         :return: dx
         """
-        return self.net(x, t)
+        return self.net(t, x)
 
     def model_step(
         self,

@@ -35,9 +35,9 @@ class torchdyn_wrapper(torch.nn.Module):
             y = y.view(1, -1)  # batch dims required by EGNN architecture
             if self.d is not None:
                 d_vec = torch.ones(y.shape[0]) * self.d
-                return self.model(y, t, d=d_vec)
+                return self.model(t, y, d=d_vec)
             else:
-                return self.model(y, t, d=self.d)
+                return self.model(t, y, d=self.d)
 
         _, vjpfunc = torch.func.vjp(vecfield, x)
         return (vjpfunc(eps)[0] * eps).sum()
@@ -47,9 +47,9 @@ class torchdyn_wrapper(torch.nn.Module):
             y = y.view(1, -1)  # batch dims required by EGNN architecture
             if self.d is not None:
                 d_vec = torch.ones(y.shape[0]) * self.d
-                return self.model(y, t, d=d_vec).flatten()
+                return self.model(t, y, d=d_vec).flatten()
             else:
-                return self.model(y, t, d=self.d).flatten()
+                return self.model(t, y, d=self.d).flatten()
 
         J = torch.func.jacrev(vecfield)
 
@@ -60,9 +60,9 @@ class torchdyn_wrapper(torch.nn.Module):
 
         if self.d is not None:
             d_vec = torch.ones(x.shape[0]) * self.d
-            dx = self.model(x, t, d=d_vec)
+            dx = self.model(t, x, d=d_vec)
         else:
-            dx = self.model(x, t, d=self.d)
+            dx = self.model(t, x, d=self.d)
         dlog_p = -torch.vmap(self.div_fn, in_dims=(None, 0), randomness="different")(
             torch.tensor([t]), x
         )

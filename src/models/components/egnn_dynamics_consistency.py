@@ -366,7 +366,7 @@ class EGNNDynamicsConsistency(nn.Module):
         # Count function calls
         self.counter = 0
 
-    def forward(self, x, t, d=None, *args, **kwargs):
+    def forward(self, t, x, d=None, *args, **kwargs):
         n_batch = x.shape[0]
         edges = self._cast_edges2batch(self.edges, n_batch, self._n_particles, device=x.device)
         edges = [edges[0], edges[1]]

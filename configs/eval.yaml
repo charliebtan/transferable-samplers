@@ -11,6 +11,9 @@ defaults:
   - extras: default
   - hydra: default
 
+trainer:
+  inference_mode: False # very important! needed for gradients in sampling
+
 data:
   n_samples: 4196 # how many samples to generate!
   batch_size: 256 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
