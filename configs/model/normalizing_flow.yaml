@@ -1,0 +1,21 @@
+_target_: src.models.normalizing_flow_module.NormalizingFlowLitModule
+
+optimizer:
+  _target_: torch.optim.AdamW
+  _partial_: true
+  lr: 0.01
+  weight_decay: 0.1
+
+scheduler:
+  _target_: torch.optim.lr_scheduler.ConstantLR
+  _partial_: true
+  factor: 1.0
+
+net:
+  _target_: zuko.flows.NSF
+  features: 8 # TODO dynamic?
+  transforms: 8
+  hidden_features: [128, 128, 128]
+
+# compile model for faster training with pytorch 2.0
+compile: false
