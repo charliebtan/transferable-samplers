@@ -366,18 +366,23 @@ class EGNNDynamicsConsistency(nn.Module):
         # Count function calls
         self.counter = 0
 
-    def forward(self, t, xs, d=None, *args, **kwargs):
-        n_batch = xs.shape[0]
-        edges = self._cast_edges2batch(self.edges, n_batch, self._n_particles, device=xs.device)
+    def forward(self, x, t, d=None, *args, **kwargs):
+        n_batch = x.shape[0]
+        edges = self._cast_edges2batch(self.edges, n_batch, self._n_particles, device=x.device)
         edges = [edges[0], edges[1]]
-        x = xs.reshape(n_batch * self._n_particles, self._n_dimension).clone()
-        h = torch.ones(n_batch, self._n_particles, 2, device=xs.device)
+        x = x.reshape(n_batch * self._n_particles, self._n_dimension).clone()
+        h = torch.ones(n_batch, self._n_particles, 2, device=x.device)
         # t = torch.tensor(t).to(xs)
-        if t.shape != (n_batch, 1):
-            t = t.repeat(n_batch)
+        if t.shape != (n_batch, 1):  # TODO - dangerous!
+            if t.shape == (n_batch,):
+                t = t.unsqueeze(1)
+            else:
+                t = t.repeat(n_batch)
         t = t.reshape(n_batch, 1)
         if d is None:
             d = torch.zeros_like(t)
+        else:
+            d = d.reshape(n_batch, 1)  # TODO - dangerous!
 
         td = torch.cat([t, d], dim=-1)
         if self.condition_time:

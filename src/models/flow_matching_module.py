@@ -75,7 +75,7 @@ class FlowMatchLitModule(ProposalFlowLitModule):
         """
 
         node = NeuralODE(
-            cnf_wrapper(self.net),
+            torchdyn_wrapper(self.net),
             atol=1e-3,
             rtol=1e-3,
             solver="dopri5",
