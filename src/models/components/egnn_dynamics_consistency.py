@@ -373,11 +373,16 @@ class EGNNDynamicsConsistency(nn.Module):
         x = xs.reshape(n_batch * self._n_particles, self._n_dimension).clone()
         h = torch.ones(n_batch, self._n_particles, 2, device=xs.device)
         # t = torch.tensor(t).to(xs)
-        if t.shape != (n_batch, 1):
-            t = t.repeat(n_batch)
+        if t.shape != (n_batch, 1):  # TODO - dangerous!
+            if t.shape == (n_batch,):
+                t = t.unsqueeze(1)
+            else:
+                t = t.repeat(n_batch)
         t = t.reshape(n_batch, 1)
         if d is None:
             d = torch.zeros_like(t)
+        else:
+            d = d.reshape(n_batch, 1)  # TODO - dangerous!
 
         td = torch.cat([t, d], dim=-1)
         if self.condition_time:

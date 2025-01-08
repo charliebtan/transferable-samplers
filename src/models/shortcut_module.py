@@ -1,10 +1,12 @@
+import math
 from typing import Any, Dict, Tuple
 
 import torch
 from torchdyn.core import NeuralODE
 
-from src.models.components.wrappers import cnf_wrapper, torchdyn_wrapper
+from src.models.components.wrappers import torchdyn_wrapper
 from src.models.proposal_flow_module import ProposalFlowLitModule
+from src.utils.tbg_utils import cnf_wrapper
 
 
 class ShortcutLitModule(ProposalFlowLitModule):
@@ -20,6 +22,8 @@ class ShortcutLitModule(ProposalFlowLitModule):
         optimizer: torch.optim.Optimizer,
         scheduler: torch.optim.lr_scheduler,
         compile: bool,
+        M: int = 128,
+        bootstrap_every: int = 8,
     ) -> None:
         """Initialize a `ProposalFlowLitModule`.
 
@@ -29,16 +33,16 @@ class ShortcutLitModule(ProposalFlowLitModule):
         """
         super().__init__(net, optimizer, scheduler, compile)
 
-    def forward(self, t: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, t: torch.Tensor, x: torch.Tensor, d: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass through the model `self.net`.
 
         :param x:
         :param t:
         :return: dx
         """
-        return self.net(t, x)
+        return self.net(t, x, d=d)
 
-    def get_targets(self, samples_data, force_t=None, force_dt=None):
+    def get_targets(self, samples_data, force_t=-1, force_dt=-1):
         device = samples_data.device
 
         samples_prior = self.prior.sample((samples_data.shape[0],)).to(device)
@@ -48,7 +52,7 @@ class ShortcutLitModule(ProposalFlowLitModule):
         #  1) =========== Sample dt. ============
         # -----------------------------------------------------------------
         bootstrap_batchsize = batch_size // self.hparams.bootstrap_every
-        log2_sections = int(torch.log2(self.hparams.M))
+        log2_sections = int(math.log2(self.hparams.M))
 
         dt_range = torch.arange(
             log2_sections, device=device, dtype=torch.int32
@@ -106,19 +110,19 @@ class ShortcutLitModule(ProposalFlowLitModule):
         #  3) =========== Generate Bootstrap Targets ============
         # -----------------------------------------------------------------
 
-        x_1 = samples_data[: self.hparams.bootstrap_batchsize]
-        x_0 = samples_prior[: self.hparams.bootstrap_batchsize]
+        x_1 = samples_data[:bootstrap_batchsize]
+        x_0 = samples_prior[:bootstrap_batchsize]
         x_t = (1.0 - (1.0 - 1e-5) * t_full) * x_0 + t_full * x_1
 
         with torch.no_grad():
-            v_b1 = self.forward(torch.cat([x_t, t[:, None], dt_base_bootstrap[:, None]], dim=-1))
+            v_b1 = self.forward(t[:, None], x_t, dt_base_bootstrap[:, None])
 
         t2 = t + dt_bootstrap
         x_t2 = x_t + dt_bootstrap.view(-1, 1) * v_b1
         x_t2 = torch.clamp(x_t2, -4.0, 4.0)
 
         with torch.no_grad():
-            v_b2 = self.forward(torch.cat([x_t2, t2[:, None], dt_base_bootstrap[:, None]], dim=-1))
+            v_b2 = self.forward(t2[:, None], x_t2, dt_base_bootstrap[:, None])
 
         v_target = 0.5 * (v_b1 + v_b2)
         v_target = torch.clamp(v_target, -4.0, 4.0)
@@ -150,7 +154,7 @@ class ShortcutLitModule(ProposalFlowLitModule):
         x_t_flow = (1.0 - (1.0 - 1e-5) * t_full) * x_0 + t_full * x_1
         v_t_flow = x_1 - (1.0 - 1e-5) * x_0
 
-        dt_flow = int(torch.log2(self.hparams.M))
+        dt_flow = int(math.log2(self.hparams.M))
         dt_base_flow = (
             torch.ones(samples_data.shape[0], device=device, dtype=torch.int32) * dt_flow
         )
@@ -186,8 +190,8 @@ class ShortcutLitModule(ProposalFlowLitModule):
         :return: - A tensor of losses.
         """
 
-        xt, vt_ref, t, dt = self.get_targets(batch)
-        vt_pred = self.forward(t, xt, dt)
+        xt, vt_ref, t, d = self.get_targets(batch)
+        vt_pred = self.forward(t, xt, d)
         loss = self.criterion(vt_pred, vt_ref)
 
         return loss
