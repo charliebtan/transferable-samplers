@@ -112,7 +112,7 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
     # compute importance weights
 
-    logits = -TARGET.energy(samples_proposal).flatten() + log_p_proposal.flatten()
+    logits = -TARGET.energy(samples_proposal).flatten() - log_p_proposal.flatten()
     max_logits = torch.max(logits)
     importance_weights = torch.nn.functional.softmax(logits - max_logits)
 
