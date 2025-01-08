@@ -99,10 +99,6 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     np.save(outputs_dir + "/samples_prior", samples_prior.cpu().numpy())
     np.save(outputs_dir + "/log_p_proposal", log_p_proposal.cpu().numpy())
 
-    log.info(
-        f"Sampling efficiency: {sampling_efficiency(log_p_proposal).item()}"
-    )  # TODO properly log
-
     metric_dict = trainer.callback_metrics
 
     # destandardize samples
@@ -115,6 +111,8 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     logits = -TARGET.energy(samples_proposal).flatten() - log_p_proposal.flatten()
     max_logits = torch.max(logits)
     importance_weights = torch.nn.functional.softmax(logits - max_logits)
+
+    log.info(f"Sampling efficiency: {sampling_efficiency(logits).item()}")  # TODO properly log
 
     plots_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir + "/plots"
     os.makedirs(plots_dir)

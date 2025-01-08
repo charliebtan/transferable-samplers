@@ -33,8 +33,11 @@ class torchdyn_wrapper(torch.nn.Module):
 
         def vecfield(y):
             y = y.view(1, -1)  # batch dims required by EGNN architecture
-            d_vec = torch.ones(y.shape[0]) * self.d
-            return self.model(y, t, d=d_vec)
+            if self.d is not None:
+                d_vec = torch.ones(y.shape[0]) * self.d
+                return self.model(y, t, d=d_vec)
+            else:
+                return self.model(y, t, d=self.d)
 
         _, vjpfunc = torch.func.vjp(vecfield, x)
         return (vjpfunc(eps)[0] * eps).sum()
@@ -42,8 +45,11 @@ class torchdyn_wrapper(torch.nn.Module):
     def div_fn_exact(self, t, x):
         def vecfield(y):
             y = y.view(1, -1)  # batch dims required by EGNN architecture
-            d_vec = torch.ones(y.shape[0]) * self.d
-            return self.model(y, t, d=d_vec).flatten()
+            if self.d is not None:
+                d_vec = torch.ones(y.shape[0]) * self.d
+                return self.model(y, t, d=d_vec).flatten()
+            else:
+                return self.model(y, t, d=self.d).flatten()
 
         J = torch.func.jacrev(vecfield)
 
@@ -52,10 +58,13 @@ class torchdyn_wrapper(torch.nn.Module):
     def forward(self, t, x, *args, **kwargs):
         x = x[..., :-1]  # remove the divergence estimate
 
-        d_vec = torch.ones(x.shape[0]) * self.d
-        dx = self.model(x, t, d=d_vec)
-        ddiv = -torch.vmap(self.div_fn, in_dims=(None, 0), randomness="different")(
+        if self.d is not None:
+            d_vec = torch.ones(x.shape[0]) * self.d
+            dx = self.model(x, t, d=d_vec)
+        else:
+            dx = self.model(x, t, d=self.d)
+        dlog_p = -torch.vmap(self.div_fn, in_dims=(None, 0), randomness="different")(
             torch.tensor([t]), x
         )
 
-        return torch.cat([dx, ddiv[:, None]], dim=-1)
+        return torch.cat([dx, dlog_p[:, None]], dim=-1)

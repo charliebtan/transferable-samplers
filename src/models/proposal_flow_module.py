@@ -1,6 +1,7 @@
 from typing import Any, Dict, Tuple
 
 import torch
+from bgflow import MeanFreeNormalDistribution
 from lightning import LightningModule
 from torchmetrics import MeanMetric
 
@@ -41,9 +42,11 @@ class ProposalFlowLitModule(LightningModule):
 
         # TODO TODO I'm not sure this is the right place to have this
 
-        self.prior = torch.distributions.MultivariateNormal(
-            torch.zeros(8), torch.eye(8)
-        )  # TODO is this the right place for this?
+        self.prior = MeanFreeNormalDistribution(8, 4, two_event_dims=False)
+
+        # torch.distributions.MultivariateNormal(
+        #     torch.zeros(8), torch.eye(8)
+        # )  # TODO is this the right place for this? # TODO MeanFreeNormal
 
     def on_train_start(self) -> None:
         """Lightning hook that is called when training begins."""

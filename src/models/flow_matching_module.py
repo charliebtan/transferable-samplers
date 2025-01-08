@@ -36,7 +36,7 @@ class FlowMatchLitModule(ProposalFlowLitModule):
         :param t:
         :return: dx
         """
-        return self.net(t, x)
+        return self.net(x, t)
 
     def model_step(
         self,
@@ -50,7 +50,7 @@ class FlowMatchLitModule(ProposalFlowLitModule):
         """
 
         x1 = batch
-        x0 = self.prior.sample((x1.shape[0],)).to(x1.device)
+        x0 = self.prior.sample(x1.shape[0]).to(x1.device)
         t = torch.rand(
             x1.shape[0], 1, device=x1.device
         )  # should this be generated here or elsewhere?
@@ -76,23 +76,27 @@ class FlowMatchLitModule(ProposalFlowLitModule):
 
         node = NeuralODE(
             torchdyn_wrapper(self.net),
-            atol=1e-3,
-            rtol=1e-3,
+            atol=1e-4,
+            rtol=1e-4,
             solver="dopri5",
             sensitivity="adjoint",
         )
 
-        prior_samples = self.prior.sample((batch_size,)).to(device)
-        prior_log_p = self.prior.log_prob(prior_samples)
+        prior_samples = self.prior.sample(batch_size).to(device)
+        prior_log_p = -self.prior.energy(prior_samples)
+
+        dlog_p_init = torch.zeros_like(prior_log_p)
 
         with torch.no_grad():
             traj = node.trajectory(
-                torch.cat([prior_samples, prior_log_p[:, None]], dim=-1),
-                t_span=torch.linspace(0, 1, n_timesteps),
+                torch.cat([prior_samples, dlog_p_init], dim=-1),
+                t_span=torch.linspace(0, 1, 2),
             )
 
-        log_p = traj[-1][..., -1]
-        samples = traj[-1][..., :-1].reshape(batch_size, 4, -1)  # TODO hardcode
+        dlog_p = traj[-1][..., -1]
+        samples = traj[-1][..., :-1]
+
+        log_p = prior_log_p.flatten() + dlog_p.flatten()
 
         return samples, log_p, prior_samples
 

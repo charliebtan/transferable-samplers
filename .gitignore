@@ -158,3 +158,5 @@ configs/local/default.yaml
 *.out
 *.sw?
 *.zip
+
+*.png
