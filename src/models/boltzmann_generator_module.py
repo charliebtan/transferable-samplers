@@ -167,7 +167,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         return x_grad, t_grad
 
     @torch.no_grad()
-    def jarzyinski_process(self, samples_proposal, batch_size):
+    def jarzyinski_process(self, samples_proposal, batch_size=256):
         # TODO I think I should test with a simple energy function and make sure I am getting the correct energies etc
 
         X = samples_proposal
@@ -184,19 +184,35 @@ class BoltzmannGeneratorLitModule(LightningModule):
         ESS_list = []
 
         for j, t in tqdm(enumerate(timesteps[:-1])):
-            # get the energy gradients
-            energy_grad_x, energy_grad_t = self.linear_energy_interpolation_gradients(X, t)
+            ##
+            for batch_start in range(0, X.shape[0], batch_size):
+                batch_end = min(batch_start + batch_size, X.shape[0])
+                X_batch = X[batch_start:batch_end]
+                A_batch = A[batch_start:batch_end]
 
-            # compute the updates
-            dX_t = -eps * energy_grad_x * dt + math.sqrt(2 * eps * dt) * torch.randn_like(X)
-            dA_t = -energy_grad_t * dt
+                # get the energy gradients
+                energy_grad_x, energy_grad_t = self.linear_energy_interpolation_gradients(
+                    X_batch, t
+                )
 
-            assert dX_t.shape == X.shape, "dX_t should have the same shape as X"
-            assert dA_t.shape == A.shape, "dA_t should have the same shape as A"
+                # compute the updates
+                dX_t = -eps * energy_grad_x * dt + math.sqrt(2 * eps * dt) * torch.randn_like(
+                    X_batch
+                )
+                dA_t = -energy_grad_t * dt
 
-            # apply the updates
-            X = X + dX_t
-            A = A + dA_t
+                assert dX_t.shape == X_batch.shape, "dX_t should have the same shape as X_batch"
+                assert dA_t.shape == A_batch.shape, "dA_t should have the same shape as A_batch"
+
+                # apply the updates
+                X_batch = X_batch + dX_t
+                A_batch = A_batch + dA_t
+
+                # update the main tensors
+                X[batch_start:batch_end] = X_batch
+                A[batch_start:batch_end] = A_batch
+
+            ##
 
             A_list.append(A)
             ESS = kish_effective_sample_size(torch.softmax(A, dim=-1)).item() / len(A)
