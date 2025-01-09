@@ -124,6 +124,11 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         samples_proposal, importance_weights, save_path=plots_dir + "/distance_histogram.png"
     )
 
+    energy_histogram(samples_proposal, importance_weights, save_path="latest_energy_histogram.png")
+    distance_histogram(
+        samples_proposal, importance_weights, save_path="latest_distance_histogram.png"
+    )
+
     return metric_dict, object_dict
 
 
