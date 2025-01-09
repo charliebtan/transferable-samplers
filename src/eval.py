@@ -129,9 +129,7 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         samples_proposal, importance_weights, save_path="latest_distance_histogram.png"
     )
 
-    samples_jarzynski, jarzynski_weights = model.jarzyinski_process(
-        samples_proposal, log_p_proposal
-    )
+    samples_jarzynski, jarzynski_weights = model.jarzyinski_process(samples_proposal)
 
     log.info(
         f"Sampling efficiency: {sampling_efficiency(np.log(jarzynski_weights)).item()}"

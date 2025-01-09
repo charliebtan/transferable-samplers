@@ -167,7 +167,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         return x_grad, t_grad
 
     @torch.no_grad()
-    def jarzyinski_process(self, samples_proposal, log_p_proposal):
+    def jarzyinski_process(self, samples_proposal, batch_size):
         # TODO I think I should test with a simple energy function and make sure I am getting the correct energies etc
 
         X = samples_proposal

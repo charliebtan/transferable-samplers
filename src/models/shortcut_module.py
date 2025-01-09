@@ -4,11 +4,11 @@ from typing import Any, Dict, Tuple
 import torch
 from torchdyn.core import NeuralODE
 
+from src.models.boltzmann_generator_module import BoltzmannGeneratorLitModule
 from src.models.components.wrappers import torchdyn_wrapper
-from src.models.proposal_flow_module import ProposalFlowLitModule
 
 
-class ShortcutLitModule(ProposalFlowLitModule):
+class ShortcutLitModule(BoltzmannGeneratorLitModule):
     """
 
     TODO - Add a description.
@@ -197,6 +197,28 @@ class ShortcutLitModule(ProposalFlowLitModule):
 
         return loss
 
+    def flow(self, x: torch.Tensor, reverse=False) -> torch.Tensor:
+        n_timesteps = 2**self.hparams.sampling_d
+
+        dlog_p_init = torch.zeros((x.shape[0], 1), device=x.device)
+        t_span = (
+            torch.linspace(1, 0, n_timesteps + 1)
+            if reverse
+            else torch.linspace(0, 1, n_timesteps + 1)
+        )
+
+        node = NeuralODE(torchdyn_wrapper(self.net, d=self.hparams.sampling_d), solver="euler")
+
+        traj = node.trajectory(
+            torch.cat([x, dlog_p_init], dim=-1),
+            t_span=t_span,
+        )
+
+        dlog_p = traj[-1][..., -1]
+        x = traj[-1][..., :-1]
+
+        return x, dlog_p
+
     def generate_samples(
         self, batch_size: int, device: str = "cpu"
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -209,23 +231,11 @@ class ShortcutLitModule(ProposalFlowLitModule):
             probability.
         """
 
-        n_timesteps = 2**self.hparams.sampling_d
-
-        node = NeuralODE(torchdyn_wrapper(self.net, d=self.hparams.sampling_d), solver="euler")
-
         prior_samples = self.prior.sample(batch_size).to(device)
         prior_log_p = -self.prior.energy(prior_samples)
 
-        dlog_p_init = torch.zeros_like(prior_log_p)
-
         with torch.no_grad():
-            traj = node.trajectory(
-                torch.cat([prior_samples, dlog_p_init], dim=-1),
-                t_span=torch.linspace(0, 1, n_timesteps),
-            )
-
-        dlog_p = traj[-1][..., -1]
-        samples = traj[-1][..., :-1]
+            samples, dlog_p = self.flow(prior_samples, reverse=False)
 
         log_p = prior_log_p.flatten() + dlog_p.flatten()
 
