@@ -323,6 +323,10 @@ class Model(torch.nn.Module):
     def get_loss(self, z: torch.Tensor, logdets: torch.Tensor):
         return 0.5 * z.pow(2).mean() - logdets.mean()
 
+    def get_loss_mean_free(self, prior, z: torch.Tensor, logdets: torch.Tensor):
+        log_prob = prior.energy(z).squeeze() - logdets
+        return log_prob.mean()
+
     def reverse(
         self,
         x: torch.Tensor,
