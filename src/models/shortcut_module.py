@@ -6,7 +6,6 @@ from torchdyn.core import NeuralODE
 
 from src.models.components.wrappers import torchdyn_wrapper
 from src.models.proposal_flow_module import ProposalFlowLitModule
-from src.utils.tbg_utils import cnf_wrapper
 
 
 class ShortcutLitModule(ProposalFlowLitModule):
@@ -24,6 +23,7 @@ class ShortcutLitModule(ProposalFlowLitModule):
         compile: bool,
         M: int = 128,
         bootstrap_every: int = 8,
+        sampling_d: int = None,
     ) -> None:
         """Initialize a `ProposalFlowLitModule`.
 
@@ -46,7 +46,7 @@ class ShortcutLitModule(ProposalFlowLitModule):
         # TODO could refactor but if it ain't broken...
         device = samples_data.device
 
-        samples_prior = self.prior.sample((samples_data.shape[0],)).to(device)
+        samples_prior = self.prior.sample(samples_data.shape[0]).to(device)
         batch_size = samples_data.shape[0]
 
         # -----------------------------------------------------------------
@@ -198,7 +198,7 @@ class ShortcutLitModule(ProposalFlowLitModule):
         return loss
 
     def generate_samples(
-        self, batch_size: int, n_timesteps: int = 128, d: int = 7, device: str = "cpu"
+        self, batch_size: int, device: str = "cpu"
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Generate samples from the model.
 
@@ -208,21 +208,26 @@ class ShortcutLitModule(ProposalFlowLitModule):
         :return: A tuple containing the generated samples, the prior samples, and the log
             probability.
         """
-        assert d == math.log2(n_timesteps)
 
-        node = NeuralODE(torchdyn_wrapper(self.net, d=7), solver="euler")
+        n_timesteps = 2**self.hparams.sampling_d
 
-        prior_samples = self.prior.sample((batch_size,)).to(device)
-        prior_log_p = self.prior.log_prob(prior_samples)
+        node = NeuralODE(torchdyn_wrapper(self.net, d=self.hparams.sampling_d), solver="euler")
+
+        prior_samples = self.prior.sample(batch_size).to(device)
+        prior_log_p = -self.prior.energy(prior_samples)
+
+        dlog_p_init = torch.zeros_like(prior_log_p)
 
         with torch.no_grad():
             traj = node.trajectory(
-                torch.cat([prior_samples, prior_log_p[:, None]], dim=-1),
+                torch.cat([prior_samples, dlog_p_init], dim=-1),
                 t_span=torch.linspace(0, 1, n_timesteps),
             )
 
-        log_p = traj[-1][..., -1]
-        samples = traj[-1][..., :-1].reshape(batch_size, 4, -1)  # TODO hardcode
+        dlog_p = traj[-1][..., -1]
+        samples = traj[-1][..., :-1]
+
+        log_p = prior_log_p.flatten() + dlog_p.flatten()
 
         return samples, log_p, prior_samples
 
