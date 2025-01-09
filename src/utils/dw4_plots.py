@@ -36,6 +36,8 @@ def distance_fn(x):
 def energy_histogram(
     samples_proposal: torch.Tensor,
     importance_weights: torch.Tensor,
+    samples_jarzynski: torch.Tensor = None,
+    jarzynski_weights: torch.Tensor = None,
     save_path: str = None,
 ) -> None:
     """I only made this for DW4 for now."""
@@ -47,17 +49,6 @@ def energy_histogram(
 
     plt.figure(figsize=(13, 8))
 
-    plt.hist(
-        energies_proposal,
-        bins=100,
-        density=True,
-        range=(min_energy, 0),
-        alpha=0.4,
-        histtype="step",
-        linewidth=4,
-        color="r",
-        label="Proposal",
-    )
     plt.hist(
         energies_data,
         bins=100,
@@ -77,10 +68,47 @@ def energy_histogram(
         alpha=0.4,
         histtype="step",
         linewidth=4,
+        color="r",
+        label="Proposal",
+    )
+    plt.hist(
+        energies_proposal,
+        bins=100,
+        density=True,
+        range=(min_energy, 0),
+        alpha=0.4,
+        histtype="step",
+        linewidth=4,
         color="b",
         label="Proposal (reweighted)",
         weights=importance_weights,
     )
+
+    if samples_jarzynski is not None:
+        energies_jarzynski = TARGET.energy(samples_jarzynski).detach().cpu().numpy()
+        plt.hist(
+            energies_jarzynski,
+            bins=100,
+            density=True,
+            range=(min_energy, 0),
+            alpha=0.4,
+            histtype="step",
+            linewidth=4,
+            color="r",
+            label="Jarzynski",
+        )
+        # plt.hist(
+        #     energies_jarzynski,
+        #     bins=100,
+        #     density=True,
+        #     range=(min_energy, 0),
+        #     alpha=0.4,
+        #     histtype="step",
+        #     linewidth=4,
+        #     color="b",
+        #     label="Jarzynski (reweighted)",
+        #     weights=jarzynski_weights,
+        # )
 
     plt.xlabel("u(x)", fontsize=45)
     plt.xticks(fontsize=45)
@@ -93,6 +121,8 @@ def energy_histogram(
 def distance_histogram(
     samples_proposal: torch.Tensor,
     importance_weights: torch.Tensor,
+    samples_jarzynski: torch.Tensor = None,
+    jarzynski_weights: torch.Tensor = None,
     save_path: str = None,
 ) -> None:
     """I only made this for DW4 for now."""
@@ -150,6 +180,34 @@ def distance_histogram(
         weights=importance_weights,
         range=(0, 8),
     )
+    if samples_jarzynski is not None:
+        distances_jarzynski = distance_fn(samples_jarzynski).detach().cpu().numpy()
+
+        jarzynski_weights = torch.repeat_interleave(
+            jarzynski_weights.flatten(), N_PARTICLES * (N_PARTICLES - 1)
+        )
+        plt.hist(
+            distances_jarzynski,
+            bins=100,
+            label="Jarzynski",
+            alpha=0.7,
+            density=True,
+            histtype="step",
+            linewidth=4,
+            range=(0, 8),
+        )
+        # plt.hist(
+        #     distances_jarzynski,
+        #     bins=100,
+        #     label="Jarzynski (reweighted)",
+        #     alpha=0.7,
+        #     density=True,
+        #     histtype="step",
+        #     linewidth=4,
+        #     weights=jarzynski_weights,
+        #     range=(0, 8),
+        # )
+
     plt.xlim(0, 7)
     plt.legend(fontsize=25)
     plt.xlabel("Distance", fontsize=45)

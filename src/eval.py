@@ -129,6 +129,46 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         samples_proposal, importance_weights, save_path="latest_distance_histogram.png"
     )
 
+    samples_jarzynski, jarzynski_weights = model.jarzyinski_process(
+        samples_proposal, log_p_proposal
+    )
+
+    log.info(
+        f"Sampling efficiency: {sampling_efficiency(np.log(jarzynski_weights)).item()}"
+    )  # TODO properly log
+
+    plots_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir + "/plots"
+
+    energy_histogram(
+        samples_proposal,
+        importance_weights,
+        samples_jarzynski,
+        jarzynski_weights,
+        save_path=plots_dir + "/energy_histogram_jar.png",
+    )
+    distance_histogram(
+        samples_proposal,
+        importance_weights,
+        samples_jarzynski,
+        jarzynski_weights,
+        save_path=plots_dir + "/distance_histogram_jar.png",
+    )
+
+    energy_histogram(
+        samples_proposal,
+        importance_weights,
+        samples_jarzynski,
+        jarzynski_weights,
+        save_path="latest_energy_histogram_jar.png",
+    )
+    distance_histogram(
+        samples_proposal,
+        importance_weights,
+        samples_jarzynski,
+        jarzynski_weights,
+        save_path="latest_distance_histogram_jar.png",
+    )
+
     return metric_dict, object_dict
 
 
