@@ -142,7 +142,7 @@ def distance_histogram(
     plt.hist(
         distances_proposal,
         bins=100,
-        label="Proposal (rewieghted)",
+        label="Proposal (reweighted)",
         alpha=0.7,
         density=True,
         histtype="step",
