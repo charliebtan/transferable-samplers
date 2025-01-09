@@ -1,7 +1,6 @@
 from typing import Any, Dict, Tuple
 
 import torch
-
 from src.models.proposal_flow_module import ProposalFlowLitModule
 
 # TODO this currently assumes you are using a zuko normalzing flow

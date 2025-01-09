@@ -12,7 +12,7 @@ scheduler:
   factor: 1.0
 
 net:
-  _target_: zuko.flows.NSF
+  _target_: src.models.components.maf.OurNSF
   features: 8 # TODO dynamic?
   transforms: 8
   hidden_features: [128, 128, 128]
