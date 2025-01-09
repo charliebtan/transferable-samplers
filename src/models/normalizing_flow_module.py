@@ -64,10 +64,9 @@ class NormalizingFlowLitModule(ProposalFlowLitModule):
             probability.
         """
 
-        samples = self.net().sample((batch_size,))
+        samples = self.net().sample(batch_size)
         log_p = self.net().log_prob(samples)
-
-        return samples, log_p, torch.empty(0)
+        return samples, log_p.squeeze(), torch.empty(0)
 
 
 if __name__ == "__main__":

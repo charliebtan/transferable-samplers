@@ -74,11 +74,10 @@ class OurNSF(OurMAF):
 class MyMeanFreeNormalDistribution(torch.distributions.MultivariateNormal):
     """Mean-free normal distribution."""
 
-    def __init__(self, dim, n_particles, std=1.0, two_event_dims=True):
+    def __init__(self, dim, n_particles, std=1.0):
         loc = torch.zeros(dim)
         scale_tril = torch.eye(dim)
         super().__init__(loc=loc, scale_tril=scale_tril)
-        self._two_event_dims = two_event_dims
         self._dim = dim
         self._n_particles = n_particles
         self._spacial_dims = dim // n_particles
@@ -87,24 +86,19 @@ class MyMeanFreeNormalDistribution(torch.distributions.MultivariateNormal):
     def log_prob(self, x):
         x = x.view(-1, self._n_particles, self._spacial_dims)
         x = self._remove_mean(x).view(-1, self._dim)
-        # TODO: make consistent
-        return -0.5 * x.pow(2).sum(dim=-1, keepdim=True) / self._std**2
+        return (-0.5 * x.pow(2).sum(dim=-1, keepdim=True) / self._std**2).flatten()
 
-    def sample(self, n_samples, temperature=1.0):
+    def rsample(self, n_samples, temperature=1.0):
         x = torch.ones(
             (n_samples, self._n_particles, self._spacial_dims),
-            dtype=self._std.dtype,
-            device=self._std.device,
         ).normal_(mean=0, std=self._std)
         x = self._remove_mean(x)
-        if not self._two_event_dims:
-            x = x.view(-1, self._dim)
+        x = x.reshape(n_samples, self._dim)
         return x
 
     def _remove_mean(self, x):
         x = x.view(-1, self._n_particles, self._spacial_dims)
-        x = x - torch.mean(x, dim=1, keepdim=True)
-        return x
+        return x - torch.mean(x, dim=1, keepdim=True)
 
 
 if __name__ == "__main__":
