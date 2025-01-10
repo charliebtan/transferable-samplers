@@ -40,7 +40,7 @@ class ShortcutLitModule(BoltzmannGeneratorLitModule):
         :param t:
         :return: dx
         """
-        return self.net(t, x, d=d)
+        return self.net(t, x, d=d.to(x.device))
 
     def get_targets(self, samples_data, force_t=-1, force_dt=-1):
         # TODO could refactor but if it ain't broken...
@@ -207,7 +207,9 @@ class ShortcutLitModule(BoltzmannGeneratorLitModule):
             else torch.linspace(0, 1, n_timesteps + 1)
         )
 
-        node = NeuralODE(torchdyn_wrapper(self.net, d=self.hparams.sampling_d), solver="euler")
+        d = torch.tensor([self.hparams.sampling_d], device=x.device)  # batch dims required by EGNN architecture
+
+        node = NeuralODE(torchdyn_wrapper(self.net, d=d), solver="euler")
 
         traj = node.trajectory(
             torch.cat([x, dlog_p_init], dim=-1),

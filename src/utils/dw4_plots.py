@@ -22,7 +22,7 @@ TARGET = MultiDoubleWellPotential(DIM, N_PARTICLES, A, B, C, OFFSET, two_event_d
 
 # define a MCMC sampler to sample from the target energy
 
-dw4_data = np.load("/Users/chatan/fast-tbg/data/dw4-dataidx.npy", allow_pickle=True)
+dw4_data = np.load("data/dw4-dataidx.npy", allow_pickle=True)
 all_data = remove_mean(dw4_data[0], N_PARTICLES, N_DIMENSIONS)
 idx = dw4_data[1]
 DATA_HOLDOUT = all_data[idx[-500000:]]
