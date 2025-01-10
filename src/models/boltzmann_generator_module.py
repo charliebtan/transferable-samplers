@@ -156,6 +156,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
             # this is a bit hacky but is fine as long as
             # the energy function is defined properly and
             # doesn't mix batch items
+
             x_grad, t_grad = torch.autograd.grad(et.sum(), (x, t))
 
             assert x_grad.shape == x.shape, "x_grad should have the same shape as x"
@@ -170,9 +171,9 @@ class BoltzmannGeneratorLitModule(LightningModule):
     def jarzyinski_process(self, samples_proposal, batch_size=256):
         # TODO I think I should test with a simple energy function and make sure I am getting the correct energies etc
 
-        X = samples_proposal
+        X = samples_proposal.to(self.device)
 
-        eps = 0.001
+        eps = 0.01
         num_timesteps = 100  # TODO should default to 1000
 
         A = torch.zeros(X.shape[0], device=X.device)  # the jarzynski weights
@@ -232,7 +233,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         jarzynski_samples = X
         jarzynski_weights = torch.softmax(A, dim=-1)
 
-        return jarzynski_samples, jarzynski_weights
+        return jarzynski_samples.cpu(), jarzynski_weights.cpu()
 
 
 if __name__ == "__main__":
