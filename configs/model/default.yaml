@@ -13,7 +13,7 @@ scheduler:
   _target_: torch.optim.lr_scheduler.OneCycleLR
   _partial_: true
   max_lr: ${model.optimizer.lr}
-  total_steps: 40
+  total_steps: ${trainer.max_epochs}
   pct_start: 0.0
   anneal_strategy: cos
   cycle_momentum: false
