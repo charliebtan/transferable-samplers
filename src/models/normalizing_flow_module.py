@@ -1,6 +1,7 @@
 from typing import Any, Dict, Tuple
 
 import torch
+
 from src.models.proposal_flow_module import ProposalFlowLitModule
 
 # TODO this currently assumes you are using a zuko normalzing flow
@@ -20,6 +21,7 @@ class NormalizingFlowLitModule(ProposalFlowLitModule):
         optimizer: torch.optim.Optimizer,
         scheduler: torch.optim.lr_scheduler,
         compile: bool,
+        jarzynski_batch_size: int = 8,  # TODO bit weird this is here but main generation done by data module
     ) -> None:
         """Initialize a `NormalizingFlowLitModule`.
 

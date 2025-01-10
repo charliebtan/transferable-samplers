@@ -7,6 +7,7 @@ import rootutils
 import torch
 from bgflow.bg import sampling_efficiency
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
+from lightning.pytorch.accelerators.cpu import CPUAccelerator
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
 
@@ -129,7 +130,7 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         samples_proposal, importance_weights, save_path="latest_distance_histogram.png"
     )
 
-    model = model.cuda()
+    model = model.to(trainer.strategy.root_device)  # TODO won't handle multi-gpu
 
     samples_jarzynski, jarzynski_weights = model.jarzyinski_process(samples_proposal)
 

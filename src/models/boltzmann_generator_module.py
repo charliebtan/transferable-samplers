@@ -26,6 +26,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         optimizer: torch.optim.Optimizer,
         scheduler: torch.optim.lr_scheduler,
         compile: bool,
+        jarzynski_batch_size: int = 8,  # TODO bit weird this is here but main generation done by data module
     ) -> None:
         """Initialize a `FlowMatchLitModule`.
 
@@ -168,7 +169,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         return x_grad, t_grad
 
     @torch.no_grad()
-    def jarzyinski_process(self, samples_proposal, batch_size=256):
+    def jarzyinski_process(self, samples_proposal):
         # TODO I think I should test with a simple energy function and make sure I am getting the correct energies etc
 
         X = samples_proposal.to(self.device)
@@ -185,9 +186,9 @@ class BoltzmannGeneratorLitModule(LightningModule):
         ESS_list = []
 
         for j, t in tqdm(enumerate(timesteps[:-1])):
-            ##
-            for batch_start in range(0, X.shape[0], batch_size):
-                batch_end = min(batch_start + batch_size, X.shape[0])
+            for batch_start in range(0, X.shape[0], self.hparams.jarzynski_batch_size):
+                batch_end = min(batch_start + self.hparams.jarzynski_batch_size, X.shape[0])
+
                 X_batch = X[batch_start:batch_end]
                 A_batch = A[batch_start:batch_end]
 
@@ -212,8 +213,6 @@ class BoltzmannGeneratorLitModule(LightningModule):
                 # update the main tensors
                 X[batch_start:batch_end] = X_batch
                 A[batch_start:batch_end] = A_batch
-
-            ##
 
             A_list.append(A)
             ESS = kish_effective_sample_size(torch.softmax(A, dim=-1)).item() / len(A)

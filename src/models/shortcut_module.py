@@ -21,6 +21,7 @@ class ShortcutLitModule(BoltzmannGeneratorLitModule):
         optimizer: torch.optim.Optimizer,
         scheduler: torch.optim.lr_scheduler,
         compile: bool,
+        jarzynski_batch_size: int = 8,  # TODO bit weird this is here but main generation done by data module
         M: int = 128,
         bootstrap_every: int = 8,
         sampling_d: int = None,
@@ -207,7 +208,9 @@ class ShortcutLitModule(BoltzmannGeneratorLitModule):
             else torch.linspace(0, 1, n_timesteps + 1)
         )
 
-        d = torch.tensor([self.hparams.sampling_d], device=x.device)  # batch dims required by EGNN architecture
+        d = torch.tensor(
+            [self.hparams.sampling_d], device=x.device
+        )  # batch dims required by EGNN architecture
 
         node = NeuralODE(torchdyn_wrapper(self.net, d=d), solver="euler")
 
