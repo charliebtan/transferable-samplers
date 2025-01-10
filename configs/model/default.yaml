@@ -3,7 +3,7 @@ _target_: src.model.BoltzmannGeneratorLitModule
 optimizer:
   _target_: torch.optim.AdamW
   _partial_: true
-  lr: 0.005 # overridden by the scheduler
+  lr: 0.005
   weight_decay: 0.1
 
 # this does cosine annealing from max_lr to max_lr / div_factor / final_div_factor
