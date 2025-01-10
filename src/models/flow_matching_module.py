@@ -34,7 +34,6 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
         :param scheduler: The learning rate scheduler to use for training.
         """
         super().__init__(net, optimizer, scheduler, compile)
-        self.sigma = sigma
 
     def forward(self, t: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass through the model `self.net`.
@@ -48,9 +47,9 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
     def get_xt(self, x0, x1, t):
         mu_t = (1.0 - t) * x0 + t * x1
 
-        if not self.sigma == 0.0:
+        if not self.hparams.sigma == 0.0:
             noise = self.prior.sample(x1.shape[0]).to(x1.device)
-            xt = mu_t + self.sigma * noise
+            xt = mu_t + self.hparams.sigma * noise
         else:
             xt = mu_t
 

@@ -1,3 +1,5 @@
+import math
+
 import torch
 from torch import nn
 
@@ -342,6 +344,7 @@ class EGNNDynamicsConsistency(nn.Module):
         tanh=True,
         mode="egnn_dynamics",
         agg="sum",
+        M=128,  # TODO hardcoded in here
     ):
         super().__init__()
         self.mode = mode
@@ -365,8 +368,9 @@ class EGNNDynamicsConsistency(nn.Module):
         self.condition_time = condition_time
         # Count function calls
         self.counter = 0
+        self.M = M
 
-    def forward(self, t, x, d=None, *args, **kwargs):
+    def forward(self, t, x, d_base=None, *args, **kwargs):
         n_batch = x.shape[0]
         edges = self._cast_edges2batch(self.edges, n_batch, self._n_particles, device=x.device)
         edges = [edges[0], edges[1]]
@@ -379,12 +383,12 @@ class EGNNDynamicsConsistency(nn.Module):
             else:
                 t = t.repeat(n_batch)
         t = t.reshape(n_batch, 1)
-        if d is None:
-            d = torch.zeros_like(t)
+        if d_base is None:
+            d_base = torch.ones_like(t) * math.log2(self.M)  # so it defaults to non-shortcut model
         else:
-            d = d.reshape(n_batch, 1)  # TODO - dangerous!
+            d_base = d_base.reshape(n_batch, 1)  # TODO - dangerous!
 
-        td = torch.cat([t, d], dim=-1)
+        td = torch.cat([t, d_base], dim=-1)
         if self.condition_time:
             h = h * td.unsqueeze(1)
         h = h.reshape(n_batch * self._n_particles, 2)

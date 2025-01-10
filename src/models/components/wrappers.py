@@ -5,10 +5,10 @@ class torchdyn_wrapper(torch.nn.Module):
     """Wraps model to torchdyn compatible format with additional dimension representing the change
     in likelihood over time."""
 
-    def __init__(self, model, d: int = None, div_estimator="exact"):
+    def __init__(self, model, d_base: int = None, div_estimator="exact"):
         super().__init__()
         self.model = model
-        self.d = d
+        self.d_base = d_base
 
         if div_estimator == "exact":
             self.div_fn = self.div_fn_exact
@@ -33,11 +33,11 @@ class torchdyn_wrapper(torch.nn.Module):
 
         def vecfield(y):
             y = y.view(1, -1)  # batch dims required by EGNN architecture
-            if self.d is not None:
-                d_vec = torch.ones(y.shape[0]) * self.d
-                return self.model(t, y, d=d_vec)
+            if self.d_base is not None:
+                d_base_vec = torch.ones(y.shape[0]) * self.d
+                return self.model(t, y, d_base=d_base_vec)
             else:
-                return self.model(t, y, d=self.d)
+                return self.model(t, y, d_base=self.d_base)
 
         _, vjpfunc = torch.func.vjp(vecfield, x)
         return (vjpfunc(eps)[0] * eps).sum()
@@ -45,11 +45,11 @@ class torchdyn_wrapper(torch.nn.Module):
     def div_fn_exact(self, t, x):
         def vecfield(y):
             y = y.view(1, -1)  # batch dims required by EGNN architecture
-            if self.d is not None:
-                d_vec = torch.ones(y.shape[0], device=y.device) * self.d
-                return self.model(t, y, d=d_vec).flatten()
+            if self.d_base is not None:
+                d_base_vec = torch.ones(y.shape[0], device=y.device) * self.d_base
+                return self.model(t, y, d_base=d_base_vec).flatten()
             else:
-                return self.model(t, y, d=self.d).flatten()
+                return self.model(t, y, d_base=self.d_base).flatten()
 
         J = torch.func.jacrev(vecfield)
 
@@ -58,11 +58,11 @@ class torchdyn_wrapper(torch.nn.Module):
     def forward(self, t, x, *args, **kwargs):
         x = x[..., :-1]  # remove the divergence estimate
 
-        if self.d is not None:
-            d_vec = torch.ones(x.shape[0], device=x.device) * self.d
-            dx = self.model(t, x, d=d_vec)
+        if self.d_base is not None:
+            d_base_vec = torch.ones(x.shape[0], device=x.device) * self.d_base
+            dx = self.model(t, x, d_base=d_base_vec)
         else:
-            dx = self.model(t, x, d=self.d)
+            dx = self.model(t, x, d_base=self.d_base)
         dlog_p = -torch.vmap(self.div_fn, in_dims=(None, 0), randomness="different")(
             torch.tensor([t], device=x.device), x
         )

@@ -27,4 +27,4 @@ net:
 
 # compile model for faster training with pytorch 2.0
 compile: false
-sampling_d: null
+sampling_d_base: null
