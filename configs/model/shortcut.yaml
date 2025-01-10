@@ -3,13 +3,22 @@ _target_: src.models.shortcut_module.ShortcutLitModule
 optimizer:
   _target_: torch.optim.AdamW
   _partial_: true
-  lr: 0.005
+  lr: 0.001 # overridden by the scheduler
   weight_decay: 0.1
 
+# this does cosine annealing from max_lr to max_lr / div_factor / final_div_factor
+# if pct_start != 0.0 you warmup from max_lr / div_factor to max_lr too
+# normally you use this per-step but I've just got it per-epoch
 scheduler:
-  _target_: torch.optim.lr_scheduler.ConstantLR
+  _target_: torch.optim.lr_scheduler.OneCycleLR
   _partial_: true
-  factor: 1.0
+  max_lr: 0.001
+  total_steps: 40
+  pct_start: 0.0
+  anneal_strategy: cos
+  cycle_momentum: false
+  div_factor: 1.0
+  final_div_factor: 1.0
 
 net:
   _target_: src.models.components.egnn_dynamics_consistency.EGNNDynamicsConsistency

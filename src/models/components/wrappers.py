@@ -46,7 +46,7 @@ class torchdyn_wrapper(torch.nn.Module):
         def vecfield(y):
             y = y.view(1, -1)  # batch dims required by EGNN architecture
             if self.d is not None:
-                d_vec = torch.ones(y.shape[0]) * self.d
+                d_vec = torch.ones(y.shape[0], device=y.device) * self.d
                 return self.model(t, y, d=d_vec).flatten()
             else:
                 return self.model(t, y, d=self.d).flatten()
@@ -59,12 +59,12 @@ class torchdyn_wrapper(torch.nn.Module):
         x = x[..., :-1]  # remove the divergence estimate
 
         if self.d is not None:
-            d_vec = torch.ones(x.shape[0]) * self.d
+            d_vec = torch.ones(x.shape[0], device=x.device) * self.d
             dx = self.model(t, x, d=d_vec)
         else:
             dx = self.model(t, x, d=self.d)
         dlog_p = -torch.vmap(self.div_fn, in_dims=(None, 0), randomness="different")(
-            torch.tensor([t]), x
+            torch.tensor([t], device=x.device), x
         )
 
         return torch.cat([dx, dlog_p[:, None]], dim=-1)
