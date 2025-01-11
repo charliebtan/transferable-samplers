@@ -160,3 +160,5 @@ configs/local/default.yaml
 *.zip
 
 *.png
+
+.DS_Store
