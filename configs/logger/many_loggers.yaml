@@ -5,5 +5,5 @@ defaults:
   - csv
   # - mlflow
   # - neptune
-  - tensorboard
+  # - tensorboard
   - wandb

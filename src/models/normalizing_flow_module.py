@@ -5,7 +5,8 @@ import torch
 from src.models.proposal_flow_module import ProposalFlowLitModule
 
 # TODO this currently assumes you are using a zuko normalzing flow
-# If you start using other normalizing flows you will need to make a zuko wrapper I think?
+# If you start using other normalizing flows you will need to make a zuko
+# wrapper I think?
 
 
 class NormalizingFlowLitModule(ProposalFlowLitModule):
