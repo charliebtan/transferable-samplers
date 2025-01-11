@@ -163,5 +163,4 @@ configs/local/default.yaml
 .DS_Store
 *.pt
 AImplicitUnconstrained
-models
-
+/models/
