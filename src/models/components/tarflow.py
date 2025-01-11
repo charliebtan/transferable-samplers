@@ -251,7 +251,7 @@ class MetaBlock(torch.nn.Module):
         pos_embed = self.permutation(self.pos_embed, dim=0)
         self.set_sample_mode(True)
         T = x.size(1)
-        x_new = torch.empty_like(x)
+        x_new = x.clone()
         for i in range(x.size(1) - 1):
             za, zb = self.reverse_step(x, pos_embed, i, y, which_cache="cond")
             if guidance > 0 and guide_what:
@@ -344,7 +344,6 @@ class TarFlow(torch.nn.Module):
 
         # return x.squeeze(), outputs, logdets # OLD
 
-        # TODO no unpatchify???
         x_pred = x.squeeze()
         v_pred = x_pred - x_init
 
@@ -385,3 +384,19 @@ class TarFlow(torch.nn.Module):
             return x
         else:
             return seq
+
+
+if __name__ == "__main__":
+    img_size = 8
+    in_channels = 1
+    patch_size = 1
+    channels = 64
+    num_blocks = 3
+    layers_per_block = 2
+    model = TarFlow(in_channels, img_size, patch_size, channels, num_blocks, layers_per_block)
+
+    x = torch.randn([128, 8])
+    v, _ = model.forward(x)
+    x_recon = model.reverse(x + v)
+    assert torch.allclose(x, x_recon), "Invertibility test failed"
+    print("Invertibility test passed")
