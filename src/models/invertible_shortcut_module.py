@@ -110,7 +110,7 @@ class InvertibleShortcutLitModule(BoltzmannGeneratorLitModule):
         return samples, logdets[..., None]
 
     def generate_samples(
-        self, batch_size: int, n_timesteps: int = None, device: torch.device = None
+        self, batch_size: int, n_timesteps: int = None
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Generate samples from the model.
 
@@ -121,7 +121,7 @@ class InvertibleShortcutLitModule(BoltzmannGeneratorLitModule):
             probability.
         """
 
-        prior_samples = self.prior.sample(batch_size).to(device)
+        prior_samples = self.prior.sample(batch_size).to(self.device)
         prior_log_p = -self.prior.energy(prior_samples)
 
         samples, dlogp = self.flow(prior_samples)

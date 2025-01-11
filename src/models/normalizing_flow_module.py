@@ -2,14 +2,11 @@ from typing import Any, Dict, Tuple
 
 import torch
 
-from src.models.proposal_flow_module import ProposalFlowLitModule
-
-# TODO this currently assumes you are using a zuko normalzing flow
-# If you start using other normalizing flows you will need to make a zuko
-# wrapper I think?
+from src.models.boltzmann_generator_module import BoltzmannGeneratorLitModule
+from src.models.shortcut_module import ShortcutLitModule
 
 
-class NormalizingFlowLitModule(ProposalFlowLitModule):
+class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
     """
 
     TODO - Add a description.
@@ -39,24 +36,35 @@ class NormalizingFlowLitModule(ProposalFlowLitModule):
         :param t:
         :return: dx
         """
-        return self.net().log_prob(x)
+        return self.net(x)
 
     def model_step(
         self,
         batch: torch.Tensor,
     ) -> torch.Tensor:
-        """Perform a single model step on a batch of data.
 
-        :param batch:
+        v_pred, *_ = self.forward(xt)
 
-        :return: - A tensor of losses.
-        """
-        loss = -self.forward(batch).mean()
+        loss = self.criterion(v_pred, v_shortcuts)
+        loss = self.criterion(v_pred, v_shortcuts)
 
         return loss
 
+    def flow(self, x: torch.Tensor, reverse=False) -> torch.Tensor:
+        if not reverse:
+            v_pred, logdets = self.forward(x)
+        else:
+            v_pred, *_ = self.net.reverse(x)
+            _, logdets = self.forward(x)
+
+        # TODO I think you may need to handle this case different because this is the forward logdet
+
+        samples = x + v_pred
+
+        return samples, logdets[..., None]
+
     def generate_samples(
-        self, batch_size: int, n_timesteps: int = None, device: torch.device = None
+        self, batch_size: int, n_timesteps: int = None
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Generate samples from the model.
 
@@ -67,10 +75,15 @@ class NormalizingFlowLitModule(ProposalFlowLitModule):
             probability.
         """
 
-        samples = self.net().sample(batch_size)
-        log_p = self.net().log_prob(samples)
+        prior_samples = self.prior.sample(batch_size).to(self.device)
+        prior_log_p = -self.prior.energy(prior_samples)
+
+        samples, dlogp = self.flow(prior_samples)
+
+        log_p = prior_log_p + dlogp
+
         return samples, log_p.squeeze(), torch.empty(0)
 
 
 if __name__ == "__main__":
-    _ = NormalizingFlowLitModule(None, None, None, None)
+    _ = InvertibleShortcutLitModule(None, None, None, None)

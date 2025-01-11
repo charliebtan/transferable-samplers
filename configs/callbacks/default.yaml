@@ -11,6 +11,7 @@ model_checkpoint:
   monitor: "train/loss"
   mode: "min"
   save_last: True
+  save_weights_only: True
   auto_insert_metric_name: False
 
 # early_stopping:
