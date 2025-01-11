@@ -31,9 +31,8 @@ class InvertibleShortcutLitModule(BoltzmannGeneratorLitModule):
         """
         super().__init__(net, optimizer, scheduler, compile)
 
-        # TODO hardcode
         self.base_flow = ShortcutLitModule.load_from_checkpoint(
-            base_flow_ckpt_path,
+            base_flow_ckpt_path,  # TODO find a way to pass null in without breaking for sampling
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -76,8 +75,8 @@ class InvertibleShortcutLitModule(BoltzmannGeneratorLitModule):
             v_shortcuts = self.base_flow.get_bootstrap_targets(xt, t, d_base)
 
         # apply shortcut vector field to xt
-        dt = 1.0 / 2**self.hparams.d_base
-        x_after_shortcuts = xt + v_shortcuts * dt
+        # dt = 1.0 / 2**self.hparams.d_base
+        # x_after_shortcuts = xt + v_shortcuts * dt
 
         # TODO
         # if we fix the final point to just be the target and we only have a single step
@@ -97,6 +96,19 @@ class InvertibleShortcutLitModule(BoltzmannGeneratorLitModule):
 
         return loss
 
+    def flow(self, x: torch.Tensor, reverse=False) -> torch.Tensor:
+        if not reverse:
+            v_pred, logdets = self.forward(x)
+        else:
+            v_pred, *_ = self.net.reverse(x)
+            _, logdets = self.forward(x)
+
+        # TODO I think you may need to handle this case different because this is the forward logdet
+
+        samples = x + v_pred
+
+        return samples, logdets[..., None]
+
     def generate_samples(
         self, batch_size: int, n_timesteps: int = None, device: torch.device = None
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -112,11 +124,9 @@ class InvertibleShortcutLitModule(BoltzmannGeneratorLitModule):
         prior_samples = self.prior.sample(batch_size).to(device)
         prior_log_p = -self.prior.energy(prior_samples)
 
-        v_pred, logdets = self.forward(prior_samples)
+        samples, dlogp = self.flow(prior_samples)
 
-        samples = prior_samples + v_pred
-
-        log_p = prior_log_p + logdets[..., None]
+        log_p = prior_log_p + dlogp
 
         return samples, log_p.squeeze(), torch.empty(0)
 
