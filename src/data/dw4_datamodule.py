@@ -138,6 +138,15 @@ class DW4DataModule(LightningDataModule):
         all_data = all_data.reshape(-1, NUM_PARTICLES, DIM)
         all_data = all_data - all_data.mean(axis=1, keepdims=True)
         all_data = all_data / torch.tensor([DW4_STD])
+
+        # rotation augementation
+        x = torch.rand(len(all_data)) * 2 * np.pi
+        s = torch.sin(x)
+        c = torch.cos(x)
+        rot = torch.stack([torch.stack([c, -s]), torch.stack([s, c])]).permute(2, 0, 1)
+        all_data = torch.einsum("bij,bki->bkj", rot, all_data)
+
+        # return to vector shape
         all_data = all_data.reshape(-1, NUM_PARTICLES * DIM)
 
         # split the data
