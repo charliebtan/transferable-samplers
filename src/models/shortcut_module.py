@@ -1,11 +1,10 @@
 import math
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import torch
-from torchdyn.core import NeuralODE
-
 from src.models.boltzmann_generator_module import BoltzmannGeneratorLitModule
 from src.models.components.wrappers import TorchdynWrapper
+from torchdyn.core import NeuralODE
 
 
 class ShortcutLitModule(BoltzmannGeneratorLitModule):
@@ -35,7 +34,9 @@ class ShortcutLitModule(BoltzmannGeneratorLitModule):
         """
         super().__init__(net, optimizer, scheduler, compile)
 
-    def forward(self, t: torch.Tensor, x: torch.Tensor, d_base: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, t: torch.Tensor, x: torch.Tensor, d_base: torch.Tensor
+    ) -> torch.Tensor:
         """Perform a forward pass through the model `self.net`.
 
         :param x:
@@ -97,12 +98,16 @@ class ShortcutLitModule(BoltzmannGeneratorLitModule):
 
         t_list = []
         for i in range(batch_size):
-            maxval = int(d_sections[i].item())  # dt_sections[i] is float, convert to int
+            maxval = int(
+                d_sections[i].item()
+            )  # dt_sections[i] is float, convert to int
             # If maxval == 0 for some reason, clamp to 1 to avoid errors
             if maxval < 1:
                 maxval = 1
             # Sample an integer in [0, maxval)
-            t_i = torch.randint(low=0, high=maxval, size=(1,), device=device, dtype=torch.int64)
+            t_i = torch.randint(
+                low=0, high=maxval, size=(1,), device=device, dtype=torch.int64
+            )
             t_list.append(t_i)
 
         t = torch.cat(t_list, dim=0).to(torch.float32)  # shape [bootstrap_batchsize]
@@ -127,7 +132,9 @@ class ShortcutLitModule(BoltzmannGeneratorLitModule):
         xt2 = xt + d_half * vb1
         xt2 = torch.clamp(xt2, -4.0, 4.0)
 
-        assert xt2.shape == xt.shape, "xt2 shape not as expected, check for broadcasting errors"
+        assert (
+            xt2.shape == xt.shape
+        ), "xt2 shape not as expected, check for broadcasting errors"
 
         with torch.no_grad():
             vb2 = self.forward(t2, xt2, d_half_base)
@@ -162,7 +169,8 @@ class ShortcutLitModule(BoltzmannGeneratorLitModule):
         d_base = torch.cat(
             [
                 d_base,
-                torch.ones([flow_batch_size], device=batch.device) * math.log2(self.hparams.M),
+                torch.ones([flow_batch_size], device=batch.device)
+                * math.log2(self.hparams.M),
             ]
         )
 
@@ -174,7 +182,9 @@ class ShortcutLitModule(BoltzmannGeneratorLitModule):
         xt = self.get_xt(batch_prior, batch, t)
 
         # get the targets for the flow batch elements
-        vt_flow = self.get_flow_targets(batch_prior[-flow_batch_size:], batch[-flow_batch_size:])
+        vt_flow = self.get_flow_targets(
+            batch_prior[-flow_batch_size:], batch[-flow_batch_size:]
+        )
 
         # get the targets for the bootstrap batch elements
         vt_bst = self.get_bootstrap_targets(
@@ -194,8 +204,13 @@ class ShortcutLitModule(BoltzmannGeneratorLitModule):
 
         return loss_flow + loss_bst
 
-    def flow(self, x: torch.Tensor, reverse=False) -> torch.Tensor:
-        n_timesteps = 2**self.hparams.sampling_d_base
+    def flow(self, x: torch.Tensor, reverse=False, d_base=None) -> torch.Tensor:
+        if d_base is None:
+            assert (
+                self.hparams.sampling_d_base is not None
+            ), "sampling_d must be set to generate samples"
+            d_base = self.hparams.sampling_d_base
+        n_timesteps = 2**d_base
 
         dlog_p_init = torch.zeros((x.shape[0], 1), device=x.device)
         t_span = (
@@ -205,7 +220,7 @@ class ShortcutLitModule(BoltzmannGeneratorLitModule):
         )
 
         d_base = torch.tensor(
-            [self.hparams.sampling_d_base], device=x.device
+            [d_base], device=x.device
         )  # batch dims required by EGNN architecture
 
         node = NeuralODE(TorchdynWrapper(self.net, d_base=d_base), solver="euler")
@@ -224,6 +239,7 @@ class ShortcutLitModule(BoltzmannGeneratorLitModule):
         self,
         batch_size: int,
         device: str,
+        d_base: Optional[int] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Generate samples from the model.
 
@@ -233,10 +249,13 @@ class ShortcutLitModule(BoltzmannGeneratorLitModule):
         :return: A tuple containing the generated samples, the prior samples, and the log
             probability.
         """
+        breakpoint()
 
-        assert (
-            self.hparams.sampling_d_base is not None
-        ), "sampling_d must be set to generate samples"
+        if d_base is None:
+            assert (
+                self.hparams.sampling_d_base is not None
+            ), "sampling_d must be set to generate samples"
+            d_base = self.hparams.sampling_d_base
 
         prior_samples = self.prior.sample(batch_size).to(device)
         prior_log_p = -self.prior.energy(prior_samples)
