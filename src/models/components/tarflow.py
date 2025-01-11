@@ -251,6 +251,7 @@ class MetaBlock(torch.nn.Module):
         pos_embed = self.permutation(self.pos_embed, dim=0)
         self.set_sample_mode(True)
         T = x.size(1)
+        x_new = torch.empty_like(x)
         for i in range(x.size(1) - 1):
             za, zb = self.reverse_step(x, pos_embed, i, y, which_cache="cond")
             if guidance > 0 and guide_what:
@@ -267,7 +268,8 @@ class MetaBlock(torch.nn.Module):
                     zb = zb + g * (zb - zb_u)
 
             scale = za[:, 0].float().exp().type(za.dtype)  # get rid of the sequence dimension
-            x[:, i + 1] = x[:, i + 1] * scale + zb[:, 0]
+            x_new[:, i + 1] = x[:, i + 1] * scale + zb[:, 0]
+        x = x_new
         self.set_sample_mode(False)
         return self.permutation(x, inverse=True)
 
