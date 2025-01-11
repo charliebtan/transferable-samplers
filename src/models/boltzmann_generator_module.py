@@ -1,14 +1,13 @@
 import math
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, Tuple
 
 import torch
 import torchmetrics
 from bgflow import MeanFreeNormalDistribution
-from lightning import LightningModule
-from src.models.components.wrappers import TorchdynWrapper
+from lightning import LightningDataModule, LightningModule
+from lightning.pytorch.loggers import WandbLogger
 from src.utils.dw4_plots import TARGET
 from src.utils.tbg_utils import kish_effective_sample_size
-from torchdyn.core import NeuralODE
 from torchmetrics import MeanMetric
 from tqdm import tqdm
 
@@ -25,6 +24,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         net: torch.nn.Module,
         optimizer: torch.optim.Optimizer,
         scheduler: torch.optim.lr_scheduler,
+        datamodule: LightningDataModule,
         compile: bool,
         jarzynski_batch_size: int = None,  # TODO bit weird this is here but main generation done by data module
     ) -> None:
@@ -41,6 +41,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         self.save_hyperparameters(logger=False)
 
         self.net = net
+        self.datamodule = datamodule
 
         # loss function
         self.criterion = torch.nn.MSELoss(reduce="mean")
@@ -98,6 +99,10 @@ class BoltzmannGeneratorLitModule(LightningModule):
         """
         if self.hparams.compile and stage == "fit":
             self.net = torch.compile(self.net)
+        self.wandb_logger = None
+        for logger in self.loggers:
+            if isinstance(logger, WandbLogger):
+                self.wandb_logger = logger
 
     def configure_optimizers(self) -> Dict[str, Any]:
         """Choose what optimizers and learning-rate schedulers to use in your optimization.
@@ -174,8 +179,11 @@ class BoltzmannGeneratorLitModule(LightningModule):
 
     def on_eval_epoch_end(self, metrics, prefix: str = "val") -> None:
         batch_size = 100
-        self.generate_output = self.generate_samples(batch_size)
+        samples, log_p, prior_samples = self.generate_samples(batch_size)
         self.log_dict(metrics.compute())
+        self.datamodule.log_on_epoch_end(
+            samples, log_p, wandb_logger=self.wandb_logger, prefix=prefix
+        )
         metrics.reset()
 
     def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:

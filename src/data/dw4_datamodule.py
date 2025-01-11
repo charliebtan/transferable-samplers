@@ -1,10 +1,16 @@
 import os
+import hydra
 from typing import Any, Dict, Optional, Tuple
 
+import matplotlib.pyplot as plt
 import numpy as np
+import PIL
 import requests
 import torch
+from bgflow import MultiDoubleWellPotential
+from bgflow.utils import distance_vectors, distances_from_vectors, remove_mean
 from lightning import LightningDataModule
+from lightning.pytorch.loggers import WandbLogger
 from torch.utils.data import DataLoader, Dataset
 
 # I've just made these constants, I think it's safer as they should be static
@@ -17,6 +23,11 @@ TRAIN_VAL_TEST_SPLIT = (100_000, 500_000, 500_000)
 
 # With centering the train split has per-dim stds of:
 DW4_STD = [1.8230, 1.8103]
+
+
+def distance_fn(x):
+    x = x.view(-1, NUM_PARTICLES, DIM)
+    return distances_from_vectors(distance_vectors(x)).reshape(-1)
 
 
 class DW4DataModule(LightningDataModule):
@@ -85,6 +96,19 @@ class DW4DataModule(LightningDataModule):
         self.data_test: Optional[Dataset] = None
 
         self.batch_size_per_device = batch_size
+        A = 0.9
+        B = -4
+        C = 0
+        OFFSET = 4
+        dim, n_particles = 8, 4
+        self.potential = MultiDoubleWellPotential(
+            dim, n_particles, A, B, C, OFFSET, two_event_dims=False
+        )
+
+    def energy(self, x):
+        # if x.shape[-1] == NUM_PARTICLES * DIM:
+        #    x = x.view(-1, NUM_PARTICLES, DIM)
+        return self.potential.energy(x)
 
     def prepare_data(self) -> None:
         """Download data if needed. Lightning ensures that `self.prepare_data()` is called only
@@ -123,12 +147,16 @@ class DW4DataModule(LightningDataModule):
                 raise RuntimeError(
                     f"Batch size ({self.hparams.batch_size}) is not divisible by the number of devices ({self.trainer.world_size})."
                 )
-            self.batch_size_per_device = self.hparams.batch_size // self.trainer.world_size
+            self.batch_size_per_device = (
+                self.hparams.batch_size // self.trainer.world_size
+            )
 
         # TODO bit odd to do at every setup call? probably not too slow...
 
         # load the data + tensorize
-        dw4_data = np.load(f"{self.hparams.data_dir}{self.hparams.filename}", allow_pickle=True)
+        dw4_data = np.load(
+            f"{self.hparams.data_dir}{self.hparams.filename}", allow_pickle=True
+        )
         all_data = torch.Tensor(dw4_data[0])
 
         # split indexes
@@ -144,6 +172,7 @@ class DW4DataModule(LightningDataModule):
         self.data_train = all_data[idx[: TRAIN_VAL_TEST_SPLIT[0]]]
         self.data_val = all_data[idx[TRAIN_VAL_TEST_SPLIT[0] : TRAIN_VAL_TEST_SPLIT[1]]]
         self.data_test = all_data[idx[TRAIN_VAL_TEST_SPLIT[2] :]]
+        self.curr_epoch = 0
 
     def train_dataloader(self) -> DataLoader[Any]:
         """Create and return the train dataloader.
@@ -207,6 +236,176 @@ class DW4DataModule(LightningDataModule):
         :param state_dict: The datamodule state returned by `self.state_dict()`.
         """
         pass
+
+    def log_on_epoch_end(
+        self,
+        samples,
+        log_p_samples: torch.Tensor,
+        samples_jarzynski: torch.Tensor = None,
+        jarzynski_log_p: torch.Tensor = None,
+        wandb_logger: WandbLogger = None,
+        prefix: str = "",
+    ) -> None:
+        if samples is None:
+            return
+
+        if wandb_logger is None:
+            return
+
+        if len(prefix) > 0 and prefix[-1] != "/":
+            prefix += "/"
+
+        samples_fig = self.get_dataset_fig(
+            samples, log_p_samples, samples_jarzynski, jarzynski_log_p
+        )
+        wandb_logger.log_image(f"{prefix}generated_samples", [samples_fig])
+        self.curr_epoch += 1
+
+    def interatomic_dist(self, x):
+        batch_shape = x.shape[:-1]
+        x = x.view(*batch_shape, NUM_PARTICLES, DIM)
+
+        # Compute the pairwise interatomic distances
+        # removes duplicates and diagonal
+        distances = x[:, None, :, :] - x[:, :, None, :]
+        distances = distances[
+            :,
+            torch.triu(torch.ones((NUM_PARTICLES, NUM_PARTICLES)), diagonal=1) == 1,
+        ]
+        dist = torch.linalg.norm(distances, dim=-1)
+        return dist
+
+    def sample_test_set(self, n):
+        return self.data_test[torch.randint(0, len(self.data_test), (n,))]
+
+    def get_dataset_fig(
+        self,
+        samples,
+        log_p_samples: torch.Tensor,
+        samples_jarzynski: torch.Tensor = None,
+        jarzynski_log_p: torch.Tensor = None,
+    ):
+        test_data_smaller = self.sample_test_set(5000)
+
+        fig, axs = plt.subplots(1, 2, figsize=(12, 4))
+
+        dist_samples = self.interatomic_dist(samples).detach().cpu()
+        dist_test = self.interatomic_dist(test_data_smaller).detach().cpu()
+
+        axs[0].hist(
+            dist_samples.view(-1),
+            bins=100,
+            alpha=0.5,
+            density=True,
+            histtype="step",
+            linewidth=4,
+            label="generated data",
+        )
+        axs[0].hist(
+            dist_test.view(-1),
+            bins=100,
+            alpha=0.5,
+            density=True,
+            histtype="step",
+            linewidth=4,
+            label="test data",
+        )
+        if samples_jarzynski is not None:
+            dist_samples_jarzynski = (
+                self.interatomic_dist(samples_jarzynski).detach().cpu()
+            )
+            axs[0].hist(
+                dist_samples_jarzynski.view(-1),
+                bins=100,
+                alpha=0.5,
+                density=True,
+                histtype="step",
+                linewidth=4,
+                label="Jarzynski",
+            )
+
+        axs[0].set_xlabel("Interatomic distance")
+
+        energy_samples = self.energy(samples)
+        logits = -energy_samples.flatten() - log_p_samples.flatten()
+        importance_weights = torch.nn.functional.softmax(logits).detach().cpu()
+        energy_samples = energy_samples.detach().cpu()
+        energy_test = self.energy(test_data_smaller).detach().cpu()
+
+        min_energy = -26
+        max_energy = 0
+
+        axs[1].hist(
+            energy_test.cpu(),
+            bins=100,
+            density=True,
+            alpha=0.4,
+            range=(min_energy, max_energy),
+            color="g",
+            histtype="step",
+            linewidth=4,
+            label="True data",
+        )
+        axs[1].hist(
+            energy_samples.cpu(),
+            bins=100,
+            density=True,
+            alpha=0.4,
+            range=(min_energy, max_energy),
+            color="r",
+            histtype="step",
+            linewidth=4,
+            label="Proposal",
+        )
+        axs[1].hist(
+            energy_samples,
+            bins=100,
+            density=True,
+            range=(min_energy, 0),
+            alpha=0.4,
+            histtype="step",
+            linewidth=4,
+            color="b",
+            label="Proposal (reweighted)",
+            weights=importance_weights,
+        )
+        if samples_jarzynski is not None:
+            energies_jarzynski = self.energy(samples_jarzynski)
+            jarzynski_logits = -energies_jarzynski.flatten() - jarzynski_log_p.flatten()
+            jarzynski_weights = (
+                torch.nn.functional.softmax(jarzynski_logits).detach().cpu()
+            )
+            energies_jarzynski = energies_jarzynski.detach().cpu().numpy()
+
+            axs[1].hist(
+                energies_jarzynski,
+                bins=100,
+                density=True,
+                range=(min_energy, 0),
+                alpha=0.4,
+                histtype="step",
+                linewidth=4,
+                color="r",
+                label="Jarzynski",
+            )
+            axs[1].hist(
+                energies_jarzynski,
+                bins=100,
+                density=True,
+                range=(min_energy, 0),
+                alpha=0.4,
+                histtype="step",
+                linewidth=4,
+                color="b",
+                label="Jarzynski (reweighted)",
+                weights=jarzynski_weights,
+            )
+        axs[1].set_xlabel("u(x)")
+        axs[1].legend()
+
+        fig.canvas.draw()
+
+        return fig
 
 
 if __name__ == "__main__":

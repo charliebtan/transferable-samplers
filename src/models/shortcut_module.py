@@ -1,8 +1,9 @@
-import math
 import copy
-from typing import Any, Dict, Optional, Tuple
+import math
+from typing import Optional, Tuple
 
 import torch
+from lightning import LightningDataModule
 from src.models.boltzmann_generator_module import BoltzmannGeneratorLitModule
 from src.models.components.wrappers import TorchdynWrapper
 from torchdyn.core import NeuralODE
@@ -20,6 +21,7 @@ class ShortcutLitModule(BoltzmannGeneratorLitModule):
         net: torch.nn.Module,
         optimizer: torch.optim.Optimizer,
         scheduler: torch.optim.lr_scheduler,
+        datamodule: LightningDataModule,
         compile: bool,
         jarzynski_batch_size: int,  # TODO bit weird this is here but main generation done by data module
         sigma: float = 0.0,
@@ -33,7 +35,7 @@ class ShortcutLitModule(BoltzmannGeneratorLitModule):
         :param optimizer: The optimizer to use for training.
         :param scheduler: The learning rate scheduler to use for training.
         """
-        super().__init__(net, optimizer, scheduler, compile)
+        super().__init__(net, optimizer, scheduler, datamodule, compile)
 
     def forward(
         self, t: torch.Tensor, x: torch.Tensor, d_base: torch.Tensor
@@ -227,7 +229,9 @@ class ShortcutLitModule(BoltzmannGeneratorLitModule):
         # Deep copy cause something very scary is going on when we wrap and use
         # it this way tha makes it unsaveable with some NotImplementedError
         # TorchWrapper
-        node = NeuralODE(TorchdynWrapper(copy.deepcopy(self.net), d_base=d_base), solver="euler")
+        node = NeuralODE(
+            TorchdynWrapper(copy.deepcopy(self.net), d_base=d_base), solver="euler"
+        )
 
         traj = node.trajectory(
             torch.cat([x, dlog_p_init], dim=-1),
