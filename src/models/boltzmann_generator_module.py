@@ -174,29 +174,20 @@ class BoltzmannGeneratorLitModule(LightningModule):
 
     def on_eval_epoch_end(self, metrics, prefix: str = "val") -> None:
         batch_size = 100
-        # samples, log_p, prior_samples = self.generate_samples(
-        #    batch_size, device=self.device
-        # )
+        self.generate_output = self.generate_samples(batch_size)
         self.log_dict(metrics.compute())
         metrics.reset()
 
     def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
-        # breakpoint()
         pass
 
     def on_train_epoch_end(self) -> None:
-        super().on_train_epoch_end()
-        # self.train_metrics.reset()
+        self.train_metrics.reset()
 
     def on_validation_epoch_end(self):
-        super().on_validation_epoch_end()
-        # self.on_eval_epoch_end("val")
         self.on_eval_epoch_end(self.val_metrics, "val")
 
-    #
     def on_test_epoch_end(self) -> None:
-        super().on_test_epoch_end()
-        #        self.on_eval_epoch_end("test")
         self.on_eval_epoch_end(self.test_metrics, "test")
 
     def proposal_energy(self, x: torch.Tensor) -> torch.Tensor:

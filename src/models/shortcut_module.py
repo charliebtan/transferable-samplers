@@ -1,4 +1,5 @@
 import math
+import copy
 from typing import Any, Dict, Optional, Tuple
 
 import torch
@@ -223,7 +224,10 @@ class ShortcutLitModule(BoltzmannGeneratorLitModule):
             [d_base], device=x.device
         )  # batch dims required by EGNN architecture
 
-        node = NeuralODE(TorchdynWrapper(self.net, d_base=d_base), solver="euler")
+        # Deep copy cause something very scary is going on when we wrap and use
+        # it this way tha makes it unsaveable with some NotImplementedError
+        # TorchWrapper
+        node = NeuralODE(TorchdynWrapper(copy.deepcopy(self.net), d_base=d_base), solver="euler")
 
         traj = node.trajectory(
             torch.cat([x, dlog_p_init], dim=-1),
@@ -238,7 +242,6 @@ class ShortcutLitModule(BoltzmannGeneratorLitModule):
     def generate_samples(
         self,
         batch_size: int,
-        device: str,
         d_base: Optional[int] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Generate samples from the model.
@@ -249,15 +252,13 @@ class ShortcutLitModule(BoltzmannGeneratorLitModule):
         :return: A tuple containing the generated samples, the prior samples, and the log
             probability.
         """
-        breakpoint()
-
         if d_base is None:
             assert (
                 self.hparams.sampling_d_base is not None
             ), "sampling_d must be set to generate samples"
             d_base = self.hparams.sampling_d_base
 
-        prior_samples = self.prior.sample(batch_size).to(device)
+        prior_samples = self.prior.sample(batch_size).to(self.device)
         prior_log_p = -self.prior.energy(prior_samples)
 
         with torch.no_grad():
