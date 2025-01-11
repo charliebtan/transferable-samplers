@@ -148,8 +148,6 @@ class ShortcutLitModule(BoltzmannGeneratorLitModule):
         :return: - A tensor of losses.
         """
 
-        batch = batch[:64]
-
         bst_batch_size = batch.shape[0] // self.hparams.bootstrap_every
         flow_batch_size = batch.shape[0] - bst_batch_size
 

@@ -3,12 +3,9 @@ from typing import Any, Dict, Tuple
 
 import torch
 from torchdyn.core import NeuralODE
-from tqdm import tqdm
 
 from src.models.boltzmann_generator_module import BoltzmannGeneratorLitModule
 from src.models.components.wrappers import TorchdynWrapper
-from src.utils.dw4_plots import TARGET
-from src.utils.tbg_utils import kish_effective_sample_size
 
 
 class FlowMatchLitModule(BoltzmannGeneratorLitModule):
