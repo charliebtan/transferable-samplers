@@ -160,3 +160,6 @@ configs/local/default.yaml
 *.zip
 
 *.png
+*.pt
+
+AImplicitUnconstrained
