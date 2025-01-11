@@ -5,7 +5,7 @@ import torch
 from torchdyn.core import NeuralODE
 
 from src.models.boltzmann_generator_module import BoltzmannGeneratorLitModule
-from src.models.components.wrappers import torchdyn_wrapper
+from src.models.components.wrappers import TorchdynWrapper
 
 
 class ShortcutLitModule(BoltzmannGeneratorLitModule):
@@ -208,7 +208,7 @@ class ShortcutLitModule(BoltzmannGeneratorLitModule):
             [self.hparams.sampling_d_base], device=x.device
         )  # batch dims required by EGNN architecture
 
-        node = NeuralODE(torchdyn_wrapper(self.net, d_base=d_base), solver="euler")
+        node = NeuralODE(TorchdynWrapper(self.net, d_base=d_base), solver="euler")
 
         traj = node.trajectory(
             torch.cat([x, dlog_p_init], dim=-1),

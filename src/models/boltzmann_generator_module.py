@@ -8,7 +8,7 @@ from torchdyn.core import NeuralODE
 from torchmetrics import MeanMetric
 from tqdm import tqdm
 
-from src.models.components.wrappers import torchdyn_wrapper
+from src.models.components.wrappers import TorchdynWrapper
 from src.utils.dw4_plots import TARGET
 from src.utils.tbg_utils import kish_effective_sample_size
 

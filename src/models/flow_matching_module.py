@@ -6,7 +6,7 @@ from torchdyn.core import NeuralODE
 from tqdm import tqdm
 
 from src.models.boltzmann_generator_module import BoltzmannGeneratorLitModule
-from src.models.components.wrappers import torchdyn_wrapper
+from src.models.components.wrappers import TorchdynWrapper
 from src.utils.dw4_plots import TARGET
 from src.utils.tbg_utils import kish_effective_sample_size
 
@@ -86,7 +86,7 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
         t_span = torch.linspace(1, 0, 2) if reverse else torch.linspace(0, 1, 2)
 
         node = NeuralODE(
-            torchdyn_wrapper(self.net),
+            TorchdynWrapper(self.net),
             atol=1e-4,
             rtol=1e-4,
             solver="dopri5",

@@ -1,7 +1,7 @@
 import torch
 
 
-class torchdyn_wrapper(torch.nn.Module):
+class TorchdynWrapper(torch.nn.Module):
     """Wraps model to torchdyn compatible format with additional dimension representing the change
     in likelihood over time."""
 
