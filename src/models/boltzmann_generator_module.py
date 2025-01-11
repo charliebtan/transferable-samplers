@@ -8,7 +8,7 @@ from torchdyn.core import NeuralODE
 from torchmetrics import MeanMetric
 from tqdm import tqdm
 
-from src.models.components.wrappers import torchdyn_wrapper
+from src.models.components.wrappers import TorchdynWrapper
 from src.utils.dw4_plots import TARGET
 from src.utils.tbg_utils import kish_effective_sample_size
 
@@ -26,7 +26,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         optimizer: torch.optim.Optimizer,
         scheduler: torch.optim.lr_scheduler,
         compile: bool,
-        jarzynski_batch_size: int = 8,  # TODO bit weird this is here but main generation done by data module
+        jarzynski_batch_size: int = None,  # TODO bit weird this is here but main generation done by data module
     ) -> None:
         """Initialize a `FlowMatchLitModule`.
 
@@ -174,8 +174,8 @@ class BoltzmannGeneratorLitModule(LightningModule):
 
         X = samples_proposal.to(self.device)
 
-        eps = 0.01
-        num_timesteps = 100  # TODO should default to 1000
+        eps = 0.4
+        num_timesteps = 1000  # TODO should default to 1000
 
         A = torch.zeros(X.shape[0], device=X.device)  # the jarzynski weights
 
@@ -185,13 +185,18 @@ class BoltzmannGeneratorLitModule(LightningModule):
         A_list = [A]
         ESS_list = []
 
+        # slice into list of batches (tensors)
+        X_batches = [
+            X[i : i + self.hparams.jarzynski_batch_size]
+            for i in range(0, X.shape[0], self.hparams.jarzynski_batch_size)
+        ]
+        A_batches = [
+            A[i : i + self.hparams.jarzynski_batch_size]
+            for i in range(0, A.shape[0], self.hparams.jarzynski_batch_size)
+        ]
+
         for j, t in tqdm(enumerate(timesteps[:-1])):
-            for batch_start in range(0, X.shape[0], self.hparams.jarzynski_batch_size):
-                batch_end = min(batch_start + self.hparams.jarzynski_batch_size, X.shape[0])
-
-                X_batch = X[batch_start:batch_end]
-                A_batch = A[batch_start:batch_end]
-
+            for batch_idx, (X_batch, A_batch) in enumerate(zip(X_batches, A_batches)):
                 # get the energy gradients
                 energy_grad_x, energy_grad_t = self.linear_energy_interpolation_gradients(
                     X_batch, t
@@ -206,23 +211,30 @@ class BoltzmannGeneratorLitModule(LightningModule):
                 assert dX_t.shape == X_batch.shape, "dX_t should have the same shape as X_batch"
                 assert dA_t.shape == A_batch.shape, "dA_t should have the same shape as A_batch"
 
-                # apply the updates
-                X_batch = X_batch + dX_t
-                A_batch = A_batch + dA_t
+                # apply the updates to the batch in the list
+                X_batches[batch_idx] = X_batch + dX_t
+                A_batches[batch_idx] = A_batch + dA_t
 
-                # update the main tensors
-                X[batch_start:batch_end] = X_batch
-                A[batch_start:batch_end] = A_batch
+                if X_batches[batch_idx].isnan().any():
+                    raise ValueError("X_batch has NaNs")
+                if A_batches[batch_idx].isnan().any():
+                    raise ValueError("A_batch has NaNs")
+
+            # cat the batches to compute global statistics
+            X = torch.cat(X_batches, dim=0)
+            A = torch.cat(A_batches, dim=0)
+
+            jarzynski_weights = torch.softmax(A, dim=-1)
 
             A_list.append(A)
-            ESS = kish_effective_sample_size(torch.softmax(A, dim=-1)).item() / len(A)
+            ESS = kish_effective_sample_size(A).item() / len(A)
             ESS_list.append(ESS)
 
-            if ESS < -1:
+            if ESS < 0.5:
                 # qmc_rand = sampler.random(n=len(A))
                 # cum_prob = torch.cumsum(torch.softmax(A, dim=-1), dim=0)
                 # indexes = np.searchsorted(cum_prob, qmc_rand, side="left").flatten()
-                indexes = torch.multinomial(torch.softmax(A, dim=-1), len(A), replacement=True)
+                indexes = torch.multinomial(jarzynski_weights, len(A), replacement=True)
                 X = X[indexes]
                 A = torch.zeros_like(A)
             if j % 1000 == 0:

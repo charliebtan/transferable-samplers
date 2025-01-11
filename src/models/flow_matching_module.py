@@ -6,7 +6,7 @@ from torchdyn.core import NeuralODE
 from tqdm import tqdm
 
 from src.models.boltzmann_generator_module import BoltzmannGeneratorLitModule
-from src.models.components.wrappers import torchdyn_wrapper
+from src.models.components.wrappers import TorchdynWrapper
 from src.utils.dw4_plots import TARGET
 from src.utils.tbg_utils import kish_effective_sample_size
 
@@ -24,7 +24,8 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
         optimizer: torch.optim.Optimizer,
         scheduler: torch.optim.lr_scheduler,
         compile: bool,
-        jarzynski_batch_size: int = 8,  # TODO bit weird this is here but main generation done by data module
+        jarzynski_batch_size: int,  # TODO bit weird this is here but main generation done by data module
+        sigma: float = 0.0,
     ) -> None:
         """Initialize a `ProposalFlowLitModule`.
 
@@ -43,6 +44,21 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
         """
         return self.net(t, x)
 
+    def get_xt(self, x0, x1, t):
+        mu_t = (1.0 - t) * x0 + t * x1
+
+        if not self.hparams.sigma == 0.0:
+            noise = self.prior.sample(x1.shape[0]).to(x1.device)
+            xt = mu_t + self.hparams.sigma * noise
+        else:
+            xt = mu_t
+
+        return xt
+
+    def get_flow_targets(self, x0, x1):
+        vt_flow = x1 - x0
+        return vt_flow
+
     def model_step(
         self,
         batch: torch.Tensor,
@@ -54,17 +70,15 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
         :return: - A tensor of losses.
         """
 
-        x1 = batch
-        x0 = self.prior.sample(x1.shape[0]).to(x1.device)
-        t = torch.rand(
-            x1.shape[0], 1, device=x1.device
-        )  # should this be generated here or elsewhere?
+        t = torch.rand(batch.shape[0], 1, device=batch.device)
+        batch_prior = self.prior.sample(batch.shape[0]).to(batch.device)
 
-        xt = (1.0 - t) * x0 + t * x1
-        vt_ref = x1 - x0
+        xt = self.get_xt(batch_prior, batch, t)
+        vt_flow = self.get_flow_targets(batch_prior, batch)
 
         vt_pred = self.forward(t, xt)
-        loss = self.criterion(vt_pred, vt_ref)
+        loss = self.criterion(vt_pred, vt_flow)
+
         return loss
 
     def flow(self, x: torch.Tensor, reverse=False) -> torch.Tensor:
@@ -72,7 +86,7 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
         t_span = torch.linspace(1, 0, 2) if reverse else torch.linspace(0, 1, 2)
 
         node = NeuralODE(
-            torchdyn_wrapper(self.net),
+            TorchdynWrapper(self.net),
             atol=1e-4,
             rtol=1e-4,
             solver="dopri5",
@@ -90,7 +104,9 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
         return x, dlog_p
 
     def generate_samples(
-        self, batch_size: int, device: str = "cpu"
+        self,
+        batch_size: int,
+        device: str,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Generate samples from the model.
 
