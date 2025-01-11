@@ -160,5 +160,8 @@ configs/local/default.yaml
 *.zip
 
 *.png
-
 .DS_Store
+*.pt
+AImplicitUnconstrained
+models
+
