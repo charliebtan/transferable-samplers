@@ -118,16 +118,15 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     plots_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir + "/plots"
     os.makedirs(plots_dir)
 
+    energy_histogram(samples_proposal, importance_weights, save_path="latest_energy_histogram.png")
+    distance_histogram(
+        samples_proposal, importance_weights, save_path="latest_distance_histogram.png"
+    )
     energy_histogram(
         samples_proposal, importance_weights, save_path=plots_dir + "/energy_histogram.png"
     )
     distance_histogram(
         samples_proposal, importance_weights, save_path=plots_dir + "/distance_histogram.png"
-    )
-
-    energy_histogram(samples_proposal, importance_weights, save_path="latest_energy_histogram.png")
-    distance_histogram(
-        samples_proposal, importance_weights, save_path="latest_distance_histogram.png"
     )
 
     model = model.to(trainer.strategy.root_device)  # TODO won't handle multi-gpu
@@ -145,21 +144,6 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         importance_weights,
         samples_jarzynski,
         jarzynski_weights,
-        save_path=plots_dir + "/energy_histogram.png",
-    )
-    distance_histogram(
-        samples_proposal,
-        importance_weights,
-        samples_jarzynski,
-        jarzynski_weights,
-        save_path=plots_dir + "/distance_histogram.png",
-    )
-
-    energy_histogram(
-        samples_proposal,
-        importance_weights,
-        samples_jarzynski,
-        jarzynski_weights,
         save_path="latest_energy_histogram.png",
     )
     distance_histogram(
@@ -168,6 +152,20 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         samples_jarzynski,
         jarzynski_weights,
         save_path="latest_distance_histogram.png",
+    )
+    energy_histogram(
+        samples_proposal,
+        importance_weights,
+        samples_jarzynski,
+        jarzynski_weights,
+        save_path=plots_dir + "/energy_histogram.png",
+    )
+    distance_histogram(
+        samples_proposal,
+        importance_weights,
+        samples_jarzynski,
+        jarzynski_weights,
+        save_path=plots_dir + "/distance_histogram.png",
     )
 
     return metric_dict, object_dict
