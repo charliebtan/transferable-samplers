@@ -12,16 +12,5 @@ net:
   num_blocks: 3
   layers_per_block: 2
 
-# base_flow:
-#   _target_: src.models.shortcut_module.ShortcutLitModule
-#   # it would be nice to read this stuff from elsewhere? idk
-# 
-#   net:
-#     _target_: src.models.components.egnn_dynamics_consistency.EGNNDynamicsConsistency
-#     n_particles: 4
-#     n_dimension: 2
-#   sampling_d_base: null
-# 
-# 
-# 
 d_base: 0
+base_flow_ckpt_path: null

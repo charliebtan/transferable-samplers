@@ -1,10 +1,9 @@
 from typing import Any, Dict, Tuple
 
-import hydra
 import torch
-from lightning import LightningModule
 
 from src.models.boltzmann_generator_module import BoltzmannGeneratorLitModule
+from src.models.shortcut_module import ShortcutLitModule
 
 
 class InvertibleShortcutLitModule(BoltzmannGeneratorLitModule):
@@ -20,8 +19,7 @@ class InvertibleShortcutLitModule(BoltzmannGeneratorLitModule):
         optimizer: torch.optim.Optimizer,
         scheduler: torch.optim.lr_scheduler,
         compile: bool,
-        # base_flow: LightningModule,
-        # base_flow_ckpt_path: str,
+        base_flow_ckpt_path: str,
         d_base: int,
         jarzynski_batch_size: int = 8,  # TODO bit weird this is here but main generation done by data module
     ) -> None:
@@ -32,11 +30,10 @@ class InvertibleShortcutLitModule(BoltzmannGeneratorLitModule):
         :param scheduler: The learning rate scheduler to use for training.
         """
         super().__init__(net, optimizer, scheduler, compile)
-        from src.models.shortcut_module import ShortcutLitModule
 
         # TODO hardcode
         self.base_flow = ShortcutLitModule.load_from_checkpoint(
-            "/Users/chatan/fast-tbg/logs/train/runs/2025-01-10_22-58-16/checkpoints/last.ckpt"
+            base_flow_ckpt_path,
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -86,7 +83,7 @@ class InvertibleShortcutLitModule(BoltzmannGeneratorLitModule):
         # if we fix the final point to just be the target and we only have a single step
         # we can just regress x1 - x0 directly - no need for the shortcut model
 
-        # boolean array to check if the t correponds to the final step
+        # boolean array to check if the t corresponds to the final step
         # is_final_step = t > 1.0 - (1.0 / 2 ** self.hparams.d_base + 1e-6)
 
         # replace the target with the shortcut target if the step is final
