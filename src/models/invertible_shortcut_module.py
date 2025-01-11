@@ -21,7 +21,7 @@ class InvertibleShortcutLitModule(BoltzmannGeneratorLitModule):
         compile: bool,
         base_flow_ckpt_path: str,
         d_base: int,
-        jarzynski_batch_size: int = 8,  # TODO bit weird this is here but main generation done by data module
+        jarzynski_batch_size: int,  # TODO bit weird this is here but main generation done by data module
     ) -> None:
         """Initialize a `NormalizingFlowLitModule`.
 

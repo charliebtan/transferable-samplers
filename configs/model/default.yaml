@@ -22,3 +22,4 @@ scheduler:
 
 # compile model for faster training with pytorch 2.0
 compile: false
+jarzynski_batch_size: ${data.batch_size}

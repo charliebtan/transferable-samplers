@@ -318,7 +318,8 @@ class TarFlow(torch.nn.Module):
         """Convert an image (N,C',H,W) to a sequence of patches (N,T,C')"""
         if x.ndim == 2:
             x = x.reshape(-1, 1, self.img_size, 1)  # B x 1 x D x 1
-
+        # TODO I think this can be done with a reshape because we only have one channel, I'm not sure if the
+        # memory layout is the same though or if this is important
         u = torch.nn.functional.unfold(x, self.patch_size, stride=self.patch_size)
         return u.transpose(1, 2)
 

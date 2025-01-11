@@ -21,7 +21,7 @@ class NormalizingFlowLitModule(ProposalFlowLitModule):
         optimizer: torch.optim.Optimizer,
         scheduler: torch.optim.lr_scheduler,
         compile: bool,
-        jarzynski_batch_size: int = 8,  # TODO bit weird this is here but main generation done by data module
+        jarzynski_batch_size: int,  # TODO bit weird this is here but main generation done by data module
     ) -> None:
         """Initialize a `NormalizingFlowLitModule`.
 

@@ -26,7 +26,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         optimizer: torch.optim.Optimizer,
         scheduler: torch.optim.lr_scheduler,
         compile: bool,
-        jarzynski_batch_size: int = 8,  # TODO bit weird this is here but main generation done by data module
+        jarzynski_batch_size: int = None,  # TODO bit weird this is here but main generation done by data module
     ) -> None:
         """Initialize a `FlowMatchLitModule`.
 
@@ -174,8 +174,8 @@ class BoltzmannGeneratorLitModule(LightningModule):
 
         X = samples_proposal.to(self.device)
 
-        eps = 0.01
-        num_timesteps = 100  # TODO should default to 1000
+        eps = 0.001
+        num_timesteps = 1000  # TODO should default to 1000
 
         A = torch.zeros(X.shape[0], device=X.device)  # the jarzynski weights
 
