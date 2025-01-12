@@ -1,13 +1,5 @@
 defaults:
   - default
+  - net: tarflow_large
 
 _target_: src.models.normalizing_flow_module.NormalizingFlowLitModule
-
-net:
-  _target_: src.models.components.tarflow.TarFlow
-  img_size: 8
-  in_channels: 1
-  patch_size: 1
-  channels: 64
-  num_blocks: 3
-  layers_per_block: 2

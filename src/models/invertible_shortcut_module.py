@@ -37,6 +37,7 @@ class InvertibleShortcutLitModule(NormalizingFlowLitModule):
             raise ValueError("base_flow_ckpt_path must be provided")
         self.base_flow = ShortcutLitModule.load_from_checkpoint(
             base_flow_ckpt_path,  # TODO find a way to pass null in without breaking for sampling
+            datamodule=datamodule
         )
 
     def model_step(
@@ -55,21 +56,21 @@ class InvertibleShortcutLitModule(NormalizingFlowLitModule):
             # TODO you need to have either multiple networks or time conditioning
 
         # get a vector of d_base values (all the same)
-        d_base = torch.ones(batch.shape[0]) * self.hparams.d_base
+        d_base = torch.ones(batch.shape[0], device=batch.device) * self.hparams.d_base
 
         # sample a t value for each sample in the batch
         # following the discretization of d_base
-        t = self.base_flow.sample_t(d_base)
+        t = self.base_flow.sample_t(d_base).to(batch.device)
 
         # sample the prior and get xt
         batch_prior = self.prior.sample(batch.shape[0]).to(batch.device)
-        xt = self.base_flow.get_xt(batch, batch_prior, t)
+        xt = self.base_flow.get_xt(batch_prior, batch, t)
 
         # compute the shortcut vector field
         with torch.no_grad():
             v_shortcuts = self.base_flow.get_bootstrap_targets(xt, t, d_base)
 
-        v_pred, *_ = self.reverse(xt)
+        v_pred, *_ = self.net.reverse(xt)
 
         loss = self.criterion(v_pred, v_shortcuts)
 

@@ -9,11 +9,13 @@ hydra:
     #tasks_per_node: 1
     #additional_parameters: {array: 1-50%10}
     cpus_per_task: 1
-    mem_gb: 5
+    mem_gb: 8
     #    gres: gpu:1
-    timeout_min: 100
+    timeout_min: 600
     #max_num_timeout: 50
     array_parallelism: 64 # max num of tasks to run in parallel (via job array)
     setup:
+      - "module purge"
+      - "module load miniconda/3"
       - "module load cudatoolkit/12.4"
       - "micromamba activate tbg3"

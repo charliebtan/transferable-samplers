@@ -108,7 +108,7 @@ class DW4DataModule(LightningDataModule):
     def energy(self, x):
         assert x.shape[-1] == NUM_PARTICLES * DIM
         x = x.reshape(-1, NUM_PARTICLES, DIM)
-        x = x * torch.tensor([DW4_STD])
+        x = x * torch.tensor([DW4_STD], device=x.device)
         x = x.reshape(-1, NUM_PARTICLES * DIM)
         return self.potential.energy(x)
 
@@ -327,10 +327,11 @@ class DW4DataModule(LightningDataModule):
             )
 
         axs[0].set_xlabel("Interatomic distance")
+        axs[0].legend()
 
         energy_samples = self.energy(samples)
         logits = -energy_samples.flatten() - log_p_samples.flatten()
-        importance_weights = torch.nn.functional.softmax(logits).detach().cpu()
+        importance_weights = torch.nn.functional.softmax(logits, dim=0).detach().cpu()
         energy_samples = energy_samples.detach().cpu()
         energy_test = self.energy(test_data_smaller).detach().cpu()
 
@@ -375,7 +376,7 @@ class DW4DataModule(LightningDataModule):
             energies_jarzynski = self.energy(samples_jarzynski)
             jarzynski_logits = -energies_jarzynski.flatten() - jarzynski_log_p.flatten()
             jarzynski_weights = (
-                torch.nn.functional.softmax(jarzynski_logits).detach().cpu()
+                torch.nn.functional.softmax(jarzynski_logits, dim=0).detach().cpu()
             )
             energies_jarzynski = energies_jarzynski.detach().cpu().numpy()
 
