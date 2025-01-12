@@ -16,14 +16,10 @@ class InvertibleShortcutLitModule(NormalizingFlowLitModule):
 
     def __init__(
         self,
-        net: torch.nn.Module,
-        optimizer: torch.optim.Optimizer,
-        scheduler: torch.optim.lr_scheduler,
-        datamodule: LightningDataModule,
-        compile: bool,
         base_flow_ckpt_path: str,
         d_base: int,
-        jarzynski_batch_size: int,  # TODO bit weird this is here but main generation done by data module
+        *args,
+        **kwargs,
     ) -> None:
         """Initialize a `NormalizingFlowLitModule`.
 
@@ -31,13 +27,14 @@ class InvertibleShortcutLitModule(NormalizingFlowLitModule):
         :param optimizer: The optimizer to use for training.
         :param scheduler: The learning rate scheduler to use for training.
         """
-        super().__init__(net, optimizer, scheduler, datamodule, compile, jarzynski_batch_size)
-
         if base_flow_ckpt_path is None:
             raise ValueError("base_flow_ckpt_path must be provided")
+        super().__init__(*args, **kwargs)
         self.base_flow = ShortcutLitModule.load_from_checkpoint(
-            base_flow_ckpt_path,  # TODO find a way to pass null in without breaking for sampling
-            datamodule=datamodule
+            base_flow_ckpt_path,
+            datamodule=self.datamodule,
+            jarzynski_sampler=self.hparams.jarzynski_sampler,
+            sampling_config=self.hparams.sampling_config,
         )
 
     def model_step(
@@ -84,6 +81,11 @@ class InvertibleShortcutLitModule(NormalizingFlowLitModule):
 
         return loss
 
+    def proposal_energy(self, x: torch.Tensor) -> torch.Tensor:
+        x0 = self.net.reverse(x)
+        x_pred, dlogp = self.net.forward(x0)
+        return -(-self.prior.energy(x0).view(-1) - dlogp.view(-1))
+
     def generate_samples(
         self, batch_size: int, n_timesteps: int = None
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -104,6 +106,7 @@ class InvertibleShortcutLitModule(NormalizingFlowLitModule):
             x0_pred, logdets = self.net(x_pred)
             log_p = prior_log_p.flatten() + logdets.flatten()
         elif True:
+            # Pretty clear that this is the best option at least in terms of samples
             x_pred, logdets = self.net(prior_samples)
             log_p = prior_log_p.flatten() + logdets.flatten()
         else:
@@ -111,6 +114,7 @@ class InvertibleShortcutLitModule(NormalizingFlowLitModule):
             x0_pred, logdets = self.net(x_pred)
             log_p = -self.prior.energy(x0_pred).flatten() - logdets.flatten()
         return x_pred, log_p, torch.empty(0)
+
 
 if __name__ == "__main__":
     _ = InvertibleShortcutLitModule(None, None, None, None)

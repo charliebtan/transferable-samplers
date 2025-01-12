@@ -18,12 +18,28 @@ scheduler:
   _partial_: true
   max_lr: ${model.optimizer.lr}
   total_steps: ${trainer.max_epochs}
-  pct_start: 0.1
+  pct_start: 0.05
   anneal_strategy: cos
   cycle_momentum: false
   div_factor: 5e2
   final_div_factor: 1.0
 
+jarzynski_sampler:
+  _target_: src.models.components.jarzynski_sampler.JarzynskiSampler
+  _partial_: true
+  batch_size: ${data.batch_size}
+  langevin_eps: 0.4
+  num_timesteps: 1_000
+
+sampling_config:
+  num_proposal_samples: 10_000
+  num_test_proposal_samples: 100_000
+  # Currently unused
+  sampling_batch_size: 10_000
+  sampling_freq: 1
+  jarzynski_freq: 1
+  test_proposal_seed: 42
+  save_samples_path: null
+
 # compile model for faster training with pytorch 2.0
 compile: false
-jarzynski_batch_size: ${data.batch_size}

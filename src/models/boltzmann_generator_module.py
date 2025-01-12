@@ -1,4 +1,4 @@
-import math
+import logging
 from typing import Any, Dict, Tuple
 
 import torch
@@ -6,10 +6,10 @@ import torchmetrics
 from bgflow import MeanFreeNormalDistribution
 from lightning import LightningDataModule, LightningModule
 from lightning.pytorch.loggers import WandbLogger
-from src.utils.dw4_plots import TARGET
-from src.utils.tbg_utils import kish_effective_sample_size
+from src.models.components.jarzynski_sampler import JarzynskiSampler
 from torchmetrics import MeanMetric
-from tqdm import tqdm
+
+logger = logging.getLogger(__name__)
 
 
 class BoltzmannGeneratorLitModule(LightningModule):
@@ -25,9 +25,11 @@ class BoltzmannGeneratorLitModule(LightningModule):
         optimizer: torch.optim.Optimizer,
         scheduler: torch.optim.lr_scheduler,
         datamodule: LightningDataModule,
+        jarzynski_sampler: JarzynskiSampler,
+        sampling_config,
         compile: bool,
-        jarzynski_batch_size: int = None,  # TODO bit weird this is here but main generation done by data module
-        num_proposal_samples: int = 10000,
+        *args,
+        **kwargs,
     ) -> None:
         """Initialize a `FlowMatchLitModule`.
 
@@ -40,12 +42,19 @@ class BoltzmannGeneratorLitModule(LightningModule):
         # this line allows to access init params with 'self.hparams' attribute
         # also ensures init params will be stored in ckpt
         self.save_hyperparameters(logger=False)
+        if args or kwargs:
+            logger.warning(f"Unexpected arguments: {args}, {kwargs}")
 
         self.net = net
         self.datamodule = datamodule
 
+        self.jarzynski_sampler = jarzynski_sampler(
+            source_energy=self.proposal_energy,
+            target_energy=self.datamodule.energy,
+        )
+
         # loss function
-        self.criterion = torch.nn.MSELoss(reduce="mean")
+        self.criterion = torch.nn.MSELoss(reduction="mean")
 
         # metric objects for calculating and averaging accuracy across batches
 
@@ -85,9 +94,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         """
         loss = self.model_step(batch)
         batch_value = self.train_metrics(loss)
-        # self.log("train/loss", loss)
         self.log_dict(batch_value, prog_bar=True)
-        # self.log("train/lr", self.trainer.lr_schedulers.get_lr())
         return loss
 
     def setup(self, stage: str) -> None:
@@ -184,12 +191,25 @@ class BoltzmannGeneratorLitModule(LightningModule):
         self.eval_step(batch, batch_idx, prefix="test")
 
     def on_eval_epoch_end(self, metrics, prefix: str = "val") -> None:
-        samples, log_p, prior_samples = self.generate_samples(
-            self.hparams.num_proposal_samples
-        )
+        if prefix == "val":
+            num_proposal_samples = self.hparams.sampling_config.num_proposal_samples
+        elif prefix == "test":
+            num_proposal_samples = self.hparams.sampling_config.num_test_proposl_samples
+        samples, log_p, prior_samples = self.generate_samples(num_proposal_samples)
+        jarzynski_samples, jarzynski_weights = None, None
+        if self.jarzynski_sampler is not None:
+            jarzynski_samples, jarzynski_weights = self.jarzynski_sampler.sample(
+                samples
+            )
+
         self.log_dict(metrics.compute())
         self.datamodule.log_on_epoch_end(
-            samples, log_p, wandb_logger=self.wandb_logger, prefix=prefix
+            samples,
+            log_p,
+            jarzynski_samples,
+            jarzynski_weights,
+            wandb_logger=self.wandb_logger,
+            prefix=prefix,
         )
         metrics.reset()
 
@@ -207,124 +227,9 @@ class BoltzmannGeneratorLitModule(LightningModule):
 
     def proposal_energy(self, x: torch.Tensor) -> torch.Tensor:
         # x is considered to be a sample from the proposal distribution
+        raise NotImplementedError
         x0, dlogp = self.flow(x, reverse=True)
         return -(-self.prior.energy(x0).view(-1) - dlogp.view(-1))
-
-    def linear_energy_interpolation(self, x, t):
-        energy = (1 - t) * self.proposal_energy(x) + t * TARGET.energy(x).view(-1)
-        assert energy.shape == (
-            x.shape[0],
-        ), "Energy should be a flat vector, one value per sample"
-        return energy
-
-    def linear_energy_interpolation_gradients(self, x, t):
-        t = t.repeat(x.shape[0]).to(x)
-
-        with torch.set_grad_enabled(True):
-            x.requires_grad = True
-            t.requires_grad = True
-
-            et = self.linear_energy_interpolation(x, t)
-
-            assert (
-                et.requires_grad
-            ), "et should require grad - check the energy function for no_grad"
-
-            # this is a bit hacky but is fine as long as
-            # the energy function is defined properly and
-            # doesn't mix batch items
-
-            x_grad, t_grad = torch.autograd.grad(et.sum(), (x, t))
-
-            assert x_grad.shape == x.shape, "x_grad should have the same shape as x"
-            assert t_grad.shape == t.shape, "t_grad should have the same shape as t"
-
-        assert x_grad is not None, "x_grad should not be None"
-        assert t_grad is not None, "t_grad should not be None"
-
-        return x_grad, t_grad
-
-    @torch.no_grad()
-    def jarzyinski_process(self, samples_proposal):
-        # TODO I think I should test with a simple energy function and make sure I am getting the correct energies etc
-
-        X = samples_proposal.to(self.device)
-
-        eps = 0.4
-        num_timesteps = 1000  # TODO should default to 1000
-
-        A = torch.zeros(X.shape[0], device=X.device)  # the jarzynski weights
-
-        timesteps = torch.linspace(0, 1, num_timesteps + 1)
-        dt = 1 / num_timesteps
-
-        A_list = [A]
-        ESS_list = []
-
-        # slice into list of batches (tensors)
-        X_batches = [
-            X[i : i + self.hparams.jarzynski_batch_size]
-            for i in range(0, X.shape[0], self.hparams.jarzynski_batch_size)
-        ]
-        A_batches = [
-            A[i : i + self.hparams.jarzynski_batch_size]
-            for i in range(0, A.shape[0], self.hparams.jarzynski_batch_size)
-        ]
-
-        for j, t in tqdm(enumerate(timesteps[:-1])):
-            for batch_idx, (X_batch, A_batch) in enumerate(zip(X_batches, A_batches)):
-                # get the energy gradients
-                energy_grad_x, energy_grad_t = (
-                    self.linear_energy_interpolation_gradients(X_batch, t)
-                )
-
-                # compute the updates
-                dX_t = -eps * energy_grad_x * dt + math.sqrt(
-                    2 * eps * dt
-                ) * torch.randn_like(X_batch)
-                dA_t = -energy_grad_t * dt
-
-                assert (
-                    dX_t.shape == X_batch.shape
-                ), "dX_t should have the same shape as X_batch"
-                assert (
-                    dA_t.shape == A_batch.shape
-                ), "dA_t should have the same shape as A_batch"
-
-                # apply the updates to the batch in the list
-                X_batches[batch_idx] = X_batch + dX_t
-                A_batches[batch_idx] = A_batch + dA_t
-
-                if X_batches[batch_idx].isnan().any():
-                    raise ValueError("X_batch has NaNs")
-                if A_batches[batch_idx].isnan().any():
-                    raise ValueError("A_batch has NaNs")
-
-            # cat the batches to compute global statistics
-            X = torch.cat(X_batches, dim=0)
-            A = torch.cat(A_batches, dim=0)
-
-            jarzynski_weights = torch.softmax(A, dim=-1)
-
-            A_list.append(A)
-            ESS = kish_effective_sample_size(A).item() / len(A)
-            ESS_list.append(ESS)
-
-            if ESS < 0.5:
-                # qmc_rand = sampler.random(n=len(A))
-                # cum_prob = torch.cumsum(torch.softmax(A, dim=-1), dim=0)
-                # indexes = np.searchsorted(cum_prob, qmc_rand, side="left").flatten()
-                indexes = torch.multinomial(jarzynski_weights, len(A), replacement=True)
-                X = X[indexes]
-                A = torch.zeros_like(A)
-            if j % 1000 == 0:
-                pass
-                # print("energy", j, target_energy(X))
-
-        jarzynski_samples = X
-        jarzynski_weights = torch.softmax(A, dim=-1)
-
-        return jarzynski_samples.cpu(), jarzynski_weights.cpu()
 
 
 if __name__ == "__main__":

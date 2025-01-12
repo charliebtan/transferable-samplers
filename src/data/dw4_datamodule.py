@@ -110,7 +110,7 @@ class DW4DataModule(LightningDataModule):
         x = x.reshape(-1, NUM_PARTICLES, DIM)
         x = x * torch.tensor([DW4_STD], device=x.device)
         x = x.reshape(-1, NUM_PARTICLES * DIM)
-        return self.potential.energy(x)
+        return self.potential.energy(x).flatten()
 
     def prepare_data(self) -> None:
         """Download data if needed. Lightning ensures that `self.prepare_data()` is called only
