@@ -45,3 +45,4 @@ jupyterlab
 bgflow @ git+https://github.com/atong01/bgflow.git
 bgmol @ git+https://github.com/atong01/bgmol.git
 zuko
+wandb

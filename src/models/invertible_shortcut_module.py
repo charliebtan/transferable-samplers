@@ -2,6 +2,7 @@ from typing import Any, Dict, Tuple
 
 import torch
 from lightning import LightningDataModule, LightningModule
+
 from src.models.boltzmann_generator_module import BoltzmannGeneratorLitModule
 from src.models.normalizing_flow_module import NormalizingFlowLitModule
 from src.models.shortcut_module import ShortcutLitModule
@@ -27,6 +28,7 @@ class InvertibleShortcutLitModule(NormalizingFlowLitModule):
         :param optimizer: The optimizer to use for training.
         :param scheduler: The learning rate scheduler to use for training.
         """
+        assert d_base == 0, "Only d_base=0 is supported for now"
         if base_flow_ckpt_path is None:
             raise ValueError("base_flow_ckpt_path must be provided")
         super().__init__(*args, **kwargs)
@@ -67,17 +69,8 @@ class InvertibleShortcutLitModule(NormalizingFlowLitModule):
             v_shortcuts = self.base_flow.get_bootstrap_targets(batch_prior, t, d_base)
             batch_target = batch_prior + v_shortcuts
 
-        if False:
-            # (alex) This is like 5x faster on A100 cause of inplace ops in reverse
-            x_pred, _ = self.net.forward(batch_target.detach())
-            loss = self.criterion(x_pred, batch_prior)
-        elif True:
-            x_pred, _ = self.net.forward(batch_prior.detach())
-            loss = self.criterion(x_pred, batch_target)
-
-        else:
-            x_pred = self.net.reverse(batch_prior.detach())
-            loss = self.criterion(x_pred, batch_target)
+        x_pred, _ = self.net.forward(batch_prior.detach())
+        loss = self.criterion(x_pred, batch_target)
 
         return loss
 
@@ -87,7 +80,8 @@ class InvertibleShortcutLitModule(NormalizingFlowLitModule):
         return -(-self.prior.energy(x0).view(-1) - dlogp.view(-1))
 
     def generate_samples(
-        self, batch_size: int, n_timesteps: int = None
+        self,
+        batch_size: int,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Generate samples from the model.
 
@@ -99,20 +93,10 @@ class InvertibleShortcutLitModule(NormalizingFlowLitModule):
         """
         prior_samples = self.prior.sample(batch_size).to(self.device)
         prior_log_p = -self.prior.energy(prior_samples)
-        # This is a bit slow... but probably fine 2x calls
-        if False:
-            # Unclear which option is better
-            x_pred = self.net.reverse(prior_samples)
-            x0_pred, logdets = self.net(x_pred)
-            log_p = prior_log_p.flatten() + logdets.flatten()
-        elif True:
-            # Pretty clear that this is the best option at least in terms of samples
+        with torch.no_grad():
             x_pred, logdets = self.net(prior_samples)
-            log_p = prior_log_p.flatten() + logdets.flatten()
-        else:
-            x_pred = self.net.reverse(prior_samples)
-            x0_pred, logdets = self.net(x_pred)
-            log_p = -self.prior.energy(x0_pred).flatten() - logdets.flatten()
+        log_p = prior_log_p.flatten() + logdets.flatten()
+
         return x_pred, log_p, torch.empty(0)
 
 
