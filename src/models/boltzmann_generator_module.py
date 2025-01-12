@@ -203,13 +203,12 @@ class BoltzmannGeneratorLitModule(LightningModule):
         sample_target_energy = self.datamodule.energy(samples)
         assert log_p.shape == sample_target_energy.shape
         logits = -sample_target_energy - log_p
-        ess = kish_effective_sample_size(logits)
+        ess = kish_effective_sample_size(logits) / len(logits)
         self.log(f"{prefix}/effective_sample_size", ess, sync_dist=True)
         num_eval_samples = 5000
         names, dists = compute_distribution_distances(
-            self.datamodule.unnormalize(samples[:num_eval_samples]).unsqueeze(0).cpu(),
+            self.datamodule.unnormalize(samples[:num_eval_samples]).cpu(),
             self.datamodule.unnormalize(self.datamodule.data_val[:num_eval_samples])
-            .unsqueeze(0)
             .cpu(),
         )
         energy_w2 = pot.emd2_1d(-log_p.cpu().numpy(), sample_target_energy.cpu().numpy())
