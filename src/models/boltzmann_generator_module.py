@@ -1,14 +1,17 @@
 import logging
 from typing import Any, Dict, Tuple
 
+import ot as pot
 import torch
 import torchmetrics
 from bgflow import MeanFreeNormalDistribution
 from lightning import LightningDataModule, LightningModule
 from lightning.pytorch.loggers import WandbLogger
-from torchmetrics import MeanMetric
-
+from src.models.components.distribution_distances import \
+    compute_distribution_distances
 from src.models.components.jarzynski_sampler import JarzynskiSampler
+from src.utils.tbg_utils import kish_effective_sample_size
+from torchmetrics import MeanMetric
 
 logger = logging.getLogger(__name__)
 
@@ -190,10 +193,30 @@ class BoltzmannGeneratorLitModule(LightningModule):
             num_proposal_samples = self.hparams.sampling_config.num_test_proposl_samples
         samples, log_p, prior_samples = self.generate_samples(num_proposal_samples)
         jarzynski_samples, jarzynski_weights = None, None
-        if self.jarzynski_sampler is not None:
-            jarzynski_samples, jarzynski_weights = self.jarzynski_sampler.sample(samples)
+        if self.jarzynski_sampler is not None and self.jarzynski_sampler.enabled:
+            num_jarzynski_samples = self.hparams.sampling_config.num_jarzynski_samples
+            assert num_jarzynski_samples <= num_proposal_samples
+            jarzynski_samples, jarzynski_weights = self.jarzynski_sampler.sample(
+                samples[:num_jarzynski_samples]
+            )
 
-        self.log_dict(metrics.compute())
+        sample_target_energy = self.datamodule.energy(samples)
+        assert log_p.shape == sample_target_energy.shape
+        logits = -sample_target_energy - log_p
+        ess = kish_effective_sample_size(logits)
+        self.log(f"{prefix}/effective_sample_size", ess, sync_dist=True)
+        num_eval_samples = 5000
+        names, dists = compute_distribution_distances(
+            self.datamodule.unnormalize(samples[:num_eval_samples]).unsqueeze(0).cpu(),
+            self.datamodule.unnormalize(self.datamodule.data_val[:num_eval_samples])
+            .unsqueeze(0)
+            .cpu(),
+        )
+        energy_w2 = pot.emd2_1d(-log_p.cpu().numpy(), sample_target_energy.cpu().numpy())
+        names = [f"{prefix}/{name}" for name in names]
+        dist_metrics = dict(zip(names, dists))
+        dist_metrics[f"{prefix}/energy_w2"] = energy_w2
+        self.log_dict(metrics.compute() | dist_metrics)
         self.datamodule.log_on_epoch_end(
             samples,
             log_p,

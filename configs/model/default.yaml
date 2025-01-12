@@ -28,12 +28,14 @@ jarzynski_sampler:
   _target_: src.models.components.jarzynski_sampler.JarzynskiSampler
   _partial_: true
   batch_size: ${data.batch_size}
-  langevin_eps: 0.4
-  num_timesteps: 1_000
+  langevin_eps: 0.1
+  num_timesteps: 10
+  enabled: false
 
 sampling_config:
   num_proposal_samples: 10_000
   num_test_proposal_samples: 100_000
+  num_jarzynski_samples: 100
   # Currently unused
   sampling_batch_size: 10_000
   sampling_freq: 1

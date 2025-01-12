@@ -15,6 +15,7 @@ class JarzynskiSampler(torch.nn.Module):
         langevin_eps: float = 0.4,
         num_timesteps: int = 1000,
         ess_threshold: float = 0.5,
+        enabled: bool = True,
     ):
         super().__init__()
         self.source_energy = source_energy
@@ -23,6 +24,7 @@ class JarzynskiSampler(torch.nn.Module):
         self.langevin_eps = langevin_eps
         self.num_timesteps = num_timesteps
         self.ess_threshold = ess_threshold
+        self.enabled = enabled
 
     def linear_energy_interpolation(self, x, t):
         source_energy = self.source_energy(x)
@@ -65,6 +67,8 @@ class JarzynskiSampler(torch.nn.Module):
 
     @torch.no_grad()
     def sample(self, samples_proposal):
+        if not self.enabled:
+            return None, None
         # TODO I think I should test with a simple energy function and make
         # sure I am getting the correct energies etc
         num_timesteps = self.num_timesteps
