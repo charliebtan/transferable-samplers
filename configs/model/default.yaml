@@ -36,6 +36,7 @@ sampling_config:
   num_proposal_samples: 10_000
   num_test_proposal_samples: 100_000
   num_jarzynski_samples: 100
+  num_eval_samples: 5_000
   # Currently unused
   sampling_batch_size: 10_000
   sampling_freq: 1

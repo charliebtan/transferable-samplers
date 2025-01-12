@@ -189,8 +189,10 @@ class BoltzmannGeneratorLitModule(LightningModule):
     def on_eval_epoch_end(self, metrics, prefix: str = "val") -> None:
         if prefix == "val":
             num_proposal_samples = self.hparams.sampling_config.num_proposal_samples
+            true_data = self.datamodule.data_val
         elif prefix == "test":
             num_proposal_samples = self.hparams.sampling_config.num_test_proposl_samples
+            true_data = self.datamodule.data_test
         samples, log_p, prior_samples = self.generate_samples(num_proposal_samples)
         jarzynski_samples, jarzynski_weights = None, None
         if self.jarzynski_sampler is not None and self.jarzynski_sampler.enabled:
@@ -205,10 +207,10 @@ class BoltzmannGeneratorLitModule(LightningModule):
         logits = -sample_target_energy - log_p
         ess = kish_effective_sample_size(logits) / len(logits)
         self.log(f"{prefix}/effective_sample_size", ess, sync_dist=True)
-        num_eval_samples = 5000
+        num_eval_samples = self.hparams.sampling_config.num_eval_samples
         names, dists = compute_distribution_distances(
             self.datamodule.unnormalize(samples[:num_eval_samples]).cpu(),
-            self.datamodule.unnormalize(self.datamodule.data_val[:num_eval_samples]).cpu(),
+            self.datamodule.unnormalize(true_data[:num_eval_samples]).cpu(),
         )
         energy_w2 = pot.emd2_1d(-log_p.cpu().numpy(), sample_target_energy.cpu().numpy())
         names = [f"{prefix}/{name}" for name in names]
