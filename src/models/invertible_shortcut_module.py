@@ -74,6 +74,10 @@ class InvertibleShortcutLitModule(NormalizingFlowLitModule):
             # (alex) This is like 5x faster on A100 cause of inplace ops in reverse
             x_pred, _ = self.net.forward(batch_target.detach())
             loss = self.criterion(x_pred, batch_prior)
+        elif True:
+            x_pred, _ = self.net.forward(batch_prior.detach())
+            loss = self.criterion(x_pred, batch_target)
+
         else:
             x_pred = self.net.reverse(batch_prior.detach())
             loss = self.criterion(x_pred, batch_target)
@@ -94,12 +98,17 @@ class InvertibleShortcutLitModule(NormalizingFlowLitModule):
         prior_samples = self.prior.sample(batch_size).to(self.device)
         prior_log_p = -self.prior.energy(prior_samples)
         # This is a bit slow... but probably fine 2x calls
-        x_pred = self.net.reverse(prior_samples)
-        x0_pred, logdets = self.net(x_pred)
         if False:
             # Unclear which option is better
+            x_pred = self.net.reverse(prior_samples)
+            x0_pred, logdets = self.net(x_pred)
+            log_p = prior_log_p.flatten() + logdets.flatten()
+        elif True:
+            x_pred, logdets = self.net(prior_samples)
             log_p = prior_log_p.flatten() + logdets.flatten()
         else:
+            x_pred = self.net.reverse(prior_samples)
+            x0_pred, logdets = self.net(x_pred)
             log_p = -self.prior.energy(x0_pred).flatten() - logdets.flatten()
         return x_pred, log_p, torch.empty(0)
 
