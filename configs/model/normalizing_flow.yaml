@@ -1,10 +1,5 @@
 defaults:
   - default
+  - net: tarflow_large
 
 _target_: src.models.normalizing_flow_module.NormalizingFlowLitModule
-
-net:
-  _target_: src.models.components.maf.OurNSF
-  features: 8 # TODO dynamic?
-  transforms: 8
-  hidden_features: [128, 128, 128]

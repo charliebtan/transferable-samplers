@@ -2,15 +2,14 @@ import math
 from typing import Any, Dict, Tuple
 
 import torch
+import torchmetrics
 from bgflow import MeanFreeNormalDistribution
-from lightning import LightningModule
-from torchdyn.core import NeuralODE
-from torchmetrics import MeanMetric
-from tqdm import tqdm
-
-from src.models.components.wrappers import TorchdynWrapper
+from lightning import LightningDataModule, LightningModule
+from lightning.pytorch.loggers import WandbLogger
 from src.utils.dw4_plots import TARGET
 from src.utils.tbg_utils import kish_effective_sample_size
+from torchmetrics import MeanMetric
+from tqdm import tqdm
 
 
 class BoltzmannGeneratorLitModule(LightningModule):
@@ -25,8 +24,10 @@ class BoltzmannGeneratorLitModule(LightningModule):
         net: torch.nn.Module,
         optimizer: torch.optim.Optimizer,
         scheduler: torch.optim.lr_scheduler,
+        datamodule: LightningDataModule,
         compile: bool,
         jarzynski_batch_size: int = None,  # TODO bit weird this is here but main generation done by data module
+        num_proposal_samples: int = 10000,
     ) -> None:
         """Initialize a `FlowMatchLitModule`.
 
@@ -41,12 +42,19 @@ class BoltzmannGeneratorLitModule(LightningModule):
         self.save_hyperparameters(logger=False)
 
         self.net = net
+        self.datamodule = datamodule
 
         # loss function
         self.criterion = torch.nn.MSELoss(reduce="mean")
 
         # metric objects for calculating and averaging accuracy across batches
-        self.train_loss = MeanMetric()
+
+        self.train_metrics = torchmetrics.MetricCollection(
+            {"loss": MeanMetric()}, prefix="train/"
+        )
+        self.val_metrics = self.train_metrics.clone(prefix="val/")
+        self.test_metrics = self.train_metrics.clone(prefix="test/")
+        # self.train_loss = MeanMetric()
 
         # TODO TODO I'm not sure this is the right place to have this
 
@@ -76,12 +84,9 @@ class BoltzmannGeneratorLitModule(LightningModule):
         :return: A tensor of losses between model predictions and targets.
         """
         loss = self.model_step(batch)
-
-        # update and log metrics
-        self.train_loss(loss)
-        self.log("train/loss", self.train_loss, on_step=False, on_epoch=True, prog_bar=True)
-
-        # return loss or backpropagation will fail
+        batch_value = self.train_metrics(loss)
+        # self.log("train/loss", loss)
+        self.log_dict(batch_value, prog_bar=True)
         return loss
 
     def setup(self, stage: str) -> None:
@@ -95,6 +100,10 @@ class BoltzmannGeneratorLitModule(LightningModule):
         """
         if self.hparams.compile and stage == "fit":
             self.net = torch.compile(self.net)
+        self.wandb_logger = None
+        for logger in self.loggers:
+            if isinstance(logger, WandbLogger):
+                self.wandb_logger = logger
 
     def configure_optimizers(self) -> Dict[str, Any]:
         """Choose what optimizers and learning-rate schedulers to use in your optimization.
@@ -116,18 +125,78 @@ class BoltzmannGeneratorLitModule(LightningModule):
             }
         return {"optimizer": optimizer}
 
-    def predict_step(self, batch: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def predict_step(
+        self, batch: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Generate a batch of samples.
 
         :param batch: A batch of (dummy) data.
         :return: A tuple containing the generated samples, the log probability, and the prior
             samples.
         """
-
-        batch_size = batch.shape[0]
-        samples, log_p, prior_samples = self.generate_samples(batch_size, device=batch.device)
-
+        samples, log_p, prior_samples = self.generate_samples(batch.shape[0])
         return samples, log_p, prior_samples
+
+    def generate_samples(
+        self, batch_size: int, n_timesteps: int = None
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Generate samples from the model.
+
+        :param batch_size: The batch size to use for generating samples.
+        :param n_timesteps: The number of timesteps to use when generating samples.
+        :param device: The device to use for generating samples.
+        :return: A tuple containing the generated samples, the prior samples, and the log
+            probability.
+        """
+        raise NotImplementedError
+
+    def eval_step(
+        self,
+        batch: Tuple[torch.Tensor, torch.Tensor],
+        batch_idx: int,
+        prefix: str = "val",
+    ) -> None:
+        loss = self.model_step(batch)
+        if prefix == "val":
+            self.val_metrics.update(loss)
+        elif prefix == "test":
+            self.test_metrics.update(loss)
+
+    def validation_step(
+        self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
+    ) -> None:
+        """Perform a single validation step on a batch of data from the validation set.
+        :param batch_idx: The index of the current batch.
+        """
+        self.eval_step(batch, batch_idx, prefix="val")
+
+    def test_step(
+        self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
+    ) -> None:
+        """Perform a single test step on a batch of data from the test set.
+        :param batch_idx: The index of the current batch.
+        """
+        self.eval_step(batch, batch_idx, prefix="test")
+
+    def on_eval_epoch_end(self, metrics, prefix: str = "val") -> None:
+        samples, log_p, prior_samples = self.generate_samples(self.hparams.num_proposal_samples)
+        self.log_dict(metrics.compute())
+        self.datamodule.log_on_epoch_end(
+            samples, log_p, wandb_logger=self.wandb_logger, prefix=prefix
+        )
+        metrics.reset()
+
+    def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
+        pass
+
+    def on_train_epoch_end(self) -> None:
+        self.train_metrics.reset()
+
+    def on_validation_epoch_end(self):
+        self.on_eval_epoch_end(self.val_metrics, "val")
+
+    def on_test_epoch_end(self) -> None:
+        self.on_eval_epoch_end(self.test_metrics, "test")
 
     def proposal_energy(self, x: torch.Tensor) -> torch.Tensor:
         # x is considered to be a sample from the proposal distribution
@@ -198,18 +267,22 @@ class BoltzmannGeneratorLitModule(LightningModule):
         for j, t in tqdm(enumerate(timesteps[:-1])):
             for batch_idx, (X_batch, A_batch) in enumerate(zip(X_batches, A_batches)):
                 # get the energy gradients
-                energy_grad_x, energy_grad_t = self.linear_energy_interpolation_gradients(
-                    X_batch, t
+                energy_grad_x, energy_grad_t = (
+                    self.linear_energy_interpolation_gradients(X_batch, t)
                 )
 
                 # compute the updates
-                dX_t = -eps * energy_grad_x * dt + math.sqrt(2 * eps * dt) * torch.randn_like(
-                    X_batch
-                )
+                dX_t = -eps * energy_grad_x * dt + math.sqrt(
+                    2 * eps * dt
+                ) * torch.randn_like(X_batch)
                 dA_t = -energy_grad_t * dt
 
-                assert dX_t.shape == X_batch.shape, "dX_t should have the same shape as X_batch"
-                assert dA_t.shape == A_batch.shape, "dA_t should have the same shape as A_batch"
+                assert (
+                    dX_t.shape == X_batch.shape
+                ), "dX_t should have the same shape as X_batch"
+                assert (
+                    dA_t.shape == A_batch.shape
+                ), "dA_t should have the same shape as A_batch"
 
                 # apply the updates to the batch in the list
                 X_batches[batch_idx] = X_batch + dX_t

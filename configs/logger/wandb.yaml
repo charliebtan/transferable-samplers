@@ -9,8 +9,9 @@ wandb:
   anonymous: null # enable anonymous logging
   project: "fast-tbg"
   log_model: False # upload lightning ckpts
+  entity: openproblems-comp
   prefix: "" # a string to put at the beginning of metric keys
   # entity: "" # set to name of your wandb team
   group: ""
-  tags: []
+  tags: ${tags}
   job_type: ""
