@@ -2,6 +2,7 @@ from typing import Any, Dict, Tuple
 
 import torch
 
+from lightning import LightningDataModule, LightningModule
 from src.models.boltzmann_generator_module import BoltzmannGeneratorLitModule
 from src.models.shortcut_module import ShortcutLitModule
 
@@ -18,6 +19,7 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
         net: torch.nn.Module,
         optimizer: torch.optim.Optimizer,
         scheduler: torch.optim.lr_scheduler,
+        datamodule: LightningDataModule,
         compile: bool,
         jarzynski_batch_size: int,  # TODO bit weird this is here but main generation done by data module
     ) -> None:
@@ -27,41 +29,16 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
         :param optimizer: The optimizer to use for training.
         :param scheduler: The learning rate scheduler to use for training.
         """
-        super().__init__(net, optimizer, scheduler, compile)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Perform a forward pass through the model `self.net`.
-
-        :param x:
-        :param t:
-        :return: dx
-        """
-        return self.net(x)
+        super().__init__(net, optimizer, scheduler, datamodule, compile)
 
     def model_step(
         self,
         batch: torch.Tensor,
     ) -> torch.Tensor:
-
-        v_pred, *_ = self.forward(xt)
-
-        loss = self.criterion(v_pred, v_shortcuts)
-        loss = self.criterion(v_pred, v_shortcuts)
-
+        x1 = batch
+        x0, dlogp = self.net(x1)
+        loss = self.prior.energy(x0).mean() - dlogp.mean()
         return loss
-
-    def flow(self, x: torch.Tensor, reverse=False) -> torch.Tensor:
-        if not reverse:
-            v_pred, logdets = self.forward(x)
-        else:
-            v_pred, *_ = self.net.reverse(x)
-            _, logdets = self.forward(x)
-
-        # TODO I think you may need to handle this case different because this is the forward logdet
-
-        samples = x + v_pred
-
-        return samples, logdets[..., None]
 
     def generate_samples(
         self, batch_size: int, n_timesteps: int = None
@@ -74,16 +51,14 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
         :return: A tuple containing the generated samples, the prior samples, and the log
             probability.
         """
-
         prior_samples = self.prior.sample(batch_size).to(self.device)
         prior_log_p = -self.prior.energy(prior_samples)
-
-        samples, dlogp = self.flow(prior_samples)
-
-        log_p = prior_log_p + dlogp
-
-        return samples, log_p.squeeze(), torch.empty(0)
+        # This is a bit slow... but probably fine 2x calls
+        x_pred = self.net.reverse(prior_samples)
+        _, logdets = self.net(x_pred)
+        log_p = prior_log_p.flatten() + logdets.flatten()
+        return x_pred, log_p, torch.empty(0)
 
 
 if __name__ == "__main__":
-    _ = InvertibleShortcutLitModule(None, None, None, None)
+    _ = NormalizingFlowLitModule(None, None, None, None)

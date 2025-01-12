@@ -24,6 +24,7 @@ class ShortcutLitModule(BoltzmannGeneratorLitModule):
         datamodule: LightningDataModule,
         compile: bool,
         jarzynski_batch_size: int,  # TODO bit weird this is here but main generation done by data module
+        num_proposal_samples: int = 1000,
         sigma: float = 0.0,
         M: int = 128,
         bootstrap_every: int = 8,
@@ -35,7 +36,7 @@ class ShortcutLitModule(BoltzmannGeneratorLitModule):
         :param optimizer: The optimizer to use for training.
         :param scheduler: The learning rate scheduler to use for training.
         """
-        super().__init__(net, optimizer, scheduler, datamodule, compile)
+        super().__init__(net, optimizer, scheduler, datamodule, compile, num_proposal_samples=num_proposal_samples)
 
     def forward(
         self, t: torch.Tensor, x: torch.Tensor, d_base: torch.Tensor

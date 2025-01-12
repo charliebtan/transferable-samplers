@@ -27,6 +27,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         datamodule: LightningDataModule,
         compile: bool,
         jarzynski_batch_size: int = None,  # TODO bit weird this is here but main generation done by data module
+        num_proposal_samples: int = 10000,
     ) -> None:
         """Initialize a `FlowMatchLitModule`.
 
@@ -178,8 +179,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         self.eval_step(batch, batch_idx, prefix="test")
 
     def on_eval_epoch_end(self, metrics, prefix: str = "val") -> None:
-        batch_size = 100
-        samples, log_p, prior_samples = self.generate_samples(batch_size)
+        samples, log_p, prior_samples = self.generate_samples(self.hparams.num_proposal_samples)
         self.log_dict(metrics.compute())
         self.datamodule.log_on_epoch_end(
             samples, log_p, wandb_logger=self.wandb_logger, prefix=prefix

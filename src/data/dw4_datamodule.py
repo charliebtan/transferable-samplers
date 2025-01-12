@@ -106,8 +106,10 @@ class DW4DataModule(LightningDataModule):
         )
 
     def energy(self, x):
-        # if x.shape[-1] == NUM_PARTICLES * DIM:
-        #    x = x.view(-1, NUM_PARTICLES, DIM)
+        assert x.shape[-1] == NUM_PARTICLES * DIM
+        x = x.reshape(-1, NUM_PARTICLES, DIM)
+        x = x * torch.tensor([DW4_STD])
+        x = x.reshape(-1, NUM_PARTICLES * DIM)
         return self.potential.energy(x)
 
     def prepare_data(self) -> None:
@@ -361,7 +363,7 @@ class DW4DataModule(LightningDataModule):
             energy_samples,
             bins=100,
             density=True,
-            range=(min_energy, 0),
+            range=(min_energy, max_energy),
             alpha=0.4,
             histtype="step",
             linewidth=4,
@@ -381,7 +383,7 @@ class DW4DataModule(LightningDataModule):
                 energies_jarzynski,
                 bins=100,
                 density=True,
-                range=(min_energy, 0),
+                range=(min_energy, max_energy),
                 alpha=0.4,
                 histtype="step",
                 linewidth=4,
@@ -392,7 +394,7 @@ class DW4DataModule(LightningDataModule):
                 energies_jarzynski,
                 bins=100,
                 density=True,
-                range=(min_energy, 0),
+                range=(min_energy, max_energy),
                 alpha=0.4,
                 histtype="step",
                 linewidth=4,

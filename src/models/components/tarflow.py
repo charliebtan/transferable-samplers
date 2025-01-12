@@ -341,13 +341,8 @@ class TarFlow(torch.nn.Module):
             x, logdet = block(x, y)
             logdets = logdets + logdet
             outputs.append(x.squeeze())
-
-        # return x.squeeze(), outputs, logdets # OLD
-
         x_pred = x.squeeze()
-        v_pred = x_pred - x_init
-
-        return v_pred, logdets
+        return x_pred, logdets
 
     # TODO I've commented these out because I don't think we need them
     # def update_prior(self, z: torch.Tensor):
@@ -371,6 +366,7 @@ class TarFlow(torch.nn.Module):
         annealed_guidance: bool = False,
         return_sequence: bool = False,
     ) -> torch.Tensor | list[torch.Tensor]:
+        x_init = x
         if x.ndim == 2:
             x = x.reshape(-1, self.img_size, 1)  # B x D x 1 (Don't ask just believe)
         seq = [self.unpatchify(x)]

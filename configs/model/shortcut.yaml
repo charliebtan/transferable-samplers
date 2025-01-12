@@ -1,11 +1,7 @@
 defaults:
   - default
+  - net: flow_small
 
 _target_: src.models.shortcut_module.ShortcutLitModule
-
-net:
-  _target_: src.models.components.egnn_dynamics_consistency.EGNNDynamicsConsistency
-  n_particles: 4
-  n_dimension: 2
 
 sampling_d_base: null

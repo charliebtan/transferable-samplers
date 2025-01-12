@@ -1,0 +1,3 @@
+_target_: src.models.components.egnn_dynamics_consistency.EGNNDynamicsConsistency
+n_particles: 4
+n_dimension: 2
