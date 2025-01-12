@@ -2,6 +2,7 @@ import math
 
 import torch
 from tqdm import tqdm
+
 from src.utils.tbg_utils import kish_effective_sample_size
 
 
@@ -28,7 +29,7 @@ class JarzynskiSampler(torch.nn.Module):
         target_energy = self.target_energy(x)
         assert source_energy.shape == (
             x.shape[0],
-            ), f"Source energy should be a flat vector not {source_energy.shape}"
+        ), f"Source energy should be a flat vector not {source_energy.shape}"
         assert target_energy.shape == (
             x.shape[0],
         ), f"Target energy should be a flat vector, not {target_energy.shape}"
@@ -79,32 +80,24 @@ class JarzynskiSampler(torch.nn.Module):
         ESS_list = []
 
         # slice into list of batches (tensors)
-        X_batches = [
-            X[i : i + self.batch_size] for i in range(0, X.shape[0], self.batch_size)
-        ]
-        A_batches = [
-            A[i : i + self.batch_size] for i in range(0, A.shape[0], self.batch_size)
-        ]
+        X_batches = [X[i : i + self.batch_size] for i in range(0, X.shape[0], self.batch_size)]
+        A_batches = [A[i : i + self.batch_size] for i in range(0, A.shape[0], self.batch_size)]
 
         for j, t in tqdm(enumerate(timesteps[:-1])):
             for batch_idx, (X_batch, A_batch) in enumerate(zip(X_batches, A_batches)):
                 # get the energy gradients
-                energy_grad_x, energy_grad_t = (
-                    self.linear_energy_interpolation_gradients(X_batch, t)
+                energy_grad_x, energy_grad_t = self.linear_energy_interpolation_gradients(
+                    X_batch, t
                 )
 
                 # compute the updates
-                dX_t = -eps * energy_grad_x * dt + math.sqrt(
-                    2 * eps * dt
-                ) * torch.randn_like(X_batch)
+                dX_t = -eps * energy_grad_x * dt + math.sqrt(2 * eps * dt) * torch.randn_like(
+                    X_batch
+                )
                 dA_t = -energy_grad_t * dt
 
-                assert (
-                    dX_t.shape == X_batch.shape
-                ), "dX_t should have the same shape as X_batch"
-                assert (
-                    dA_t.shape == A_batch.shape
-                ), "dA_t should have the same shape as A_batch"
+                assert dX_t.shape == X_batch.shape, "dX_t should have the same shape as X_batch"
+                assert dA_t.shape == A_batch.shape, "dA_t should have the same shape as A_batch"
 
                 # apply the updates to the batch in the list
                 X_batches[batch_idx] = X_batch + dX_t

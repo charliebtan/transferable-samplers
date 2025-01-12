@@ -6,8 +6,9 @@ import torchmetrics
 from bgflow import MeanFreeNormalDistribution
 from lightning import LightningDataModule, LightningModule
 from lightning.pytorch.loggers import WandbLogger
-from src.models.components.jarzynski_sampler import JarzynskiSampler
 from torchmetrics import MeanMetric
+
+from src.models.components.jarzynski_sampler import JarzynskiSampler
 
 logger = logging.getLogger(__name__)
 
@@ -58,9 +59,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
 
         # metric objects for calculating and averaging accuracy across batches
 
-        self.train_metrics = torchmetrics.MetricCollection(
-            {"loss": MeanMetric()}, prefix="train/"
-        )
+        self.train_metrics = torchmetrics.MetricCollection({"loss": MeanMetric()}, prefix="train/")
         self.val_metrics = self.train_metrics.clone(prefix="val/")
         self.test_metrics = self.train_metrics.clone(prefix="test/")
         # self.train_loss = MeanMetric()
@@ -137,9 +136,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
             }
         return {"optimizer": optimizer}
 
-    def predict_step(
-        self, batch: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def predict_step(self, batch: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Generate a batch of samples.
 
         :param batch: A batch of (dummy) data.
@@ -174,17 +171,13 @@ class BoltzmannGeneratorLitModule(LightningModule):
         elif prefix == "test":
             self.test_metrics.update(loss)
 
-    def validation_step(
-        self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
-    ) -> None:
+    def validation_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
         """Perform a single validation step on a batch of data from the validation set.
         :param batch_idx: The index of the current batch.
         """
         self.eval_step(batch, batch_idx, prefix="val")
 
-    def test_step(
-        self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
-    ) -> None:
+    def test_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
         """Perform a single test step on a batch of data from the test set.
         :param batch_idx: The index of the current batch.
         """
@@ -198,9 +191,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         samples, log_p, prior_samples = self.generate_samples(num_proposal_samples)
         jarzynski_samples, jarzynski_weights = None, None
         if self.jarzynski_sampler is not None:
-            jarzynski_samples, jarzynski_weights = self.jarzynski_sampler.sample(
-                samples
-            )
+            jarzynski_samples, jarzynski_weights = self.jarzynski_sampler.sample(samples)
 
         self.log_dict(metrics.compute())
         self.datamodule.log_on_epoch_end(

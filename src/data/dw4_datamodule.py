@@ -1,7 +1,7 @@
 import os
-import hydra
 from typing import Any, Dict, Optional, Tuple
 
+import hydra
 import matplotlib.pyplot as plt
 import numpy as np
 import PIL
@@ -149,16 +149,12 @@ class DW4DataModule(LightningDataModule):
                 raise RuntimeError(
                     f"Batch size ({self.hparams.batch_size}) is not divisible by the number of devices ({self.trainer.world_size})."
                 )
-            self.batch_size_per_device = (
-                self.hparams.batch_size // self.trainer.world_size
-            )
+            self.batch_size_per_device = self.hparams.batch_size // self.trainer.world_size
 
         # TODO bit odd to do at every setup call? probably not too slow...
 
         # load the data + tensorize
-        dw4_data = np.load(
-            f"{self.hparams.data_dir}{self.hparams.filename}", allow_pickle=True
-        )
+        dw4_data = np.load(f"{self.hparams.data_dir}{self.hparams.filename}", allow_pickle=True)
         all_data = torch.Tensor(dw4_data[0])
 
         # split indexes
@@ -322,9 +318,7 @@ class DW4DataModule(LightningDataModule):
             label="test data",
         )
         if samples_jarzynski is not None:
-            dist_samples_jarzynski = (
-                self.interatomic_dist(samples_jarzynski).detach().cpu()
-            )
+            dist_samples_jarzynski = self.interatomic_dist(samples_jarzynski).detach().cpu()
             axs[0].hist(
                 dist_samples_jarzynski.view(-1),
                 bins=100,
@@ -384,9 +378,7 @@ class DW4DataModule(LightningDataModule):
         if samples_jarzynski is not None:
             energies_jarzynski = self.energy(samples_jarzynski)
             jarzynski_logits = -energies_jarzynski.flatten() - jarzynski_log_p.flatten()
-            jarzynski_weights = (
-                torch.nn.functional.softmax(jarzynski_logits, dim=0).detach().cpu()
-            )
+            jarzynski_weights = torch.nn.functional.softmax(jarzynski_logits, dim=0).detach().cpu()
             energies_jarzynski = energies_jarzynski.detach().cpu().numpy()
 
             axs[1].hist(
