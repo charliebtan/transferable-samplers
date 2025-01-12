@@ -10,23 +10,17 @@ class Permutation(torch.nn.Module):
         super().__init__()
         self.seq_length = seq_length
 
-    def forward(
-        self, x: torch.Tensor, dim: int = 1, inverse: bool = False
-    ) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, dim: int = 1, inverse: bool = False) -> torch.Tensor:
         raise NotImplementedError("Overload me")
 
 
 class PermutationIdentity(Permutation):
-    def forward(
-        self, x: torch.Tensor, dim: int = 1, inverse: bool = False
-    ) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, dim: int = 1, inverse: bool = False) -> torch.Tensor:
         return x
 
 
 class PermutationFlip(Permutation):
-    def forward(
-        self, x: torch.Tensor, dim: int = 1, inverse: bool = False
-    ) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, dim: int = 1, inverse: bool = False) -> torch.Tensor:
         return x.flip(dims=[dim])
 
 
@@ -55,10 +49,7 @@ class Attention(torch.nn.Module):
         B, T, C = x.size()
         x = self.norm(x.float()).type(x.dtype)
         q, k, v = (
-            self.qkv(x)
-            .reshape(B, T, 3 * self.num_heads, -1)
-            .transpose(1, 2)
-            .chunk(3, dim=1)
+            self.qkv(x).reshape(B, T, 3 * self.num_heads, -1).transpose(1, 2).chunk(3, dim=1)
         )  # (b, h, t, d)
 
         if self.sample:
@@ -72,9 +63,7 @@ class Attention(torch.nn.Module):
         scale = self.sqrt_scale**2 / temp
         if mask is not None:
             mask = mask.bool()
-        x = torch.nn.functional.scaled_dot_product_attention(
-            q, k, v, attn_mask=mask, scale=scale
-        )
+        x = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=mask, scale=scale)
         x = x.transpose(1, 2).reshape(B, T, C)
         x = self.proj(x)
         return x
@@ -95,10 +84,7 @@ class Attention(torch.nn.Module):
             k = torch.cat(self.k_cache[which_cache], dim=1)
             v = torch.cat(self.v_cache[which_cache], dim=1)
 
-        attn = (
-            torch.einsum("bmhd,bnhd->bmnh", q * self.sqrt_scale, k * self.sqrt_scale)
-            / temp
-        )
+        attn = torch.einsum("bmhd,bnhd->bmnh", q * self.sqrt_scale, k * self.sqrt_scale) / temp
         if mask is not None:
             attn = attn.masked_fill(mask.unsqueeze(-1) == 0, float("-inf"))
         attn = attn.float().softmax(dim=-2).type(attn.dtype)
@@ -170,9 +156,7 @@ class MetaBlock(torch.nn.Module):
         self.proj_in = torch.nn.Linear(in_channels, channels)
         self.pos_embed = torch.nn.Parameter(torch.randn(num_patches, channels) * 1e-2)
         if num_classes:
-            self.class_embed = torch.nn.Parameter(
-                torch.randn(num_classes, 1, channels) * 1e-2
-            )
+            self.class_embed = torch.nn.Parameter(torch.randn(num_classes, 1, channels) * 1e-2)
         else:
             self.class_embed = None
         self.attn_blocks = torch.nn.ModuleList(
@@ -183,9 +167,7 @@ class MetaBlock(torch.nn.Module):
         self.proj_out = torch.nn.Linear(channels, output_dim)
         self.proj_out.weight.data.fill_(0.0)
         self.permutation = permutation
-        self.register_buffer(
-            "attn_mask", torch.tril(torch.ones(num_patches, num_patches))
-        )
+        self.register_buffer("attn_mask", torch.tril(torch.ones(num_patches, num_patches)))
 
     def forward(
         self, x: torch.Tensor, y: torch.Tensor | None = None
@@ -198,9 +180,7 @@ class MetaBlock(torch.nn.Module):
             if y is not None:
                 if (y < 0).any():
                     m = (y < 0).float().view(-1, 1, 1)
-                    class_embed = (1 - m) * self.class_embed[
-                        y
-                    ] + m * self.class_embed.mean(dim=0)
+                    class_embed = (1 - m) * self.class_embed[y] + m * self.class_embed.mean(dim=0)
                 else:
                     class_embed = self.class_embed[y]
                 x = x + class_embed
@@ -288,13 +268,11 @@ class MetaBlock(torch.nn.Module):
                 if "b" in guide_what:
                     zb = zb + g * (zb - zb_u)
 
-            scale = (
-                za[:, 0].float().exp().type(za.dtype)
-            )  # get rid of the sequence dimension
-            #x_copy = x.clone()
-            #x_copy[:, i + 1] = x[:, i + 1] * scale + zb[:, 0]
-            #x = x_copy
-            #x[:, i + 1] = x[:, i + 1] * scale + zb[:, 0]
+            scale = za[:, 0].float().exp().type(za.dtype)  # get rid of the sequence dimension
+            # x_copy = x.clone()
+            # x_copy[:, i + 1] = x[:, i + 1] * scale + zb[:, 0]
+            # x = x_copy
+            # x[:, i + 1] = x[:, i + 1] * scale + zb[:, 0]
             xs[i + 1] = xs[i + 1] * scale + zb[:, 0]
             x = torch.stack(xs, dim=1)
         self.set_sample_mode(False)
@@ -342,9 +320,7 @@ class TarFlow(torch.nn.Module):
             )
         self.blocks = torch.nn.ModuleList(blocks)
         # prior for nvp mode should be all ones, but needs to be learnd for the vp mode
-        self.register_buffer(
-            "var", torch.ones(self.num_patches, in_channels * patch_size**2)
-        )
+        self.register_buffer("var", torch.ones(self.num_patches, in_channels * patch_size**2))
 
     def patchify(self, x: torch.Tensor) -> torch.Tensor:
         """Convert an image (N,C',H,W) to a sequence of patches (N,T,C')"""
@@ -417,9 +393,7 @@ if __name__ == "__main__":
     channels = 64
     num_blocks = 3
     layers_per_block = 2
-    model = TarFlow(
-        in_channels, img_size, patch_size, channels, num_blocks, layers_per_block
-    )
+    model = TarFlow(in_channels, img_size, patch_size, channels, num_blocks, layers_per_block)
 
     x = torch.randn([128, 8])
     v, _ = model.forward(x)

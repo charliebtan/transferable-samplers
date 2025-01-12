@@ -6,7 +6,7 @@ model.optimizer._target_=torch.optim.AdamW,torch.optim.Adam \
 model.optimizer.weight_decay=0.01,0.0 model.scheduler.pct_start=0.05 \
 model.optimizer.lr=0.0001,0.0005,0.001,0.005 \
 tags=[dw4,tarflow,invert_shortcut,hparams1,v3] model.d_base=0 \
-model.base_flow_ckpt_path=/home/mila/a/alexander.tong/tbg/logs/train/runs/2025-01-11_20-44-27/checkpoints/last.ckpt 
+model.base_flow_ckpt_path=/home/mila/a/alexander.tong/tbg/logs/train/runs/2025-01-11_20-44-27/checkpoints/last.ckpt
 
 
 #sleep 5

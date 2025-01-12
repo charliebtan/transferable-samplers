@@ -1,14 +1,12 @@
 import os
-import hydra
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
-import PIL
 import requests
 import torch
 from bgflow import MultiDoubleWellPotential
-from bgflow.utils import distance_vectors, distances_from_vectors, remove_mean
+from bgflow.utils import distance_vectors, distances_from_vectors
 from lightning import LightningDataModule
 from lightning.pytorch.loggers import WandbLogger
 from torch.utils.data import DataLoader, Dataset
@@ -105,12 +103,16 @@ class DW4DataModule(LightningDataModule):
             dim, n_particles, A, B, C, OFFSET, two_event_dims=False
         )
 
-    def energy(self, x):
+    def unnormalize(self, x):
         assert x.shape[-1] == NUM_PARTICLES * DIM
         x = x.reshape(-1, NUM_PARTICLES, DIM)
         x = x * torch.tensor([DW4_STD], device=x.device)
         x = x.reshape(-1, NUM_PARTICLES * DIM)
-        return self.potential.energy(x)
+        return x
+
+    def energy(self, x):
+        x = self.unnormalize(x)
+        return self.potential.energy(x).flatten()
 
     def prepare_data(self) -> None:
         """Download data if needed. Lightning ensures that `self.prepare_data()` is called only
@@ -149,16 +151,12 @@ class DW4DataModule(LightningDataModule):
                 raise RuntimeError(
                     f"Batch size ({self.hparams.batch_size}) is not divisible by the number of devices ({self.trainer.world_size})."
                 )
-            self.batch_size_per_device = (
-                self.hparams.batch_size // self.trainer.world_size
-            )
+            self.batch_size_per_device = self.hparams.batch_size // self.trainer.world_size
 
         # TODO bit odd to do at every setup call? probably not too slow...
 
         # load the data + tensorize
-        dw4_data = np.load(
-            f"{self.hparams.data_dir}{self.hparams.filename}", allow_pickle=True
-        )
+        dw4_data = np.load(f"{self.hparams.data_dir}{self.hparams.filename}", allow_pickle=True)
         all_data = torch.Tensor(dw4_data[0])
 
         # split indexes
@@ -304,27 +302,27 @@ class DW4DataModule(LightningDataModule):
         dist_test = self.interatomic_dist(test_data_smaller).detach().cpu()
 
         axs[0].hist(
-            dist_samples.view(-1),
-            bins=100,
-            alpha=0.5,
-            density=True,
-            histtype="step",
-            linewidth=4,
-            label="generated data",
-        )
-        axs[0].hist(
             dist_test.view(-1),
             bins=100,
             alpha=0.5,
             density=True,
             histtype="step",
             linewidth=4,
-            label="test data",
+            label="True data",
+            color="g",
+        )
+        axs[0].hist(
+            dist_samples.view(-1),
+            bins=100,
+            alpha=0.5,
+            density=True,
+            histtype="step",
+            linewidth=4,
+            label="Proposal",
+            color="r",
         )
         if samples_jarzynski is not None:
-            dist_samples_jarzynski = (
-                self.interatomic_dist(samples_jarzynski).detach().cpu()
-            )
+            dist_samples_jarzynski = self.interatomic_dist(samples_jarzynski).detach().cpu()
             axs[0].hist(
                 dist_samples_jarzynski.view(-1),
                 bins=100,
@@ -333,10 +331,10 @@ class DW4DataModule(LightningDataModule):
                 histtype="step",
                 linewidth=4,
                 label="Jarzynski",
+                color="orange",
             )
 
         axs[0].set_xlabel("Interatomic distance")
-        axs[0].legend()
 
         energy_samples = self.energy(samples)
         logits = -energy_samples.flatten() - log_p_samples.flatten()
@@ -384,9 +382,7 @@ class DW4DataModule(LightningDataModule):
         if samples_jarzynski is not None:
             energies_jarzynski = self.energy(samples_jarzynski)
             jarzynski_logits = -energies_jarzynski.flatten() - jarzynski_log_p.flatten()
-            jarzynski_weights = (
-                torch.nn.functional.softmax(jarzynski_logits, dim=0).detach().cpu()
-            )
+            jarzynski_weights = torch.nn.functional.softmax(jarzynski_logits, dim=0).detach().cpu()
             energies_jarzynski = energies_jarzynski.detach().cpu().numpy()
 
             axs[1].hist(
@@ -397,7 +393,7 @@ class DW4DataModule(LightningDataModule):
                 alpha=0.4,
                 histtype="step",
                 linewidth=4,
-                color="r",
+                color="orange",
                 label="Jarzynski",
             )
             axs[1].hist(
@@ -408,7 +404,7 @@ class DW4DataModule(LightningDataModule):
                 alpha=0.4,
                 histtype="step",
                 linewidth=4,
-                color="b",
+                color="grey",
                 label="Jarzynski (reweighted)",
                 weights=jarzynski_weights,
             )

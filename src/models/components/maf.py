@@ -2,8 +2,11 @@ import torch
 from zuko.distributions import DiagNormal
 from zuko.flows.autoregressive import MaskedAutoregressiveTransform
 from zuko.lazy import Flow, UnconditionalDistribution
-from zuko.transforms import (CircularShiftTransform, ComposedTransform,
-                             MonotonicRQSTransform)
+from zuko.transforms import (
+    CircularShiftTransform,
+    ComposedTransform,
+    MonotonicRQSTransform,
+)
 
 
 class OurMAF(Flow):
