@@ -87,6 +87,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         batch_value = self.train_metrics(loss)
         # self.log("train/loss", loss)
         self.log_dict(batch_value, prog_bar=True)
+        # self.log("train/lr", self.trainer.lr_schedulers.get_lr())
         return loss
 
     def setup(self, stage: str) -> None:
@@ -116,11 +117,15 @@ class BoltzmannGeneratorLitModule(LightningModule):
         """
         optimizer = self.hparams.optimizer(params=self.trainer.model.parameters())
         if self.hparams.scheduler is not None:
-            scheduler = self.hparams.scheduler(optimizer=optimizer)
+            scheduler = self.hparams.scheduler(
+                optimizer=optimizer,
+                total_steps=self.trainer.estimated_stepping_batches,
+            )
             return {
                 "optimizer": optimizer,
                 "lr_scheduler": {
                     "scheduler": scheduler,
+                    "interval": "step",
                 },
             }
         return {"optimizer": optimizer}
@@ -179,7 +184,9 @@ class BoltzmannGeneratorLitModule(LightningModule):
         self.eval_step(batch, batch_idx, prefix="test")
 
     def on_eval_epoch_end(self, metrics, prefix: str = "val") -> None:
-        samples, log_p, prior_samples = self.generate_samples(self.hparams.num_proposal_samples)
+        samples, log_p, prior_samples = self.generate_samples(
+            self.hparams.num_proposal_samples
+        )
         self.log_dict(metrics.compute())
         self.datamodule.log_on_epoch_end(
             samples, log_p, wandb_logger=self.wandb_logger, prefix=prefix

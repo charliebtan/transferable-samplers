@@ -1,0 +1,12 @@
+defaults:
+  - default
+
+_target_: src.models.zuko_normalizing_flow_module.NormalizingFlowLitModule
+
+
+net:
+  _target_: src.models.components.maf.OurNSF
+  features: 8
+  transforms: 12
+  hidden_features: [256, 256]
+

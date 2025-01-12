@@ -37,7 +37,8 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
     ) -> torch.Tensor:
         x1 = batch
         x0, dlogp = self.net(x1)
-        loss = self.prior.energy(x0).mean() - dlogp.mean()
+        loss = (0.5 * x0.pow(2)).mean() - dlogp.mean()
+        #loss = self.prior.energy(x0).mean() - dlogp.mean()
         return loss
 
     def generate_samples(

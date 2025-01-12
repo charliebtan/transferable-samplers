@@ -2,35 +2,19 @@ from typing import Any, Dict, Tuple
 
 import torch
 
-from src.models.proposal_flow_module import ProposalFlowLitModule
+from src.models.boltzmann_flow_module import BoltzmanFlowLitModule
 
 # TODO this currently assumes you are using a zuko normalzing flow
 # If you start using other normalizing flows you will need to make a zuko
 # wrapper I think?
 
 
-class NormalizingFlowLitModule(ProposalFlowLitModule):
+class NormalizingFlowLitModule(BoltzmanFlowLitModule):
     """
 
     TODO - Add a description.
 
     """
-
-    def __init__(
-        self,
-        net: torch.nn.Module,
-        optimizer: torch.optim.Optimizer,
-        scheduler: torch.optim.lr_scheduler,
-        compile: bool,
-        jarzynski_batch_size: int,  # TODO bit weird this is here but main generation done by data module
-    ) -> None:
-        """Initialize a `NormalizingFlowLitModule`.
-
-        :param net: The model to train.
-        :param optimizer: The optimizer to use for training.
-        :param scheduler: The learning rate scheduler to use for training.
-        """
-        super().__init__(net, optimizer, scheduler, compile)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass through the model `self.net`.

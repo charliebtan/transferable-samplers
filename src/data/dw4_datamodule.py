@@ -414,6 +414,7 @@ class DW4DataModule(LightningDataModule):
             )
         axs[1].set_xlabel("u(x)")
         axs[1].legend()
+        axs[1].set_ylim(0, 0.4)
 
         fig.canvas.draw()
 
