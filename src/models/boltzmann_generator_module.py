@@ -191,7 +191,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
             num_proposal_samples = self.hparams.sampling_config.num_proposal_samples
             true_data = self.datamodule.data_val
         elif prefix == "test":
-            num_proposal_samples = self.hparams.sampling_config.num_test_proposl_samples
+            num_proposal_samples = self.hparams.sampling_config.num_test_proposal_samples
             true_data = self.datamodule.data_test
         samples, log_p, prior_samples = self.generate_samples(num_proposal_samples)
         jarzynski_samples, jarzynski_weights = None, None
