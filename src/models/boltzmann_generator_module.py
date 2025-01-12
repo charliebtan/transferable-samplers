@@ -7,11 +7,11 @@ import torchmetrics
 from bgflow import MeanFreeNormalDistribution
 from lightning import LightningDataModule, LightningModule
 from lightning.pytorch.loggers import WandbLogger
-from src.models.components.distribution_distances import \
-    compute_distribution_distances
+from torchmetrics import MeanMetric
+
+from src.models.components.distribution_distances import compute_distribution_distances
 from src.models.components.jarzynski_sampler import JarzynskiSampler
 from src.utils.tbg_utils import kish_effective_sample_size
-from torchmetrics import MeanMetric
 
 logger = logging.getLogger(__name__)
 
@@ -208,8 +208,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         num_eval_samples = 5000
         names, dists = compute_distribution_distances(
             self.datamodule.unnormalize(samples[:num_eval_samples]).cpu(),
-            self.datamodule.unnormalize(self.datamodule.data_val[:num_eval_samples])
-            .cpu(),
+            self.datamodule.unnormalize(self.datamodule.data_val[:num_eval_samples]).cpu(),
         )
         energy_w2 = pot.emd2_1d(-log_p.cpu().numpy(), sample_target_energy.cpu().numpy())
         names = [f"{prefix}/{name}" for name in names]

@@ -205,7 +205,7 @@ class ShortcutLitModule(BoltzmannGeneratorLitModule):
         )  # batch dims required by EGNN architecture
 
         # Deep copy cause something very scary is going on when we wrap and use
-        # it this way tha makes it unsaveable with some NotImplementedError
+        # it this way makes it unsaveable with some NotImplementedError
         # TorchWrapper
         node = NeuralODE(TorchdynWrapper(copy.deepcopy(self.net), d_base=d_base), solver="euler")
 

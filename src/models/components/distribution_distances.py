@@ -32,7 +32,7 @@ def compute_distribution_distances(pred: torch.Tensor, true: Union[torch.Tensor,
         "Median_MSE",
         "Median_L2",
         "Median_L1",
-        "Eq-EMD2"
+        "Eq-EMD2",
     ]
     a = pred
     b = true
@@ -41,15 +41,14 @@ def compute_distribution_distances(pred: torch.Tensor, true: Union[torch.Tensor,
 
     mmd_rbf = mix_rbf_mmd2(a, b, sigma_list=[0.01, 0.1, 1, 10, 100]).item()
     mean_dists = compute_distances(torch.mean(a, dim=0), torch.mean(b, dim=0))
-    median_dists = compute_distances(
-        torch.median(a, dim=0)[0], torch.median(b, dim=0)[0]
-    )
+    median_dists = compute_distances(torch.median(a, dim=0)[0], torch.median(b, dim=0)[0])
     dists = [w1, w2, mmd_rbf, *mean_dists, *median_dists]
     return NAMES, dists
 
 
-from scipy.optimize import linear_sum_assignment
 import ot as pot
+from scipy.optimize import linear_sum_assignment
+
 
 def find_rigid_alignment(A, B):
     """
@@ -95,11 +94,13 @@ def find_rigid_alignment(A, B):
     t = t.T
     return R, t.squeeze()
 
+
 def ot(x0, x1):
     dists = torch.cdist(x0, x1)
     _, col_ind = linear_sum_assignment(dists)
     x1 = x1[col_ind]
     return x1
+
 
 def eot(x0, x1):
     M = []

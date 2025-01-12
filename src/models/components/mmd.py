@@ -104,11 +104,7 @@ def _mmd2(K_XX, K_XY, K_YY, const_diagonal=False, biased=False):
             - 2.0 * K_XY_sum / (m * m)
         )
     else:
-        mmd2 = (
-            Kt_XX_sum / (m * (m - 1))
-            + Kt_YY_sum / (m * (m - 1))
-            - 2.0 * K_XY_sum / (m * m)
-        )
+        mmd2 = Kt_XX_sum / (m * (m - 1)) + Kt_YY_sum / (m * (m - 1)) - 2.0 * K_XY_sum / (m * m)
 
     return mmd2
 
@@ -158,11 +154,7 @@ def _mmd2_and_variance(K_XX, K_XY, K_YY, const_diagonal=False, biased=False):
             - 2.0 * K_XY_sum / (m * m)
         )
     else:
-        mmd2 = (
-            Kt_XX_sum / (m * (m - 1))
-            + Kt_YY_sum / (m * (m - 1))
-            - 2.0 * K_XY_sum / (m * m)
-        )
+        mmd2 = Kt_XX_sum / (m * (m - 1)) + Kt_YY_sum / (m * (m - 1)) - 2.0 * K_XY_sum / (m * m)
 
     var_est = (
         2.0
@@ -173,9 +165,7 @@ def _mmd2_and_variance(K_XX, K_XY, K_YY, const_diagonal=False, biased=False):
             + 2 * Kt_YY_sums.dot(Kt_YY_sums)
             - Kt_YY_2_sum
         )
-        - (4.0 * m - 6.0)
-        / (m**3 * (m - 1.0) ** 3)
-        * (Kt_XX_sum**2 + Kt_YY_sum**2)
+        - (4.0 * m - 6.0) / (m**3 * (m - 1.0) ** 3) * (Kt_XX_sum**2 + Kt_YY_sum**2)
         + 4.0
         * (m - 2.0)
         / (m**3 * (m - 1.0) ** 2)
