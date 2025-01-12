@@ -1,9 +1,7 @@
-from typing import Any, Dict, Tuple
+from typing import Tuple
 
 import torch
-from lightning import LightningDataModule, LightningModule
 
-from src.models.boltzmann_generator_module import BoltzmannGeneratorLitModule
 from src.models.normalizing_flow_module import NormalizingFlowLitModule
 from src.models.shortcut_module import ShortcutLitModule
 

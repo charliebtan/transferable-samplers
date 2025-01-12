@@ -1,7 +1,6 @@
 from typing import Tuple
 
 import torch
-
 from src.models.boltzmann_generator_module import BoltzmannGeneratorLitModule
 
 

@@ -19,3 +19,4 @@ check_val_every_n_epoch: 10
 deterministic: False
 
 gradient_clip_val: 1.0
+inference_mode: False
