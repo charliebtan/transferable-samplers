@@ -8,4 +8,7 @@ net:
   n_particles: 4
   n_dimension: 2
 
+optimizer:
+  lr: 0.001
+
 sampling_d_base: null
