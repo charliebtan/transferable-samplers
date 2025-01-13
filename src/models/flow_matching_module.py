@@ -19,14 +19,9 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
 
     def __init__(
         self,
-        net: torch.nn.Module,
-        optimizer: torch.optim.Optimizer,
-        scheduler: torch.optim.lr_scheduler,
-        datamodule: LightningDataModule,
-        compile: bool,
-        jarzynski_batch_size: int,  # TODO bit weird this is here but main generation done by data module
-        num_proposal_samples: int = 1000,
         sigma: float = 0.0,
+        *args,
+        **kwargs
     ) -> None:
         """Initialize a `ProposalFlowLitModule`.
 
@@ -34,14 +29,7 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
         :param optimizer: The optimizer to use for training.
         :param scheduler: The learning rate scheduler to use for training.
         """
-        super().__init__(
-            net,
-            optimizer,
-            scheduler,
-            datamodule,
-            compile,
-            num_proposal_samples=num_proposal_samples,
-        )
+        super().__init__(*args, **kwargs)
 
     def forward(self, t: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass through the model `self.net`.

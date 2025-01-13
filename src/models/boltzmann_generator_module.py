@@ -1,4 +1,5 @@
 import logging
+import math
 from typing import Any, Dict, Tuple
 
 import ot as pot
@@ -7,11 +8,11 @@ import torchmetrics
 from bgflow import MeanFreeNormalDistribution
 from lightning import LightningDataModule, LightningModule
 from lightning.pytorch.loggers import WandbLogger
-from torchmetrics import MeanMetric
-
-from src.models.components.distribution_distances import compute_distribution_distances
+from src.models.components.distribution_distances import \
+    compute_distribution_distances
 from src.models.components.jarzynski_sampler import JarzynskiSampler
 from src.utils.tbg_utils import kish_effective_sample_size
+from torchmetrics import MeanMetric
 
 logger = logging.getLogger(__name__)
 
@@ -65,15 +66,9 @@ class BoltzmannGeneratorLitModule(LightningModule):
         self.train_metrics = torchmetrics.MetricCollection({"loss": MeanMetric()}, prefix="train/")
         self.val_metrics = self.train_metrics.clone(prefix="val/")
         self.test_metrics = self.train_metrics.clone(prefix="test/")
-        # self.train_loss = MeanMetric()
-
-        # TODO TODO I'm not sure this is the right place to have this
-
-        self.prior = MeanFreeNormalDistribution(8, 4, two_event_dims=False)
-
-        # torch.distributions.MultivariateNormal(
-        #     torch.zeros(8), torch.eye(8)
-        # )  # TODO is this the right place for this? # TODO MeanFreeNormal
+        self.prior = MeanFreeNormalDistribution(
+            self.datamodule.dim, self.datamodule.n_particles, two_event_dims=False
+        )
 
     def on_train_start(self) -> None:
         """Lightning hook that is called when training begins."""
@@ -203,19 +198,31 @@ class BoltzmannGeneratorLitModule(LightningModule):
             )
 
         sample_target_energy = self.datamodule.energy(samples)
+        target_target_energy = self.datamodule.energy(true_data)
         assert log_p.shape == sample_target_energy.shape
         logits = -sample_target_energy - log_p
         ess = kish_effective_sample_size(logits) / len(logits)
         self.log(f"{prefix}/effective_sample_size", ess, sync_dist=True)
-        num_eval_samples = self.hparams.sampling_config.num_eval_samples
+        num_eval_samples = min(
+            self.hparams.sampling_config.num_eval_samples, len(samples), len(true_data)
+        )
         names, dists = compute_distribution_distances(
             self.datamodule.unnormalize(samples[:num_eval_samples]).cpu(),
             self.datamodule.unnormalize(true_data[:num_eval_samples]).cpu(),
         )
-        energy_w2 = pot.emd2_1d(-log_p.cpu().numpy(), sample_target_energy.cpu().numpy())
+        energy_w2 = math.sqrt(
+            pot.emd2_1d(target_target_energy.cpu().numpy(), sample_target_energy.cpu().numpy())
+        )
+        energy_w1 = pot.emd2_1d(
+            target_target_energy.cpu().numpy(),
+            sample_target_energy.cpu().numpy(),
+            metric="euclidean",
+        )
         names = [f"{prefix}/{name}" for name in names]
         dist_metrics = dict(zip(names, dists))
         dist_metrics[f"{prefix}/energy_w2"] = energy_w2
+        dist_metrics[f"{prefix}/energy_w1"] = energy_w1
+        dist_metrics[f"{prefix}/num_eval_samples"] = num_eval_samples
         self.log_dict(metrics.compute() | dist_metrics)
         self.datamodule.log_on_epoch_end(
             samples,

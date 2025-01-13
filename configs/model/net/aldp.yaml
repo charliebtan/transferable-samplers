@@ -1,0 +1,3 @@
+_target_: src.models.components.egnn_dynamics_consistency.EGNN_dynamics_AD2
+n_particles: ${data.n_particles}
+n_dimension: ${data.n_dimensions}

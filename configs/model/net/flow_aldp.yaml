@@ -1,5 +1,8 @@
+# matching TBG
+#
+
 _target_: src.models.components.egnn_dynamics_consistency.EGNNDynamicsConsistency
 n_particles: ${data.n_particles}
 n_dimension: ${data.n_dimensions}
-hidden_nf: 256
+hidden_nf: 64
 n_layers: 5
