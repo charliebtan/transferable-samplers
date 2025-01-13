@@ -64,6 +64,9 @@ class DW4DataModule(LightningDataModule):
         batch_size: int = 64,
         num_workers: int = 0,
         pin_memory: bool = False,
+        n_particles=4,
+        n_dimensions=2,
+        dim=8,
     ) -> None:
         """Initialize a `DW4DataModule`.
 
@@ -89,8 +92,8 @@ class DW4DataModule(LightningDataModule):
         B = -4
         C = 0
         OFFSET = 4
-        self.n_particles = 4
-        self.n_dimensions = 2
+        self.n_particles = n_particles 
+        self.n_dimensions = n_dimensions
         self.dim = self.n_particles * self.n_dimensions
         self.potential = MultiDoubleWellPotential(
             self.dim, self.n_particles, A, B, C, OFFSET, two_event_dims=False
@@ -287,6 +290,9 @@ class DW4DataModule(LightningDataModule):
         log_p_samples: torch.Tensor,
         samples_jarzynski: torch.Tensor = None,
         jarzynski_log_p: torch.Tensor = None,
+        min_energy=-26,
+        max_energy=0,
+        ylim=(0, 0.2),
     ):
         test_data_smaller = self.sample_test_set(5000)
 
@@ -335,9 +341,6 @@ class DW4DataModule(LightningDataModule):
         importance_weights = torch.nn.functional.softmax(logits, dim=0).detach().cpu()
         energy_samples = energy_samples.detach().cpu()
         energy_test = self.energy(test_data_smaller).detach().cpu()
-
-        min_energy = -26
-        max_energy = 0
 
         axs[1].hist(
             energy_test.cpu(),
@@ -404,7 +407,7 @@ class DW4DataModule(LightningDataModule):
             )
         axs[1].set_xlabel("u(x)")
         axs[1].legend()
-        axs[1].set_ylim(0, 0.4)
+        axs[1].set_ylim(ylim)
 
         fig.canvas.draw()
 

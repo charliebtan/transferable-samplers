@@ -63,9 +63,12 @@ class AldpDataModule(DW4DataModule):
 
         # load the data + tensorize
         data = np.load(f"{self.hparams.data_dir}/{self.hparams.filename}", allow_pickle=True)
-        all_data = torch.tensor(data)
+        self.scaling = 10
+        # data is 10 times larger in bgflow dataset than in numpy
+        all_data = torch.tensor(data) / self.scaling
         all_data = all_data.reshape(-1, self.n_particles, self.n_dimensions)
-        self.std = all_data.std(dim=(0, 1))
+        self.std = all_data.std()
+        print(f"Standard deviation: {self.std}")
         # standardize the data
         all_data = all_data - all_data.mean(axis=1, keepdims=True)
         all_data = all_data / self.std
@@ -88,6 +91,26 @@ class AldpDataModule(DW4DataModule):
         self.data_test = test_data[100000:200000]
         self.curr_loads += 1
         print(f"XXXXXXXXXX Data loaded {self.curr_loads} times XXXXXXXXXXXX")
+
+    def get_dataset_fig(
+        self,
+        samples,
+        log_p_samples: torch.Tensor,
+        samples_jarzynski: torch.Tensor = None,
+        jarzynski_log_p: torch.Tensor = None,
+        min_energy=-50,
+        max_energy=100,
+        ylim=(0, 0.2),
+    ):
+        return super().get_dataset_fig(
+            samples,
+            log_p_samples,
+            samples_jarzynski,
+            jarzynski_log_p,
+            min_energy,
+            max_energy,
+            ylim=ylim,
+        )
 
     def unnormalize(self, x):
         assert x.shape[-1] == self.dim

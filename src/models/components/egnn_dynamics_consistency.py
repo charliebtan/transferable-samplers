@@ -815,11 +815,11 @@ class EGNN_dynamics_AD2(nn.Module):
         hidden_nf=64,
         device="cpu",
         act_fn=torch.nn.SiLU(),
-        n_layers=4,
+        n_layers=5,
         recurrent=True,
-        attention=False,
+        attention=True,
         condition_time=True,
-        tanh=False,
+        tanh=True,
         mode="egnn_dynamics",
         agg="sum",
     ):
@@ -928,20 +928,32 @@ class EGNN_dynamics_AD2_cat(nn.Module):
         self,
         n_particles,
         n_dimension,
-        h_initial,
+        h_initial="full",
         hidden_nf=64,
-        device="cpu",
         act_fn=torch.nn.SiLU(),
-        n_layers=4,
+        n_layers=5,
         recurrent=True,
-        attention=False,
+        attention=True,
         condition_time=True,
-        tanh=False,
+        tanh=True,
         mode="egnn_dynamics",
         agg="sum",
     ):
         super().__init__()
         self.mode = mode
+        if h_initial == "full":
+            atom_types = np.arange(22)
+            atom_types[[1, 2, 3]] = 2
+            atom_types[[19, 20, 21]] = 20
+            atom_types[[11, 12, 13]] = 12
+            h_initial = torch.nn.functional.one_hot(torch.tensor(atom_types))
+        elif h_initial == "backbone":
+            # atom types for backbone
+            atom_types = np.array(
+                [1, 0, 0, 0, 4, 3, 5, 0, 6, 0, 1, 0, 0, 0, 7, 3, 8, 0, 1, 0, 0, 0]
+            )
+            h_initial = torch.nn.functional.one_hot(torch.tensor(atom_types))
+
         # Initial one hot encoding of the different element types
         self.h_initial = h_initial
 
@@ -954,7 +966,6 @@ class EGNN_dynamics_AD2_cat(nn.Module):
                 in_node_nf=h_size,
                 in_edge_nf=1,
                 hidden_nf=hidden_nf,
-                device=device,
                 act_fn=act_fn,
                 n_layers=n_layers,
                 recurrent=recurrent,
@@ -963,9 +974,8 @@ class EGNN_dynamics_AD2_cat(nn.Module):
                 agg=agg,
             )
         else:
-            raise NotImplemented()
+            raise NotImplementedError
 
-        self.device = device
         self._n_particles = n_particles
         self._n_dimension = n_dimension
         self.edges = self._create_edges()
@@ -974,14 +984,14 @@ class EGNN_dynamics_AD2_cat(nn.Module):
         # Count function calls
         self.counter = 0
 
-    def forward(self, t, xs):
+    def forward(self, t, xs, *args, **kwargs):
 
         n_batch = xs.shape[0]
-        edges = self._cast_edges2batch(self.edges, n_batch, self._n_particles)
+        edges = self._cast_edges2batch(self.edges, n_batch, self._n_particles, device=xs.device)
         edges = [edges[0], edges[1]]
         # Changed by Leon
         x = xs.reshape(n_batch * self._n_particles, self._n_dimension).clone()
-        h = self.h_initial.to(self.device).reshape(1, -1)
+        h = self.h_initial.to(x.device).reshape(1, -1)
         h = h.repeat(n_batch, 1)
         h = h.reshape(n_batch * self._n_particles, -1)
         # node compatability
@@ -1001,7 +1011,7 @@ class EGNN_dynamics_AD2_cat(nn.Module):
             vel = x_final - x
 
         else:
-            raise NotImplemented()
+            raise NotImplementedError
 
         vel = vel.view(n_batch, self._n_particles, self._n_dimension)
         vel = remove_mean(vel)
@@ -1019,7 +1029,7 @@ class EGNN_dynamics_AD2_cat(nn.Module):
                 cols.append(i)
         return [torch.LongTensor(rows), torch.LongTensor(cols)]
 
-    def _cast_edges2batch(self, edges, n_batch, n_nodes):
+    def _cast_edges2batch(self, edges, n_batch, n_nodes, device):
         if n_batch not in self._edges_dict:
             self._edges_dict = {}
             rows, cols = edges
@@ -1027,8 +1037,8 @@ class EGNN_dynamics_AD2_cat(nn.Module):
             for i in range(n_batch):
                 rows_total.append(rows + i * n_nodes)
                 cols_total.append(cols + i * n_nodes)
-            rows_total = torch.cat(rows_total).to(self.device)
-            cols_total = torch.cat(cols_total).to(self.device)
+            rows_total = torch.cat(rows_total).to(device)
+            cols_total = torch.cat(cols_total).to(device)
 
             self._edges_dict[n_batch] = [rows_total, cols_total]
         return self._edges_dict[n_batch]
