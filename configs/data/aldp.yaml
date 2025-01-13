@@ -1,4 +1,4 @@
-_target_: src.data.aldp.AldpDataModule
+_target_: src.data.aldp_datamodule.ALDPDataModule
 data_dir: ${paths.data_dir}/AD2/
 batch_size: 512 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
 num_workers: 2

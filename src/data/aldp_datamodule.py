@@ -23,10 +23,17 @@ class ALDPDataModule(BaseDataModule):
         pin_memory: bool = False,
         scaling: float = 10.0,
     ) -> None:
-        super().__init__()
+        super().__init__(
+            data_dir=data_dir,
+            data_url=data_url,
+            filename=filename,
+            n_particles=n_particles,
+            n_dimensions=n_dimensions,
+            dim=dim,
+        )
         assert dim == n_particles * n_dimensions
 
-        self.transforms = Random3DRotationTransform()
+        self.transforms = Random3DRotationTransform(self.n_particles, self.n_dimensions)
         self.scaling = scaling
 
         self.batch_size_per_device = batch_size
@@ -53,17 +60,21 @@ class ALDPDataModule(BaseDataModule):
 
         # load the data + tensorize
         train_data = np.load(f"{self.hparams.data_dir}/{self.hparams.filename}", allow_pickle=True)
+        test_data = torch.tensor(self.bgmol_dataset.xyz).view(-1, self.dim)
 
         # data is 10 times larger in bgflow dataset than in numpy
         train_data = torch.tensor(train_data) / self.scaling
 
+        # zero center of mass
+        train_data = self.zero_center_of_mass(train_data)
+        test_data = self.zero_center_of_mass(test_data)
+
         # compute std on only train data
-        train_data = train_data.reshape(-1, self.n_particles, self.n_dimensions)
         self.std = train_data.std()
 
         # standardize the data
-        train_data = self.standardize(train_data)
-        test_data = self.standardize(self.dataset.xyz)
+        train_data = self.normalize(train_data)
+        test_data = self.normalize(test_data)
 
         # split the data
         self.data_train = TransformDataset(train_data, transform=self.transforms)
