@@ -1,5 +1,5 @@
 _target_: src.models.components.egnn_dynamics_consistency.EGNNDynamicsConsistency
-n_particles: 4
-n_dimension: 2
+n_particles: ${data.n_particles}
+n_dimension: ${data.n_dimensions}
 hidden_nf: 256
 n_layers: 5

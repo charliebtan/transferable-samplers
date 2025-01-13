@@ -1,5 +1,5 @@
 _target_: src.models.components.tarflow.TarFlow
-img_size: 8
+img_size: ${data.dim}
 in_channels: 1
 patch_size: 1
 channels: 64

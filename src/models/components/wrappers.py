@@ -67,4 +67,4 @@ class TorchdynWrapper(torch.nn.Module):
             torch.tensor([t], device=x.device), x
         )
 
-        return torch.cat([dx, dlog_p[:, None]], dim=-1)
+        return torch.cat([dx, dlog_p[:, None]], dim=-1).detach()

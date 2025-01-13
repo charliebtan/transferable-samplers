@@ -1,6 +1,5 @@
 defaults:
   - default
-  - net: flow_small
+  - net: flow_aldp
 
 _target_: src.models.flow_matching_module.FlowMatchLitModule
-

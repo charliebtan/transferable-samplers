@@ -15,25 +15,22 @@ from torch.utils.data import DataLoader, Dataset
 # I've just made these constants, I think it's safer as they should be static
 # and it allows me to access them from other files (e.g to destandardize)
 
-DIM = 2
-NUM_PARTICLES = 4
-
-TRAIN_VAL_TEST_SPLIT = (100_000, 500_000, 500_000)
-
-# With centering the train split has per-dim stds of:
-DW4_STD = [1.8230, 1.8103]
-
 
 class RandomRotationTransform(torch.nn.Module):
+    def __init__(self, num_particles, dim):
+        super().__init__()
+        self.num_particles = num_particles
+        self.dim = dim
+
     def forward(self, data):
         # rotation augmentation
-        data = data.reshape(-1, NUM_PARTICLES, DIM)  # batch dimension needed for einsum
+        data = data.reshape(-1, self.num_particles, self.dim)  # batch dimension needed for einsum
         x = torch.rand(len(data)) * 2 * np.pi
         s = torch.sin(x)
         c = torch.cos(x)
         rot = torch.stack([torch.stack([c, -s]), torch.stack([s, c])]).permute(2, 0, 1)
         data = torch.einsum("bij,bki->bkj", rot, data)
-        data = data.reshape(NUM_PARTICLES * DIM)  # don't want to return with batch dim
+        data = data.reshape(self.num_particles * self.dim)  # don't want to return with batch dim
         return data
 
 
@@ -52,11 +49,6 @@ class TransformDataset(torch.utils.data.Dataset):
 
     def __len__(self):
         return len(self.data)
-
-
-def distance_fn(x):
-    x = x.view(-1, NUM_PARTICLES, DIM)
-    return distances_from_vectors(distance_vectors(x)).reshape(-1)
 
 
 class DW4DataModule(LightningDataModule):
@@ -105,6 +97,9 @@ class DW4DataModule(LightningDataModule):
         batch_size: int = 64,
         num_workers: int = 0,
         pin_memory: bool = False,
+        n_particles=4,
+        n_dimensions=2,
+        dim=8,
     ) -> None:
         """Initialize a `DW4DataModule`.
 
@@ -123,6 +118,7 @@ class DW4DataModule(LightningDataModule):
         self.data_train: Optional[Dataset] = None
         self.data_val: Optional[Dataset] = None
         self.data_test: Optional[Dataset] = None
+        self.std = [1.8230, 1.8103]
 
         self.transforms = RandomRotationTransform()
 
@@ -131,16 +127,18 @@ class DW4DataModule(LightningDataModule):
         B = -4
         C = 0
         OFFSET = 4
-        dim, n_particles = 8, 4
+        self.n_particles = n_particles 
+        self.n_dimensions = n_dimensions
+        self.dim = self.n_particles * self.n_dimensions
         self.potential = MultiDoubleWellPotential(
-            dim, n_particles, A, B, C, OFFSET, two_event_dims=False
+            self.dim, self.n_particles, A, B, C, OFFSET, two_event_dims=False
         )
 
     def unnormalize(self, x):
-        assert x.shape[-1] == NUM_PARTICLES * DIM
-        x = x.reshape(-1, NUM_PARTICLES, DIM)
-        x = x * torch.tensor([DW4_STD], device=x.device)
-        x = x.reshape(-1, NUM_PARTICLES * DIM)
+        assert x.shape[-1] == self.dim
+        x = x.reshape(-1, self.n_particles, self.n_dimensions)
+        x = x * torch.tensor([self.std], device=x.device)
+        x = x.reshape(-1, self.dim)
         return x
 
     def energy(self, x):
@@ -196,11 +194,12 @@ class DW4DataModule(LightningDataModule):
         idx = dw4_data[1]
 
         # standardize the data
-        all_data = all_data.reshape(-1, NUM_PARTICLES, DIM)
+        all_data = all_data.reshape(-1, self.n_particles, self.n_dimensions)
         all_data = all_data - all_data.mean(axis=1, keepdims=True)
-        all_data = all_data / torch.tensor([DW4_STD])
-        all_data = all_data.reshape(-1, NUM_PARTICLES * DIM)
+        all_data = all_data / self.std
+        all_data = all_data.reshape(-1, self.num_particles * self.n_dimensions)
 
+        TRAIN_VAL_TEST_SPLIT = (100_000, 500_000, 500_000)
         # split the data, add transform to train dataset
         self.data_train = TransformDataset(
             all_data[idx[: TRAIN_VAL_TEST_SPLIT[0]]], transform=self.transforms
@@ -300,14 +299,14 @@ class DW4DataModule(LightningDataModule):
 
     def interatomic_dist(self, x):
         batch_shape = x.shape[:-1]
-        x = x.view(*batch_shape, NUM_PARTICLES, DIM)
+        x = x.view(*batch_shape, self.n_particles, self.n_dimensions)
 
         # Compute the pairwise interatomic distances
         # removes duplicates and diagonal
         distances = x[:, None, :, :] - x[:, :, None, :]
         distances = distances[
             :,
-            torch.triu(torch.ones((NUM_PARTICLES, NUM_PARTICLES)), diagonal=1) == 1,
+            torch.triu(torch.ones((self.n_particles, self.n_particles)), diagonal=1) == 1,
         ]
         dist = torch.linalg.norm(distances, dim=-1)
         return dist
@@ -321,6 +320,9 @@ class DW4DataModule(LightningDataModule):
         log_p_samples: torch.Tensor,
         samples_jarzynski: torch.Tensor = None,
         jarzynski_log_p: torch.Tensor = None,
+        min_energy=-26,
+        max_energy=0,
+        ylim=(0, 0.2),
     ):
         test_data_smaller = self.sample_test_set(5000)
 
@@ -369,9 +371,6 @@ class DW4DataModule(LightningDataModule):
         importance_weights = torch.nn.functional.softmax(logits, dim=0).detach().cpu()
         energy_samples = energy_samples.detach().cpu()
         energy_test = self.energy(test_data_smaller).detach().cpu()
-
-        min_energy = -26
-        max_energy = 0
 
         axs[1].hist(
             energy_test.cpu(),
@@ -438,7 +437,7 @@ class DW4DataModule(LightningDataModule):
             )
         axs[1].set_xlabel("u(x)")
         axs[1].legend()
-        axs[1].set_ylim(0, 0.4)
+        axs[1].set_ylim(ylim)
 
         fig.canvas.draw()
 

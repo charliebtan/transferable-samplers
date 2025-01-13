@@ -1,8 +1,8 @@
-_target_: src.data.dw4_datamodule.DW4DataModule
-data_dir: ${paths.data_dir}
+_target_: src.data.aldp.AldpDataModule
+data_dir: ${paths.data_dir}/AD2/
 batch_size: 512 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
 num_workers: 2
 pin_memory: True
-n_particles: 4
-n_dimensions: 2
-dim: 8
+n_particles: 22
+n_dimensions: 3
+dim: 66
