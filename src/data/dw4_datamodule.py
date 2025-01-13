@@ -1,6 +1,7 @@
 import os
 from typing import Any, Dict, Optional
 
+import hydra
 import matplotlib.pyplot as plt
 import numpy as np
 import requests
@@ -21,6 +22,36 @@ TRAIN_VAL_TEST_SPLIT = (100_000, 500_000, 500_000)
 
 # With centering the train split has per-dim stds of:
 DW4_STD = [1.8230, 1.8103]
+
+
+class RandomRotationTransform(torch.nn.Module):
+    def forward(self, data):
+        # rotation augmentation
+        data = data.reshape(-1, NUM_PARTICLES, DIM)  # batch dimension needed for einsum
+        x = torch.rand(len(data)) * 2 * np.pi
+        s = torch.sin(x)
+        c = torch.cos(x)
+        rot = torch.stack([torch.stack([c, -s]), torch.stack([s, c])]).permute(2, 0, 1)
+        data = torch.einsum("bij,bki->bkj", rot, data)
+        data = data.reshape(NUM_PARTICLES * DIM)  # don't want to return with batch dim
+        return data
+
+
+class TransformDataset(torch.utils.data.Dataset):
+    def __init__(self, data: torch.Tensor, transform=None):
+        self.data = data
+        self.transform = transform
+
+    def __getitem__(self, idx):
+        sample = self.data[idx]
+        # sample might be a tuple (if TensorDataset has multiple tensors)
+        # or a single tensor if there's just one
+        if self.transform:
+            sample = self.transform(sample)
+        return sample
+
+    def __len__(self):
+        return len(self.data)
 
 
 def distance_fn(x):
@@ -92,6 +123,8 @@ class DW4DataModule(LightningDataModule):
         self.data_train: Optional[Dataset] = None
         self.data_val: Optional[Dataset] = None
         self.data_test: Optional[Dataset] = None
+
+        self.transforms = RandomRotationTransform()
 
         self.batch_size_per_device = batch_size
         A = 0.9
@@ -166,21 +199,16 @@ class DW4DataModule(LightningDataModule):
         all_data = all_data.reshape(-1, NUM_PARTICLES, DIM)
         all_data = all_data - all_data.mean(axis=1, keepdims=True)
         all_data = all_data / torch.tensor([DW4_STD])
-
-        # rotation augementation
-        x = torch.rand(len(all_data)) * 2 * np.pi
-        s = torch.sin(x)
-        c = torch.cos(x)
-        rot = torch.stack([torch.stack([c, -s]), torch.stack([s, c])]).permute(2, 0, 1)
-        all_data = torch.einsum("bij,bki->bkj", rot, all_data)
-
-        # return to vector shape
         all_data = all_data.reshape(-1, NUM_PARTICLES * DIM)
 
-        # split the data
-        self.data_train = all_data[idx[: TRAIN_VAL_TEST_SPLIT[0]]]
-        self.data_val = all_data[idx[TRAIN_VAL_TEST_SPLIT[0] : TRAIN_VAL_TEST_SPLIT[1]]]
-        self.data_test = all_data[idx[TRAIN_VAL_TEST_SPLIT[2] :]]
+        # split the data, add transform to train dataset
+        self.data_train = TransformDataset(
+            all_data[idx[: TRAIN_VAL_TEST_SPLIT[0]]], transform=self.transforms
+        )
+        self.data_val = TransformDataset(
+            all_data[idx[TRAIN_VAL_TEST_SPLIT[0] : TRAIN_VAL_TEST_SPLIT[1]]]
+        )
+        self.data_test = TransformDataset(all_data[idx[TRAIN_VAL_TEST_SPLIT[2] :]])
         self.curr_epoch = 0
 
     def train_dataloader(self) -> DataLoader[Any]:
