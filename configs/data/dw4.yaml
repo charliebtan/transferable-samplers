@@ -1,5 +1,5 @@
 _target_: src.data.dw4_datamodule.DW4DataModule
-data_dir: ${paths.data_dir}
+data_dir: ${paths.data_dir}/DW4/
 batch_size: 512 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
 num_workers: 2
 pin_memory: True
