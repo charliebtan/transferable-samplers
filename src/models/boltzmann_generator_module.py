@@ -8,11 +8,11 @@ import torchmetrics
 from bgflow import MeanFreeNormalDistribution
 from lightning import LightningDataModule, LightningModule
 from lightning.pytorch.loggers import WandbLogger
-from src.models.components.distribution_distances import \
-    compute_distribution_distances
-from src.models.components.jarzynski_sampler import JarzynskiSampler
-from src.utils.tbg_utils import kish_effective_sample_size
 from torchmetrics import MeanMetric
+
+from src.models.components.distribution_distances import compute_distribution_distances
+from src.models.components.jarzynski_sampler import JarzynskiSampler
+from src.utils.tbg_utils import sampling_efficiency
 
 logger = logging.getLogger(__name__)
 
@@ -224,7 +224,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         target_target_energy = self.datamodule.energy(true_data)
         assert log_p.shape == sample_target_energy.shape
         logits = -sample_target_energy - log_p
-        ess = kish_effective_sample_size(logits) / len(logits)
+        ess = sampling_efficiency(logits)
         self.log(f"{prefix}/effective_sample_size", ess, sync_dist=True)
         num_eval_samples = min(
             self.hparams.sampling_config.num_eval_samples, len(samples), len(true_data)
