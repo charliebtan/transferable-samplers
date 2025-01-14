@@ -1,5 +1,6 @@
-import torch
 import numpy as np
+import torch
+
 
 def sum_except_batch(x):
     return x.reshape(x.size(0), -1).sum(dim=-1)
@@ -27,13 +28,11 @@ def assert_mean_zero(x):
 
 def assert_mean_zero_with_mask(x, node_mask):
     assert_correctly_masked(x, node_mask)
-    assert torch.sum(x, dim=1, keepdim=True).abs().max().item() < 1e-4, \
-        'Mean is not zero'
+    assert torch.sum(x, dim=1, keepdim=True).abs().max().item() < 1e-4, "Mean is not zero"
 
 
 def assert_correctly_masked(variable, node_mask):
-    assert (variable * (1 - node_mask)).abs().max().item() < 1e-4, \
-        'Variables not masked properly.'
+    assert (variable * (1 - node_mask)).abs().max().item() < 1e-4, "Variables not masked properly."
 
 
 def center_gravity_zero_gaussian_log_likelihood(x):
@@ -45,10 +44,10 @@ def center_gravity_zero_gaussian_log_likelihood(x):
     r2 = sum_except_batch(x.pow(2))
 
     # The relevant hyperplane is (N-1) * D dimensional.
-    degrees_of_freedom = (N-1) * D
+    degrees_of_freedom = (N - 1) * D
 
     # Normalizing constant and logpx are computed:
-    log_normalizing_constant = -0.5 * degrees_of_freedom * np.log(2*np.pi)
+    log_normalizing_constant = -0.5 * degrees_of_freedom * np.log(2 * np.pi)
     log_px = -0.5 * r2 + log_normalizing_constant
 
     return log_px
@@ -75,10 +74,10 @@ def center_gravity_zero_gaussian_log_likelihood_with_mask(x, node_mask):
 
     # The relevant hyperplane is (N-1) * D dimensional.
     N = node_mask.squeeze(2).sum(1)  # N has shape [B]
-    degrees_of_freedom = (N-1) * D
+    degrees_of_freedom = (N - 1) * D
 
     # Normalizing constant and logpx are computed:
-    log_normalizing_constant = -0.5 * degrees_of_freedom * np.log(2*np.pi)
+    log_normalizing_constant = -0.5 * degrees_of_freedom * np.log(2 * np.pi)
     log_px = -0.5 * r2 + log_normalizing_constant
 
     return log_px
@@ -98,7 +97,7 @@ def sample_center_gravity_zero_gaussian_with_mask(size, device, node_mask):
 
 def standard_gaussian_log_likelihood(x):
     # Normalizing constant and logpx are computed:
-    log_px = sum_except_batch(-0.5 * x * x - 0.5 * np.log(2*np.pi))
+    log_px = sum_except_batch(-0.5 * x * x - 0.5 * np.log(2 * np.pi))
     return log_px
 
 
@@ -109,7 +108,7 @@ def sample_gaussian(size, device):
 
 def standard_gaussian_log_likelihood_with_mask(x, node_mask):
     # Normalizing constant and logpx are computed:
-    log_px_elementwise = -0.5 * x * x - 0.5 * np.log(2*np.pi)
+    log_px_elementwise = -0.5 * x * x - 0.5 * np.log(2 * np.pi)
     log_px = sum_except_batch(log_px_elementwise * node_mask)
     return log_px
 
@@ -118,6 +117,7 @@ def sample_gaussian_with_mask(size, device, node_mask):
     x = torch.randn(size, device=device)
     x_masked = x * node_mask
     return x_masked
+
 
 def create_adjacency_list(distance_matrix, atom_types):
     adjacency_list = []
@@ -141,9 +141,10 @@ def create_adjacency_list(distance_matrix, atom_types):
 
             # Add edge if distance is below the cutoff
             if distance < distance_cutoff:
-                adjacency_list.append([i,j])
+                adjacency_list.append([i, j])
 
     return adjacency_list
+
 
 # chekc if chirality is the same
 # if not --> mirror
@@ -164,7 +165,9 @@ def find_chirality_centers(
         chirality_centers
     """
     chirality_centers = []
-    candidate_chirality_centers = torch.where(torch.unique(adj_list, return_counts=True)[1] == 4)[0]
+    candidate_chirality_centers = torch.where(torch.unique(adj_list, return_counts=True)[1] == 4)[
+        0
+    ]
     for center in candidate_chirality_centers:
         bond_idx, bond_pos = torch.where(adj_list == center)
         bonded_idxs = adj_list[bond_idx, (bond_pos + 1) % 2].long()

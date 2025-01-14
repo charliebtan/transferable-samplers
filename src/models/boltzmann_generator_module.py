@@ -1,6 +1,6 @@
 import logging
 import math
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import ot as pot
 import torch
@@ -141,8 +141,31 @@ class BoltzmannGeneratorLitModule(LightningModule):
         :return: A tuple containing the generated samples, the log probability, and the prior
             samples.
         """
-        samples, log_p, prior_samples = self.generate_samples(batch.shape[0])
+        samples, log_p, prior_samples = self.batched_generate_samples(batch.shape[0])
         return samples, log_p, prior_samples
+
+    def batched_generate_samples(
+        self, total_size: int, batch_size: Optional[int] = None
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        if batch_size is None:
+            batch_size = self.hparams.sampling_config.batch_size
+        samples = []
+        log_ps = []
+        prior_samples = []
+        for _ in range(total_size // batch_size):
+            s, lp, ps = self.generate_samples(batch_size)
+            samples.append(s)
+            log_ps.append(lp)
+            prior_samples.append(ps)
+        if total_size % batch_size > 0:
+            s, lp, ps = self.generate_samples(total_size % batch_size)
+            samples.append(s)
+            log_ps.append(lp)
+            prior_samples.append(ps)
+        samples = torch.cat(samples, dim=0)
+        log_ps = torch.cat(log_ps, dim=0)
+        prior_samples = torch.cat(prior_samples, dim=0)
+        return samples, log_ps, prior_samples
 
     def generate_samples(
         self, batch_size: int, n_timesteps: int = None
@@ -188,7 +211,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         elif prefix == "test":
             num_proposal_samples = self.hparams.sampling_config.num_test_proposal_samples
             true_data = self.datamodule.data_test
-        samples, log_p, prior_samples = self.generate_samples(num_proposal_samples)
+        samples, log_p, prior_samples = self.batched_generate_samples(num_proposal_samples)
         jarzynski_samples, jarzynski_weights = None, None
         if self.jarzynski_sampler is not None and self.jarzynski_sampler.enabled:
             num_jarzynski_samples = self.hparams.sampling_config.num_jarzynski_samples

@@ -1,10 +1,10 @@
 import os
-from typing import Any, Dict, Optional
+from typing import Optional
 
 import numpy as np
 import torch
 from bgmol.datasets import AImplicitUnconstrained
-
+from lightning.pytorch.loggers import WandbLogger
 from src.data.base_datamodule import BaseDataModule
 from src.data.components.rotation import Random3DRotationTransform
 from src.data.components.transform_dataset import TransformDataset
@@ -104,6 +104,31 @@ class ALDPDataModule(BaseDataModule):
             max_energy,
             ylim=ylim,
         )
+
+    def log_on_epoch_end(
+        self,
+        samples,
+        log_p_samples: torch.Tensor,
+        samples_jarzynski: torch.Tensor = None,
+        jarzynski_log_p: torch.Tensor = None,
+        wandb_logger: WandbLogger = None,
+        prefix: str = "",
+    ) -> None:
+        super().log_on_epoch_end(
+            samples,
+            log_p_samples,
+            samples_jarzynski,
+            jarzynski_log_p,
+            wandb_logger=wandb_logger,
+            prefix=prefix,
+        )
+        # self.plot_ramachandran(samples, prefix=prefix, wandb_logger=wandb_logger)
+
+    def plot_ramachandran(self, samples, prefix: str = "", wandb_logger: WandbLogger = None):
+        if wandb_logger is not None:
+            wandb_logger.log_image(f"{prefix}ramachandran", [fig])
+
+        return fig
 
 
 if __name__ == "__main__":
