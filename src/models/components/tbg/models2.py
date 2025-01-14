@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-
 from src.models.components.tbg.gcl import E_GCL, GCL
 from src.models.components.tbg.utils import remove_mean, remove_mean_with_mask
 
@@ -534,7 +533,10 @@ class EGNN_dynamics_AD2_cat(nn.Module):
         t = torch.tensor(t).to(xs)
         if t.shape != (n_batch, 1):
             t = t.repeat(n_batch)
+        # print(t.shape)
         t = t.repeat(1, self._n_particles)
+        # print(t.shape)
+        # print("asdfasdF")
         t = t.reshape(n_batch * self._n_particles, 1)
         # print(t.shape, h.shape)
         # print(t)

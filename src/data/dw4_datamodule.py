@@ -35,7 +35,9 @@ class DW4DataModule(BaseDataModule):
         assert dim == n_particles * n_dimensions
 
         self.transforms = Random2DRotationTransform(self.n_particles, self.n_dimensions)
-
+        # this line allows to access init params with 'self.hparams' attribute
+        # also ensures init params will be stored in ckpt
+        self.save_hyperparameters(logger=False)
         self.batch_size_per_device = batch_size
         A = 0.9
         B = -4
