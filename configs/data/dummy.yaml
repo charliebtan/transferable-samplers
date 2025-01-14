@@ -1,3 +1,0 @@
-_target_: src.data.dummy_datamodule.DummyDataModule
-batch_size: 1024 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
-n_samples: 4196
