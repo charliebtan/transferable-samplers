@@ -20,4 +20,4 @@ which python
 
 export HYRDA_FULL_ERROR=1
 
-python src/train.py model=shortcut trainer=gpu trainer.max_epochs=100 model.sampling_config.num_proposal_samples=1000 data.batch_size=256 model.sampling_config.num_test_proposal_samples=1000 trainer.check_val_every_n_epoch=10
+python src/train.py model=shortcut trainer=gpu trainer.max_epochs=100 model.sampling_config.num_proposal_samples=1000 data.batch_size=256 model.sampling_config.num_test_proposal_samples=1000 trainer.check_val_every_n_epoch=10 model.sampling_d=2

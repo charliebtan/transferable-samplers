@@ -4,4 +4,4 @@ defaults:
 
 _target_: src.models.shortcut_module.ShortcutLitModule
 
-sampling_d_base: null
+sampling_d_base: 2
