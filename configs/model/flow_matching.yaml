@@ -1,6 +1,5 @@
 defaults:
   - default
-  - net: flow_small
+  - net: egnn_dynamics_large
 
 _target_: src.models.flow_matching_module.FlowMatchLitModule
-

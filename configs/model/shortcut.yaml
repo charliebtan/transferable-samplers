@@ -1,6 +1,6 @@
 defaults:
   - default
-  - net: flow_small
+  - net: egnn_dynamics_large
 
 _target_: src.models.shortcut_module.ShortcutLitModule
 

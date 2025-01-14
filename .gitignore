@@ -162,6 +162,6 @@ configs/local/default.yaml
 *.png
 .DS_Store
 *.pt
-AImplicitUnconstrained
+AImplicitUnconstrained*
 /models/
 /scratch/
