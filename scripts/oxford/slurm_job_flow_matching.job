@@ -1,0 +1,25 @@
+#!/bin/bash
+#SBATCH -N 1 # nodes requested
+#SBATCH --job-name=shortcut
+#SBATCH --output=shortcut.out
+#SBATCH --error=shortcut.err
+#SBATCH --time=0-23:59
+#SBATCH --mem=36000
+#SBATCH --qos=medium
+#SBATCH --partition=h100
+#SBATCH --nodelist=hopper
+#SBATCH --gres=gpu:1
+#SBATCH --cpus-per-task=32
+# the -u option means 'unbuffered',
+# which should continuously write output to the .out file
+
+
+cd fast-tbg
+
+source activate /slurm-storage/chatan/.conda/envs/fast-tbg
+
+which python
+
+export HYRDA_FULL_ERROR=1
+
+python src/train.py model=flow_matching_aldp data=aldp trainer=gpu trainer.max_epochs=1000 model.sampling_config.num_proposal_samples=1000 data.batch_size=256 model.sampling_config.num_test_proposal_samples=1000 trainer.check_val_every_n_epoch=50
