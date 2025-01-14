@@ -229,8 +229,8 @@ class BaseDataModule(LightningDataModule):
 
         fig, axs = plt.subplots(1, 2, figsize=(12, 4))
 
-        dist_samples = self.interatomic_dist(samples).detach().cpu()
-        dist_test = self.interatomic_dist(test_data_smaller).detach().cpu()
+        dist_samples = self.interatomic_dist(self.unnormalize(samples)).detach().cpu()
+        dist_test = self.interatomic_dist(self.unnormalize(test_data_smaller)).detach().cpu()
 
         axs[0].hist(
             dist_test.view(-1),
@@ -253,7 +253,9 @@ class BaseDataModule(LightningDataModule):
             color="r",
         )
         if samples_jarzynski is not None:
-            dist_samples_jarzynski = self.interatomic_dist(samples_jarzynski).detach().cpu()
+            dist_samples_jarzynski = (
+                self.interatomic_dist(self.unnormalize(samples_jarzynski)).detach().cpu()
+            )
             axs[0].hist(
                 dist_samples_jarzynski.view(-1),
                 bins=100,
