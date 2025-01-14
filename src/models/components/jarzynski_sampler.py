@@ -3,7 +3,7 @@ import math
 import torch
 from tqdm import tqdm
 
-from src.utils.tbg_utils import kish_effective_sample_size
+from src.utils.tbg_utils import sampling_efficiency
 
 
 class JarzynskiSampler(torch.nn.Module):
@@ -120,7 +120,7 @@ class JarzynskiSampler(torch.nn.Module):
             jarzynski_weights = torch.softmax(A, dim=-1)
 
             A_list.append(A)
-            ESS = kish_effective_sample_size(A).item() / len(A)
+            ESS = sampling_efficiency(A)
             ESS_list.append(ESS)
 
             if ESS < self.ess_threshold:
