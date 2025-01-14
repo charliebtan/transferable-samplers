@@ -1,3 +1,4 @@
+import os
 from typing import Any, Dict, Optional
 
 import numpy as np
@@ -37,7 +38,10 @@ class ALDPDataModule(BaseDataModule):
         self.scaling = scaling
 
         self.batch_size_per_device = batch_size
-        self.bgmol_dataset = AImplicitUnconstrained(read=True, download=False)
+        # yes a hack but only way without changing bgmol
+        self.bgmol_dataset = AImplicitUnconstrained(
+            read=True, download=True if "AImplicitUnconstrained" not in os.listdir() else False
+        )
         self.potential = self.bgmol_dataset.get_energy_model()
 
     def setup(self, stage: Optional[str] = None) -> None:

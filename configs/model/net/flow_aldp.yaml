@@ -1,6 +1,0 @@
-# matching TBG
-#
-
-_target_: src.models.components.egnn_dynamics_consistency.EGNN_dynamics_AD2_cat
-n_particles: ${data.n_particles}
-n_dimension: ${data.n_dimensions}

@@ -1,30 +1,45 @@
 import math
 
+import numpy as np
 import torch
 import torch.nn as nn
 
 from src.models.components.tbg.egnn import EGNN
 from src.models.components.tbg.utils import remove_mean
 
+# atom types for backbone
+atom_types = np.arange(22)
+atom_types[[1, 2, 3]] = 2
+atom_types[[19, 20, 21]] = 20
+atom_types[[11, 12, 13]] = 12
+H_INITIAL = torch.nn.functional.one_hot(torch.tensor(atom_types))
 
-class EGNN_dynamics(nn.Module):
+
+class EGNN_dynamics_AD2_cat(nn.Module):
     def __init__(
         self,
         n_particles,
         n_dimensions,
+        h_initial=H_INITIAL,
         hidden_nf=64,
         device="cpu",
         act_fn=torch.nn.SiLU(),
-        n_layers=5,
+        n_layers=5,  # changed to match AD2_classical_train_tgb_full.py
         recurrent=True,
-        attention=True,
-        tanh=True,
+        attention=True,  # changed to match AD2_classical_train_tgb_full.py
+        tanh=True,  # changed to match AD2_classical_train_tgb_full.py
         agg="sum",
         M=128,
     ):
         super().__init__()
+        # Initial one hot encoding of the different element types
+        self.h_initial = h_initial
+
+        h_size = h_initial.size(1)
+        h_size += 2  # Add time and d_base
+
         self.egnn = EGNN(
-            in_node_nf=2,
+            in_node_nf=h_size,
             in_edge_nf=1,
             hidden_nf=hidden_nf,
             device=device,
@@ -60,20 +75,30 @@ class EGNN_dynamics(nn.Module):
         n_batch = x.shape[0]
         edges = self._cast_edges2batch(self.edges, n_batch, self._n_particles, device=x.device)
         edges = [edges[0], edges[1]]
+
         # Changed by Leon
         x = x.reshape(n_batch * self._n_particles, self._n_dimensions).clone()
-        h = torch.ones(n_batch, self._n_particles, 2, device=x.device)
+        h = self.h_initial.to(self.device).reshape(1, -1)
+        h = h.repeat(n_batch, 1)
+        h = h.reshape(n_batch * self._n_particles, -1)
 
-        td = torch.cat([t, d_base], dim=-1)
-        h = h * td.unsqueeze(1)
-        h = h.reshape(n_batch * self._n_particles, 2)
+        if t.shape != (n_batch, 1):
+            t = t.repeat(n_batch)
+        t = t.repeat(1, self._n_particles)
+        t = t.reshape(n_batch * self._n_particles, 1)
+
+        if d_base.shape != (n_batch, 1):
+            d_base = d_base.repeat(n_batch)
+        d_base = d_base.repeat(1, self._n_particles)
+        d_base = d_base.reshape(n_batch * self._n_particles, 1)
+
+        h = torch.cat([h, t, d_base], dim=-1)
         edge_attr = torch.sum((x[edges[0]] - x[edges[1]]) ** 2, dim=1, keepdim=True)
         _, x_final = self.egnn(h, x, edges, edge_attr=edge_attr)
         vel = x_final - x
 
         vel = vel.view(n_batch, self._n_particles, self._n_dimensions)
         vel = remove_mean(vel)
-        # Changed by Leon
         self.counter += 1
         return vel.view(n_batch, self._n_particles * self._n_dimensions)
 
