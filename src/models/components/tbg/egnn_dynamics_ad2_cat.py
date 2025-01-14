@@ -22,7 +22,6 @@ class EGNN_dynamics_AD2_cat(nn.Module):
         n_dimensions,
         h_initial=H_INITIAL,
         hidden_nf=64,
-        device="cpu",
         act_fn=torch.nn.SiLU(),
         n_layers=5,  # changed to match AD2_classical_train_tgb_full.py
         recurrent=True,
@@ -42,7 +41,6 @@ class EGNN_dynamics_AD2_cat(nn.Module):
             in_node_nf=h_size,
             in_edge_nf=1,
             hidden_nf=hidden_nf,
-            device=device,
             act_fn=act_fn,
             n_layers=n_layers,
             recurrent=recurrent,
@@ -51,7 +49,6 @@ class EGNN_dynamics_AD2_cat(nn.Module):
             agg=agg,
         )
 
-        self.device = device
         self._n_particles = n_particles
         self._n_dimensions = n_dimensions
         self.edges = self._create_edges()
@@ -78,7 +75,7 @@ class EGNN_dynamics_AD2_cat(nn.Module):
 
         # Changed by Leon
         x = x.reshape(n_batch * self._n_particles, self._n_dimensions).clone()
-        h = self.h_initial.to(self.device).reshape(1, -1)
+        h = self.h_initial.to(x.device).reshape(1, -1)
         h = h.repeat(n_batch, 1)
         h = h.reshape(n_batch * self._n_particles, -1)
 

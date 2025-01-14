@@ -9,7 +9,6 @@ class EGNN(nn.Module):
         in_node_nf,
         in_edge_nf,
         hidden_nf,
-        device="cpu",
         act_fn=nn.SiLU(),
         n_layers=4,
         recurrent=True,
@@ -24,7 +23,6 @@ class EGNN(nn.Module):
         if out_node_nf is None:
             out_node_nf = in_node_nf
         self.hidden_nf = hidden_nf
-        self.device = device
         self.n_layers = n_layers
         self.coords_range_layer = float(coords_range) / self.n_layers
         if agg == "mean":
@@ -51,8 +49,6 @@ class EGNN(nn.Module):
                     agg=agg,
                 ),
             )
-
-        self.to(self.device)
 
     def forward(self, h, x, edges, edge_attr=None, node_mask=None, edge_mask=None):
         # Edit Emiel: Remove velocity as input

@@ -13,7 +13,6 @@ class EGNN_dynamics(nn.Module):
         n_particles,
         n_dimensions,
         hidden_nf=64,
-        device="cpu",
         act_fn=torch.nn.SiLU(),
         n_layers=5,
         recurrent=True,
@@ -27,7 +26,6 @@ class EGNN_dynamics(nn.Module):
             in_node_nf=2,
             in_edge_nf=1,
             hidden_nf=hidden_nf,
-            device=device,
             act_fn=act_fn,
             n_layers=n_layers,
             recurrent=recurrent,
@@ -36,7 +34,6 @@ class EGNN_dynamics(nn.Module):
             agg=agg,
         )
 
-        self.device = device
         self._n_particles = n_particles
         self._n_dimensions = n_dimensions
         self.edges = self._create_edges()
@@ -46,8 +43,8 @@ class EGNN_dynamics(nn.Module):
         self.M = M
 
     def forward(self, t, x, d_base=None, *args, **kwargs):
-        t = t.view(-1, 1)
-        d_base = d_base.view(-1, 1) if d_base is not None else None
+        t = t.view(-1, 1).to(x.device)
+        d_base = d_base.view(-1, 1).to(x.device) if d_base is not None else None
 
         if t.numel() == 1:
             t = t.repeat(x.shape[0], 1)
