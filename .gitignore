@@ -156,6 +156,7 @@ configs/local/default.yaml
 *.npz
 *.npy
 *.out
+*.err
 *.sw?
 *.zip
 
