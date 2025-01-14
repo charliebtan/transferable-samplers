@@ -31,7 +31,7 @@ mdtraj
 networkx
 numpy
 nglview
-openmm
+openmm[cuda12]
 pot
 scikit-learn
 scipy
