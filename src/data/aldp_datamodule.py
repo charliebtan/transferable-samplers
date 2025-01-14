@@ -1,13 +1,20 @@
 import os
 from typing import Optional
 
+import matplotlib.pyplot as plt
+import mdtraj as md
 import numpy as np
 import torch
 from bgmol.datasets import AImplicitUnconstrained
 from lightning.pytorch.loggers import WandbLogger
+from matplotlib.colors import LogNorm
 from src.data.base_datamodule import BaseDataModule
 from src.data.components.rotation import Random3DRotationTransform
 from src.data.components.transform_dataset import TransformDataset
+from src.data.components.utils import align_topology
+from src.models.components.utils import (check_symmetry_change,
+                                         compute_chirality_sign,
+                                         find_chirality_centers)
 
 
 class ALDPDataModule(BaseDataModule):
@@ -43,6 +50,8 @@ class ALDPDataModule(BaseDataModule):
             read=True, download=True if "AImplicitUnconstrained" not in os.listdir() else False
         )
         self.potential = self.bgmol_dataset.get_energy_model()
+        self.adj_list = None
+        self.atom_types = None
 
     def setup(self, stage: Optional[str] = None) -> None:
         """Load data. Set variables: `self.data_train`, `self.data_val`, `self.data_test`.
@@ -111,24 +120,118 @@ class ALDPDataModule(BaseDataModule):
         log_p_samples: torch.Tensor,
         samples_jarzynski: torch.Tensor = None,
         jarzynski_log_p: torch.Tensor = None,
-        wandb_logger: WandbLogger = None,
+        loggers=None,
         prefix: str = "",
     ) -> None:
+        wandb_logger = self.get_wandb_logger(loggers)
         super().log_on_epoch_end(
             samples,
             log_p_samples,
             samples_jarzynski,
             jarzynski_log_p,
-            wandb_logger=wandb_logger,
+            loggers=loggers,
             prefix=prefix,
         )
-        # self.plot_ramachandran(samples, prefix=prefix, wandb_logger=wandb_logger)
+        samples = self.unnormalize(samples)
+        aligned_samples, aligned_idxs = self.align_samples(samples)
+        correct_config_rate = len(aligned_samples) / len(samples)
+        if len(aligned_samples) == 0:
+            return {
+                "correct_config_rate": 0,
+                "correct_symmetry_rate": 0,
+            }
+
+        symmetry_change = self.get_symmetry_change(aligned_samples)
+        correct_symmetry_rate = 1 - symmetry_change.sum() / len(symmetry_change)
+        aligned_symmetric_samples = aligned_samples[~symmetry_change]
+        self.plot_ramachandran(aligned_symmetric_samples, prefix=prefix, wandb_logger=wandb_logger)
+        return {
+            "correct_config_rate": correct_config_rate,
+            "correct_symmetry_rate": correct_symmetry_rate,
+        }
+
+    def get_symmetry_change(self, aligned_samples):
+        topology = self.bgmol_dataset.system.mdtraj_topology
+        traj_samples = md.Trajectory(aligned_samples, topology=topology)
+        model_samples = torch.from_numpy(traj_samples.xyz)
+        adj_list = self.get_adj_list()
+        atom_types = self.get_atom_types()
+        chirality_centers = find_chirality_centers(adj_list, atom_types)
+        reference_signs = compute_chirality_sign(
+            self.unnormalize(self.data_test).reshape(-1, self.n_particles, self.n_dimensions)[1],
+            chirality_centers,
+        )
+        symmetry_change = check_symmetry_change(model_samples, chirality_centers, reference_signs)
+        model_samples[symmetry_change] *= -1
+        symmetry_change = check_symmetry_change(model_samples, chirality_centers, reference_signs)
+        return symmetry_change
 
     def plot_ramachandran(self, samples, prefix: str = "", wandb_logger: WandbLogger = None):
+
+        traj_samples = md.Trajectory(samples, topology=self.bgmol_dataset.system.mdtraj_topology)
+        phis, psis = md.compute_phi(traj_samples), md.compute_psi(traj_samples)
+        fig, ax = plt.subplots()
+        plot_range = [-np.pi, np.pi]
+        h, x_bins, y_bins, im = ax.hist2d(
+            phis, psis, 100, norm=LogNorm(), range=[plot_range, plot_range], rasterized=True
+        )
+        ticks = np.array(
+            [np.exp(-6) * h.max(), np.exp(-4.0) * h.max(), np.exp(-2) * h.max(), h.max()]
+        )
+        ax.set_xlabel(r"$\varphi$", fontsize=45)
+        ax.set_title("Boltzmann Generator", fontsize=45)
+        # ax.set_ylabel(r"$\psi$", fontsize=45)
+        ax.xaxis.set_tick_params(labelsize=25)
+        ax.yaxis.set_tick_params(labelsize=25)
+        ax.yaxis.set_ticks([])
+        cbar = fig.colorbar(im, ticks=ticks)
+        # cbar.ax.set_yticklabels(np.abs(-np.log(ticks/h.max())), fontsize=25)
+        cbar.ax.set_yticklabels([6.0, 4.0, 2.0, 0.0], fontsize=25)
+
+        cbar.ax.invert_yaxis()
+        cbar.ax.set_ylabel(r"Free energy / $k_B T$", fontsize=35)
         if wandb_logger is not None:
             wandb_logger.log_image(f"{prefix}ramachandran", [fig])
 
         return fig
+
+    def get_atom_types(self):
+        if self.atom_types is not None:
+            return self.atom_types
+        atom_dict = {"C": 0, "H": 1, "N": 2, "O": 3}
+        topology = self.bgmol_dataset.system.mdtraj_topology
+        atom_types = []
+        for atom_name in topology.atoms:
+            atom_types.append(atom_name.name[0])
+        atom_types = torch.from_numpy(np.array([atom_dict[atom_type] for atom_type in atom_types]))
+        self.atom_types = atom_types
+        return self.atom_types
+
+    def get_adj_list(self):
+        if self.adj_list is not None:
+            return self.adj_list
+        topology = self.bgmol_dataset.system.mdtraj_topology
+        adj_list = np.array(
+            [(b.atom1.index, b.atom2.index) for b in topology.bonds], dtype=np.int32
+        )
+        self.adj_list = adj_list
+        return self.adj_list
+
+    def align_samples(self, samples):
+        aligned_samples = []
+        aligned_idxs = []
+        adj_list = self.get_adj_list()
+
+        for i, sample in enumerate(samples.reshape(-1, self.n_particles, self.n_dimensions)):
+            aligned_sample, is_isomorphic = align_topology(
+                sample.cpu(), adj_list.tolist(), self.get_atom_types()
+            )
+            if is_isomorphic:
+                aligned_samples.append(aligned_sample)
+                aligned_idxs.append(i)
+        aligned_samples = np.array(aligned_samples)
+        return aligned_samples, aligned_idxs
+        print(f"Correct configuration rate {len(aligned_samples)/len(samples)}")
 
 
 if __name__ == "__main__":
