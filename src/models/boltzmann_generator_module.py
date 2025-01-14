@@ -9,6 +9,7 @@ from bgflow import MeanFreeNormalDistribution
 from lightning import LightningDataModule, LightningModule
 from lightning.pytorch.loggers import WandbLogger
 from torchmetrics import MeanMetric
+from tqdm import tqdm
 
 from src.models.components.distribution_distances import compute_distribution_distances
 from src.models.components.jarzynski_sampler import JarzynskiSampler
@@ -152,7 +153,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         samples = []
         log_ps = []
         prior_samples = []
-        for _ in range(total_size // batch_size):
+        for _ in tqdm(range(total_size // batch_size)):
             s, lp, ps = self.generate_samples(batch_size)
             samples.append(s)
             log_ps.append(lp)

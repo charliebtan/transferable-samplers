@@ -1,6 +1,7 @@
 from typing import Tuple
 
 import torch
+
 from src.models.boltzmann_generator_module import BoltzmannGeneratorLitModule
 
 
@@ -14,6 +15,10 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
         loss = (0.5 * x0.pow(2)).mean() - dlogp.mean()
         # loss = self.prior.energy(x0).mean() - dlogp.mean()
         return loss
+
+    def proposal_energy(self, x: torch.Tensor) -> torch.Tensor:
+        x_pred, dlogp = self.net.forward(x)
+        return -(-self.prior.energy(x).view(-1) - dlogp.view(-1))
 
     def generate_samples(
         self, batch_size: int, n_timesteps: int = None
