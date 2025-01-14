@@ -46,7 +46,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
 
         # this line allows to access init params with 'self.hparams' attribute
         # also ensures init params will be stored in ckpt
-        self.save_hyperparameters(logger=False, ignore=("net", "datamodule"))
+        self.save_hyperparameters(logger=False, ignore=("datamodule"))
         if args or kwargs:
             logger.warning(f"Unexpected arguments: {args}, {kwargs}")
 
