@@ -214,11 +214,11 @@ class BoltzmannGeneratorLitModule(LightningModule):
             self.net.copy_to_model()
 
     def evaluate(self, prefix: str = "val") -> None:
-        logging.info("Test epoch end")
-        if prefix == "val":
+        logging.info("Eval epoch end")
+        if prefix.startswith("val"):
             num_proposal_samples = self.hparams.sampling_config.num_proposal_samples
             true_data = self.datamodule.data_val
-        elif prefix == "test":
+        elif prefix.startswith("test"):
             num_proposal_samples = self.hparams.sampling_config.num_test_proposal_samples
             true_data = self.datamodule.data_test
         samples, log_p, prior_samples = self.batched_generate_samples(num_proposal_samples)
