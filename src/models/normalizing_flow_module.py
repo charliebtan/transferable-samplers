@@ -4,8 +4,27 @@ import torch
 
 from src.models.boltzmann_generator_module import BoltzmannGeneratorLitModule
 
+from bgflow import NormalDistribution
+
 
 class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
+
+    def __init__(
+        self,
+        *args,
+        **kwargs,
+    ) -> None:
+        """Initialize a `NormalizingFlowLitModule`.
+
+        :param net: The model to train.
+        :param optimizer: The optimizer to use for training.
+        :param scheduler: The learning rate scheduler to use for training.
+        """
+        super().__init__(*args, **kwargs)
+
+        # overwrites the MeanFreeNormalDistribution in BoltzmannGeneratorLitModule
+        self.prior = NormalDistribution(self.datamodule.dim)
+
     def model_step(
         self,
         batch: torch.Tensor,

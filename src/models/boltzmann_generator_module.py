@@ -67,6 +67,8 @@ class BoltzmannGeneratorLitModule(LightningModule):
         self.train_metrics = torchmetrics.MetricCollection({"loss": MeanMetric()}, prefix="train/")
         self.val_metrics = self.train_metrics.clone(prefix="val/")
         self.test_metrics = self.train_metrics.clone(prefix="test/")
+
+        # the prior is overwritten in NormalizingFlowLitModule to have nonzero mean
         self.prior = MeanFreeNormalDistribution(
             self.datamodule.dim, self.datamodule.n_particles, two_event_dims=False
         )
@@ -206,6 +208,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         self.eval_step(batch, batch_idx, prefix="test")
 
     def on_eval_epoch_end(self, metrics, prefix: str = "val") -> None:
+        logging.info("Test epoch end")
         if prefix == "val":
             num_proposal_samples = self.hparams.sampling_config.num_proposal_samples
             true_data = self.datamodule.data_val
@@ -261,14 +264,29 @@ class BoltzmannGeneratorLitModule(LightningModule):
     def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
         pass
 
+    def on_train_epoch_start(self) -> None:
+        logging.info("Train epoch start")
+        self.train_metrics.reset()
+
+    def on_validation_epoch_start(self) -> None:
+        logging.info("Validation epoch start")
+        self.train_metrics.reset()
+
+    def on_test_epoch_start(self) -> None:
+        logging.info("Test epoch start")
+        self.train_metrics.reset()
+
     def on_train_epoch_end(self) -> None:
         self.train_metrics.reset()
+        logging.info("Train epoch end")
 
     def on_validation_epoch_end(self):
         self.on_eval_epoch_end(self.val_metrics, "val")
+        logging.info("Validation epoch end")
 
     def on_test_epoch_end(self) -> None:
         self.on_eval_epoch_end(self.test_metrics, "test")
+        logging.info("Test epoch end")
 
     def proposal_energy(self, x: torch.Tensor) -> torch.Tensor:
         # x is considered to be a sample from the proposal distribution
