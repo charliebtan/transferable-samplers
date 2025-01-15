@@ -35,7 +35,6 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
         batch: torch.Tensor,
     ) -> torch.Tensor:
         x1 = batch
-        batch = batch.reshape(-1, 22, 3)
         x0, dlogp = self.net(x1)
 
         if self.hparams.force_gaussian_loss:
