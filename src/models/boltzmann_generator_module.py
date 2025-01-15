@@ -7,12 +7,13 @@ import torch
 import torchmetrics
 from bgflow import MeanFreeNormalDistribution
 from lightning import LightningDataModule, LightningModule
-from torchmetrics import MeanMetric
-from tqdm import tqdm
-
-from src.models.components.distribution_distances import compute_distribution_distances
+from src.models.components.distribution_distances import \
+    compute_distribution_distances
+from src.models.components.ema import EMA
 from src.models.components.jarzynski_sampler import JarzynskiSampler
 from src.utils.tbg_utils import sampling_efficiency
+from torchmetrics import MeanMetric
+from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         datamodule: LightningDataModule,
         jarzynski_sampler: JarzynskiSampler,
         sampling_config,
+        ema_decay: float,
         compile: bool,
         *args,
         **kwargs,
@@ -50,7 +52,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         if args or kwargs:
             logger.warning(f"Unexpected arguments: {args}, {kwargs}")
 
-        self.net = net
+        self.net = EMA(net, decay=self.hparams.ema_decay)
         self.datamodule = datamodule
 
         self.jarzynski_sampler = jarzynski_sampler(
@@ -203,11 +205,22 @@ class BoltzmannGeneratorLitModule(LightningModule):
         self.eval_step(batch, batch_idx, prefix="test")
 
     def on_eval_epoch_end(self, metrics, prefix: str = "val") -> None:
-        logging.info("Test epoch end")
-        if prefix == "val":
+        self.log_dict(metrics)
+        metrics.reset()
+        if self.hparams.eval_ema:
+            self.net.backup()
+            self.net.copy_to_model()
+            self.evaluate(prefix)
+            self.net.restore_to_model()
+        if self.hparams.eval_non_ema:
+            self.evaluate(prefix + "/non_ema")
+
+    def evaluate(self, prefix: str = "val") -> None:
+        logging.info("Eval epoch end")
+        if prefix.startswith("val"):
             num_proposal_samples = self.hparams.sampling_config.num_proposal_samples
             true_data = self.datamodule.data_val
-        elif prefix == "test":
+        elif prefix.startswith("test"):
             num_proposal_samples = self.hparams.sampling_config.num_test_proposal_samples
             true_data = self.datamodule.data_test
         samples, log_p, prior_samples = self.batched_generate_samples(num_proposal_samples)
@@ -256,8 +269,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         if dataset_metrics is not None:
             for key, value in dataset_metrics.items():
                 dist_metrics[f"{prefix}/{key}"] = value
-        self.log_dict(metrics.compute() | dist_metrics)
-        metrics.reset()
+        self.log_dict(dist_metrics)
 
     def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
         pass
@@ -291,6 +303,11 @@ class BoltzmannGeneratorLitModule(LightningModule):
         raise NotImplementedError
         x0, dlogp = self.flow(x, reverse=True)
         return -(-self.prior.energy(x0).view(-1) - dlogp.view(-1))
+
+    def optimizer_step(self, *args, **kwargs):
+        super().optimizer_step(*args, **kwargs)
+        if isinstance(self.net, EMA):
+            self.net.update_ema()
 
 
 if __name__ == "__main__":
