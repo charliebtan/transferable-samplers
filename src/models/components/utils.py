@@ -146,7 +146,7 @@ def create_adjacency_list(distance_matrix, atom_types):
     return adjacency_list
 
 
-# chekc if chirality is the same
+# check if chirality is the same
 # if not --> mirror
 # if still not --> discard
 def find_chirality_centers(
