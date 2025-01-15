@@ -44,5 +44,7 @@ sampling_config:
   test_proposal_seed: 42
   save_samples_path: null
 
+ema_decay: 0.999
+eval_non_ema: true
 # compile model for faster training with pytorch 2.0
 compile: false
