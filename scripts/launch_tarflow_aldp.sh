@@ -7,4 +7,5 @@ model.optimizer._target_=torch.optim.AdamW \
 model.optimizer.weight_decay=0.0001 \
 tags=[tarflow,mle,aldp] \
 model.net.num_blocks=4,8,12,16 \
-model.net.channels=64,128,256,512
+model.net.channels=64,128,256,512 \
+trainer.check_val_every_n_epoch=20
