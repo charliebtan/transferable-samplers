@@ -2,6 +2,7 @@ import networkx as nx
 import networkx.algorithms.isomorphism as iso
 import scipy
 from networkx import isomorphism
+
 from src.models.components.utils import create_adjacency_list
 
 

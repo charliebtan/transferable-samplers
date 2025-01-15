@@ -16,4 +16,3 @@ trainer:
 
 data:
   batch_size: 512
-

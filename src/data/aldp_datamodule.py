@@ -8,13 +8,16 @@ import torch
 from bgmol.datasets import AImplicitUnconstrained
 from lightning.pytorch.loggers import WandbLogger
 from matplotlib.colors import LogNorm
+
 from src.data.base_datamodule import BaseDataModule
 from src.data.components.rotation import Random3DRotationTransform
 from src.data.components.transform_dataset import TransformDataset
 from src.data.components.utils import align_topology
-from src.models.components.utils import (check_symmetry_change,
-                                         compute_chirality_sign,
-                                         find_chirality_centers)
+from src.models.components.utils import (
+    check_symmetry_change,
+    compute_chirality_sign,
+    find_chirality_centers,
+)
 
 
 class ALDPDataModule(BaseDataModule):
@@ -167,7 +170,6 @@ class ALDPDataModule(BaseDataModule):
         return symmetry_change
 
     def plot_ramachandran(self, samples, prefix: str = "", wandb_logger: WandbLogger = None):
-
         samples = samples.reshape(-1, self.n_particles, self.n_dimensions)
         traj_samples = md.Trajectory(samples, topology=self.bgmol_dataset.system.mdtraj_topology)
         phis = md.compute_phi(traj_samples)[1].flatten()

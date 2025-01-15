@@ -1,5 +1,5 @@
 import os
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, List, Optional
 
 import hydra
 import matplotlib.pyplot as plt
