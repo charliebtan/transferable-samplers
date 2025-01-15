@@ -8,7 +8,6 @@ hydra:
     partition: h100
     cpus_per_task: 16
     qos: medium
-    time: 23:59:59
     mem_gb: 24
     gres: gpu:1
     timeout_min: 1000
