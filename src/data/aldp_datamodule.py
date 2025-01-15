@@ -1,3 +1,4 @@
+import logging
 import os
 from typing import Optional
 
@@ -157,12 +158,19 @@ class ALDPDataModule(BaseDataModule):
             }
         symmetry_change = self.get_symmetry_change(aligned_samples)
         correct_symmetry_rate = 1 - symmetry_change.sum() / len(symmetry_change)
-        aligned_symmetric_samples = aligned_samples[~symmetry_change]
-        self.plot_ramachandran(aligned_symmetric_samples, prefix=prefix, wandb_logger=wandb_logger)
-        return {
-            "correct_config_rate": correct_config_rate,
-            "correct_symmetry_rate": correct_symmetry_rate,
-        }
+        try:
+            aligned_symmetric_samples = aligned_samples[~symmetry_change]
+            self.plot_ramachandran(aligned_symmetric_samples, prefix=prefix, wandb_logger=wandb_logger)
+            return {
+                "correct_config_rate": correct_config_rate,
+                "correct_symmetry_rate": correct_symmetry_rate,
+            }
+        except:
+            logging.warning("Aligned samples:", aligned_samples.shape, "Symmetry change:", symmetry_change.shape)
+            return {
+                "correct_config_rate": -1.0,
+                "correct_symmetry_rate": -1.0,
+            }
 
     def get_symmetry_change(self, aligned_samples):
         aligned_samples = aligned_samples.reshape(-1, self.n_particles, self.n_dimensions)
