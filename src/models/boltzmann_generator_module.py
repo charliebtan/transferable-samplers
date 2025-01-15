@@ -207,11 +207,13 @@ class BoltzmannGeneratorLitModule(LightningModule):
     def on_eval_epoch_end(self, metrics, prefix: str = "val") -> None:
         self.log_dict(metrics)
         metrics.reset()
-        self.evaluate(prefix)
-        if self.hparams.eval_non_ema:
-            self.net.restore_to_model()
-            self.evaluate(prefix + "/non_ema")
+        if self.hparams.eval_ema:
+            self.net.backup()
             self.net.copy_to_model()
+            self.evaluate(prefix)
+            self.net.restore_to_model()
+        if self.hparams.eval_non_ema:
+            self.evaluate(prefix + "/non_ema")
 
     def evaluate(self, prefix: str = "val") -> None:
         logging.info("Eval epoch end")

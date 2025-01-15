@@ -21,16 +21,16 @@ class EMA(torch.nn.Module):
         )
         self.backup_params = []
 
-    def train(self, mode: bool):
-        if self.training and mode == False:
-            # Switching from train mode to eval mode.  Backup the model parameters and
-            # overwrite with shadow params
-            self.backup()
-            self.copy_to_model()
-        elif not self.training and mode == True:
-            # Switching from eval to train mode.  Restore the `backup_params`
-            self.restore_to_model()
-        super().train(mode)
+    #    def train(self, mode: bool):
+    #        if self.training and mode == False:
+    #            # Switching from train mode to eval mode.  Backup the model parameters and
+    #            # overwrite with shadow params
+    #            self.backup()
+    #            self.copy_to_model()
+    #        elif not self.training and mode == True:
+    #            # Switching from eval to train mode.  Restore the `backup_params`
+    #            self.restore_to_model()
+    #        super().train(mode)
 
     def update_ema(self):
         self.num_updates += 1
