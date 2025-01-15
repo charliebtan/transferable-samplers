@@ -23,4 +23,3 @@ eval which python
 eval export HYRDA_FULL_ERROR=1
 
 eval python src/eval.py trainer=cpu model=invertible_shortcut ckpt_path=/Users/chatan/fast-tbg/logs/train/runs/2025-01-10_23-33-32/checkpoints/epoch_012.ckpt
-

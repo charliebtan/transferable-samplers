@@ -1,11 +1,12 @@
 import networkx as nx
-import numpy as np
+import networkx.algorithms.isomorphism as iso
 import scipy
-import torch
+from networkx import isomorphism
+
 from src.models.components.utils import create_adjacency_list
 
 
-def align_topology(sample, reference):
+def align_topology(sample, reference, atom_types):
     sample = sample.reshape(-1, 3)
     all_dists = scipy.spatial.distance.cdist(sample, sample)
     # sns.clustermap(all_dists)

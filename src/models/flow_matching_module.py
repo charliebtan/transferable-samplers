@@ -17,12 +17,7 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
 
     """
 
-    def __init__(
-        self,
-        sigma: float = 0.0,
-        *args,
-        **kwargs
-    ) -> None:
+    def __init__(self, sigma: float = 0.0, *args, **kwargs) -> None:
         """Initialize a `ProposalFlowLitModule`.
 
         :param net: The model to train.

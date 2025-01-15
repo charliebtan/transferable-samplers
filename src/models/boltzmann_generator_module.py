@@ -7,7 +7,6 @@ import torch
 import torchmetrics
 from bgflow import MeanFreeNormalDistribution
 from lightning import LightningDataModule, LightningModule
-from lightning.pytorch.loggers import WandbLogger
 from torchmetrics import MeanMetric
 from tqdm import tqdm
 
@@ -108,10 +107,6 @@ class BoltzmannGeneratorLitModule(LightningModule):
         """
         if self.hparams.compile and stage == "fit":
             self.net = torch.compile(self.net)
-        self.wandb_logger = None
-        for logger in self.loggers:
-            if isinstance(logger, WandbLogger):
-                self.wandb_logger = logger
 
     def configure_optimizers(self) -> Dict[str, Any]:
         """Choose what optimizers and learning-rate schedulers to use in your optimization.
@@ -250,15 +245,18 @@ class BoltzmannGeneratorLitModule(LightningModule):
         dist_metrics[f"{prefix}/energy_w2"] = energy_w2
         dist_metrics[f"{prefix}/energy_w1"] = energy_w1
         dist_metrics[f"{prefix}/num_eval_samples"] = num_eval_samples
-        self.log_dict(metrics.compute() | dist_metrics)
-        self.datamodule.log_on_epoch_end(
+        dataset_metrics = self.datamodule.log_on_epoch_end(
             samples,
             log_p,
             jarzynski_samples,
             jarzynski_weights,
-            wandb_logger=self.wandb_logger,
+            loggers=self.loggers,
             prefix=prefix,
         )
+        if dataset_metrics is not None:
+            for key, value in dataset_metrics.items():
+                dist_metrics[f"{prefix}/{key}"] = value
+        self.log_dict(metrics.compute() | dist_metrics)
         metrics.reset()
 
     def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:

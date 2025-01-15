@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+
 from src.models.components.tbg.gcl import E_GCL, GCL
 from src.models.components.tbg.utils import remove_mean, remove_mean_with_mask
 

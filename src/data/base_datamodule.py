@@ -1,5 +1,5 @@
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import hydra
 import matplotlib.pyplot as plt
@@ -180,9 +180,11 @@ class BaseDataModule(LightningDataModule):
         log_p_samples: torch.Tensor,
         samples_jarzynski: torch.Tensor = None,
         jarzynski_log_p: torch.Tensor = None,
-        wandb_logger: WandbLogger = None,
+        loggers: List[Any] = None,
         prefix: str = "",
     ) -> None:
+        wandb_logger = self.get_wandb_logger(loggers)
+
         if samples is None:
             return
 
@@ -197,6 +199,13 @@ class BaseDataModule(LightningDataModule):
         )
         wandb_logger.log_image(f"{prefix}generated_samples", [samples_fig])
         self.current_epoch += 1
+
+    def get_wandb_logger(self, loggers):
+        wandb_logger = None
+        for logger in loggers:
+            if isinstance(logger, WandbLogger):
+                wandb_logger = logger
+        return wandb_logger
 
     def interatomic_dist(self, x):
         batch_shape = x.shape[:-1]

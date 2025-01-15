@@ -1,6 +1,7 @@
-from torch import nn
 import torch
 from torch import linalg as LA
+from torch import nn
+
 
 class GCL_basic(nn.Module):
     """Graph Neural Net with global state and fixed number of nodes per graph.
@@ -12,8 +13,7 @@ class GCL_basic(nn.Module):
     """
 
     def __init__(self):
-        super(GCL_basic, self).__init__()
-
+        super().__init__()
 
     def edge_model(self, source, target, edge_attr):
         pass
@@ -37,28 +37,37 @@ class GCL(nn.Module):
           temp: Softmax temperature.
     """
 
-    def __init__(self, input_nf, output_nf, hidden_nf, edges_in_d=0, nodes_att_dim=0, act_fn=nn.SiLU(), recurrent=True, attention=False):
-        super(GCL, self).__init__()
+    def __init__(
+        self,
+        input_nf,
+        output_nf,
+        hidden_nf,
+        edges_in_d=0,
+        nodes_att_dim=0,
+        act_fn=nn.SiLU(),
+        recurrent=True,
+        attention=False,
+    ):
+        super().__init__()
         input_edge = input_nf * 2
         self.recurrent = recurrent
         self.attention = attention
-
 
         self.edge_mlp = nn.Sequential(
             nn.Linear(input_edge + edges_in_d, hidden_nf),
             act_fn,
             nn.Linear(hidden_nf, hidden_nf),
-            act_fn)
+            act_fn,
+        )
 
         self.node_mlp = nn.Sequential(
             nn.Linear(hidden_nf + input_nf + nodes_att_dim, hidden_nf),
             act_fn,
-            nn.Linear(hidden_nf, output_nf))
+            nn.Linear(hidden_nf, output_nf),
+        )
 
         if self.attention:
-            self.att_mlp = nn.Sequential(
-                nn.Linear(hidden_nf, 1),
-                nn.Sigmoid())
+            self.att_mlp = nn.Sequential(nn.Linear(hidden_nf, 1), nn.Sigmoid())
 
     def edge_model(self, source, target, edge_attr, edge_mask):
         if edge_attr is None:  # Unused.
@@ -87,7 +96,9 @@ class GCL(nn.Module):
             out = x + out
         return out, agg
 
-    def forward(self, h, edge_index, edge_attr=None, node_attr=None, node_mask=None, edge_mask=None):
+    def forward(
+        self, h, edge_index, edge_attr=None, node_attr=None, node_mask=None, edge_mask=None
+    ):
         row, col = edge_index
 
         edge_feat = self.edge_model(h[row], h[col], edge_attr, edge_mask)
@@ -100,9 +111,6 @@ class GCL(nn.Module):
         return h, edge_attr
 
 
-
-
-
 class GCL_kholer(GCL_basic):
     """Graph Neural Net with global state and fixed number of nodes per graph.
     Args:
@@ -113,17 +121,15 @@ class GCL_kholer(GCL_basic):
     """
 
     def __init__(self, nf=64, edge_attr_nf=0, reg=0, act_fn=nn.LeakyReLU(0.2), clamp=False):
-        super(GCL_kholer, self).__init__()
+        super().__init__()
 
         self.clamp = clamp
-        self.phi = nn.Sequential(nn.Linear(edge_attr_nf + 1, nf),
-                                 act_fn,
-                                 nn.Linear(nf, 1))
+        self.phi = nn.Sequential(nn.Linear(edge_attr_nf + 1, nf), act_fn, nn.Linear(nf, 1))
         self.reg = reg
 
     def edge_model(self, source, target, edge_attr):
         x_diff = source - target
-        radial = torch.sqrt(torch.sum(x_diff ** 2, dim=1)).unsqueeze(1)
+        radial = torch.sqrt(torch.sum(x_diff**2, dim=1)).unsqueeze(1)
         e_input = torch.cat([radial, edge_attr], dim=1)
         e_out = self.phi(e_input)
         m_ij = x_diff * e_out
@@ -134,9 +140,8 @@ class GCL_kholer(GCL_basic):
     def node_model(self, x, edge_index, edge_attr):
         row, col = edge_index
         agg = unsorted_segment_mean(edge_attr, row, num_segments=x.size(0))
-        x_out = x + agg - x*self.reg
+        x_out = x + agg - x * self.reg
         return x_out
-
 
 
 class E_GCL(nn.Module):
@@ -148,8 +153,23 @@ class E_GCL(nn.Module):
           temp: Softmax temperature.
     """
 
-    def __init__(self, input_nf, output_nf, hidden_nf, edges_in_d=0, nodes_att_dim=0, act_fn=nn.SiLU(), recurrent=True, attention=False, clamp=False, norm_diff=True, tanh=False, coords_range=1, agg='sum'):
-        super(E_GCL, self).__init__()
+    def __init__(
+        self,
+        input_nf,
+        output_nf,
+        hidden_nf,
+        edges_in_d=0,
+        nodes_att_dim=0,
+        act_fn=nn.SiLU(),
+        recurrent=True,
+        attention=False,
+        clamp=False,
+        norm_diff=True,
+        tanh=False,
+        coords_range=1,
+        agg="sum",
+    ):
+        super().__init__()
         input_edge = input_nf * 2
         self.recurrent = recurrent
         self.attention = attention
@@ -158,17 +178,18 @@ class E_GCL(nn.Module):
         self.tanh = tanh
         edge_coords_nf = 1
 
-
         self.edge_mlp = nn.Sequential(
             nn.Linear(input_edge + edge_coords_nf + edges_in_d, hidden_nf),
             act_fn,
             nn.Linear(hidden_nf, hidden_nf),
-            act_fn)
+            act_fn,
+        )
 
         self.node_mlp = nn.Sequential(
             nn.Linear(hidden_nf + input_nf + nodes_att_dim, hidden_nf),
             act_fn,
-            nn.Linear(hidden_nf, output_nf))
+            nn.Linear(hidden_nf, output_nf),
+        )
 
         layer = nn.Linear(hidden_nf, 1, bias=False)
         torch.nn.init.xavier_uniform_(layer.weight, gain=0.001)
@@ -185,16 +206,13 @@ class E_GCL(nn.Module):
         self.clamp = clamp
 
         if self.attention:
-            self.att_mlp = nn.Sequential(
-                nn.Linear(hidden_nf, 1),
-                nn.Sigmoid())
+            self.att_mlp = nn.Sequential(nn.Linear(hidden_nf, 1), nn.Sigmoid())
 
-        #if recurrent:
+        # if recurrent:
         #    self.gru = nn.GRUCell(hidden_nf, hidden_nf)
 
-
     def edge_model(self, source, target, radial, edge_attr, edge_mask):
-        #print("edge_model", radial, edge_attr)
+        # print("edge_model", radial, edge_attr)
         if edge_attr is None:  # Unused.
             out = torch.cat([source, target, radial], dim=1)
         else:
@@ -210,7 +228,7 @@ class E_GCL(nn.Module):
         return out
 
     def node_model(self, x, edge_index, edge_attr, node_attr):
-        #print("node_model", edge_attr)
+        # print("node_model", edge_attr)
         row, col = edge_index
         agg = unsorted_segment_sum(edge_attr, row, num_segments=x.size(0))
         if node_attr is not None:
@@ -223,38 +241,42 @@ class E_GCL(nn.Module):
         return out, agg
 
     def coord_model(self, coord, edge_index, coord_diff, radial, edge_feat, node_mask, edge_mask):
-        #print("coord_model", coord_diff, radial, edge_feat)
+        # print("coord_model", coord_diff, radial, edge_feat)
         row, col = edge_index
         if self.tanh:
             trans = coord_diff * self.coord_mlp(edge_feat) * self.coords_range
         else:
             trans = coord_diff * self.coord_mlp(edge_feat)
-        #trans = torch.clamp(trans, min=-100, max=100)
+        # trans = torch.clamp(trans, min=-100, max=100)
         if edge_mask is not None:
             trans = trans * edge_mask
 
-        if self.agg_type == 'sum':
+        if self.agg_type == "sum":
             agg = unsorted_segment_sum(trans, row, num_segments=coord.size(0))
-        elif self.agg_type == 'mean':
+        elif self.agg_type == "mean":
             if node_mask is not None:
-                #raise Exception('This part must be debugged before use')
+                # raise Exception('This part must be debugged before use')
                 agg = unsorted_segment_sum(trans, row, num_segments=coord.size(0))
                 M = unsorted_segment_sum(node_mask[col], row, num_segments=coord.size(0))
-                agg = agg/(M-1)
+                agg = agg / (M - 1)
             else:
                 agg = unsorted_segment_mean(trans, row, num_segments=coord.size(0))
         else:
             raise Exception("Wrong coordinates aggregation type")
-        #print("update", coord, coord_diff,edge_feat, self.coord_mlp(edge_feat), self.coords_range, agg, self.tanh)
+        # print("update", coord, coord_diff,edge_feat, self.coord_mlp(edge_feat), self.coords_range, agg, self.tanh)
         coord = coord + agg
         return coord
 
-    def forward(self, h, edge_index, coord, edge_attr=None, node_attr=None, node_mask=None, edge_mask=None):
+    def forward(
+        self, h, edge_index, coord, edge_attr=None, node_attr=None, node_mask=None, edge_mask=None
+    ):
         row, col = edge_index
         radial, coord_diff = self.coord2radial(edge_index, coord)
 
         edge_feat = self.edge_model(h[row], h[col], radial, edge_attr, edge_mask)
-        coord = self.coord_model(coord, edge_index, coord_diff, radial, edge_feat, node_mask, edge_mask)
+        coord = self.coord_model(
+            coord, edge_index, coord_diff, radial, edge_feat, node_mask, edge_mask
+        )
 
         h, agg = self.node_model(h, edge_index, edge_feat, node_attr)
         # coord = self.node_coord_model(h, coord)
@@ -268,10 +290,10 @@ class E_GCL(nn.Module):
     def coord2radial(self, edge_index, coord):
         row, col = edge_index
         coord_diff = coord[row] - coord[col]
-        radial = torch.sum((coord_diff)**2, 1).unsqueeze(1)
+        radial = torch.sum((coord_diff) ** 2, 1).unsqueeze(1)
 
         norm = torch.sqrt(radial + 1e-8)
-        coord_diff = coord_diff/(norm + 1)
+        coord_diff = coord_diff / (norm + 1)
 
         return radial, coord_diff
 
@@ -285,14 +307,36 @@ class E_GCL_vel(E_GCL):
           temp: Softmax temperature.
     """
 
-
-    def __init__(self, input_nf, output_nf, hidden_nf, K=None, edges_in_d=0, nodes_att_dim=0, act_fn=nn.ReLU(), recurrent=True, coords_weight=1.0, attention=False):
-        E_GCL.__init__(self, input_nf, output_nf, hidden_nf, K=K, edges_in_d=edges_in_d, nodes_att_dim=nodes_att_dim, act_fn=act_fn, recurrent=recurrent, coords_weight=coords_weight, attention=attention)
+    def __init__(
+        self,
+        input_nf,
+        output_nf,
+        hidden_nf,
+        K=None,
+        edges_in_d=0,
+        nodes_att_dim=0,
+        act_fn=nn.ReLU(),
+        recurrent=True,
+        coords_weight=1.0,
+        attention=False,
+    ):
+        E_GCL.__init__(
+            self,
+            input_nf,
+            output_nf,
+            hidden_nf,
+            K=K,
+            edges_in_d=edges_in_d,
+            nodes_att_dim=nodes_att_dim,
+            act_fn=act_fn,
+            recurrent=recurrent,
+            coords_weight=coords_weight,
+            attention=attention,
+        )
 
         self.coord_mlp_vel = nn.Sequential(
-            nn.Linear(input_nf, hidden_nf),
-            act_fn,
-            nn.Linear(hidden_nf, 1))
+            nn.Linear(input_nf, hidden_nf), act_fn, nn.Linear(hidden_nf, 1)
+        )
 
     def forward(self, h, edge_index, coord, vel, edge_attr=None, node_attr=None):
         row, col = edge_index
@@ -315,21 +359,16 @@ class GCL_kholer_vel(nn.Module):
           global_agg: Global aggregation function ('attn' or 'sum').
           temp: Softmax temperature.
     """
-    def __init__(self,  nf=64, edge_attr_nf=0, act_fn=nn.LeakyReLU(0.2), coords_weight=1.0):
-        super(GCL_kholer_vel, self).__init__()
+
+    def __init__(self, nf=64, edge_attr_nf=0, act_fn=nn.LeakyReLU(0.2), coords_weight=1.0):
+        super().__init__()
         self.coords_weight = coords_weight
-        self.coord_mlp_vel = nn.Sequential(
-            nn.Linear(1, nf),
-            act_fn,
-            nn.Linear(nf, 1))
+        self.coord_mlp_vel = nn.Sequential(nn.Linear(1, nf), act_fn, nn.Linear(nf, 1))
 
         layer = nn.Linear(nf, 1, bias=False)
         torch.nn.init.xavier_uniform_(layer.weight, gain=0.001)
-        #layer.weight.uniform_(-0.1, 0.1)
-        self.phi = nn.Sequential(nn.Linear(1 + edge_attr_nf, nf),
-                                 act_fn,
-                                 layer,
-                                 nn.Tanh())
+        # layer.weight.uniform_(-0.1, 0.1)
+        self.phi = nn.Sequential(nn.Linear(1 + edge_attr_nf, nf), act_fn, layer, nn.Tanh())
 
     def forward(self, x, vel_norm, vel, edge_index, edge_attr=None):
         row, col = edge_index
@@ -340,7 +379,7 @@ class GCL_kholer_vel(nn.Module):
 
     def edge_model(self, source, target, edge_attr):
         x_diff = source - target
-        radial = torch.sqrt(torch.sum(x_diff ** 2, dim=1)).unsqueeze(1)
+        radial = torch.sqrt(torch.sum(x_diff**2, dim=1)).unsqueeze(1)
         e_input = torch.cat([radial, edge_attr], dim=1)
         e_out = self.phi(e_input)
         m_ij = x_diff * e_out
@@ -352,6 +391,7 @@ class GCL_kholer_vel(nn.Module):
         x_out = x + agg * self.coords_weight
         return x_out
 
+
 def unsorted_segment_sum(data, segment_ids, num_segments):
     """Custom PyTorch op to replicate TensorFlow's `unsorted_segment_sum`."""
     result_shape = (num_segments, data.size(1))
@@ -359,6 +399,7 @@ def unsorted_segment_sum(data, segment_ids, num_segments):
     segment_ids = segment_ids.unsqueeze(-1).expand(-1, data.size(1))
     result.scatter_add_(0, segment_ids, data)
     return result
+
 
 def unsorted_segment_mean(data, segment_ids, num_segments):
     result_shape = (num_segments, data.size(1))
