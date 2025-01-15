@@ -132,7 +132,7 @@ class ALDPDataModule(BaseDataModule):
             loggers=loggers,
             prefix=prefix,
         )
-        samples = self.unnormalize(samples)
+        samples = self.unnormalize(samples).cpu()
         aligned_samples, aligned_idxs = self.align_samples(samples)
         correct_config_rate = len(aligned_samples) / len(samples)
         if len(aligned_samples) == 0:
@@ -140,7 +140,6 @@ class ALDPDataModule(BaseDataModule):
                 "correct_config_rate": 0,
                 "correct_symmetry_rate": 0,
             }
-
         symmetry_change = self.get_symmetry_change(aligned_samples)
         correct_symmetry_rate = 1 - symmetry_change.sum() / len(symmetry_change)
         aligned_symmetric_samples = aligned_samples[~symmetry_change]
@@ -151,14 +150,15 @@ class ALDPDataModule(BaseDataModule):
         }
 
     def get_symmetry_change(self, aligned_samples):
+        aligned_samples = aligned_samples.reshape(-1, self.n_particles, self.n_dimensions)
         topology = self.bgmol_dataset.system.mdtraj_topology
         traj_samples = md.Trajectory(aligned_samples, topology=topology)
         model_samples = torch.from_numpy(traj_samples.xyz)
         adj_list = self.get_adj_list()
         atom_types = self.get_atom_types()
-        chirality_centers = find_chirality_centers(adj_list, atom_types)
+        chirality_centers = find_chirality_centers(torch.from_numpy(adj_list), atom_types)
         reference_signs = compute_chirality_sign(
-            self.unnormalize(self.data_test).reshape(-1, self.n_particles, self.n_dimensions)[1],
+            self.unnormalize(self.data_test[:1]).reshape(-1, self.n_particles, self.n_dimensions),
             chirality_centers,
         )
         symmetry_change = check_symmetry_change(model_samples, chirality_centers, reference_signs)
@@ -168,8 +168,10 @@ class ALDPDataModule(BaseDataModule):
 
     def plot_ramachandran(self, samples, prefix: str = "", wandb_logger: WandbLogger = None):
 
+        samples = samples.reshape(-1, self.n_particles, self.n_dimensions)
         traj_samples = md.Trajectory(samples, topology=self.bgmol_dataset.system.mdtraj_topology)
-        phis, psis = md.compute_phi(traj_samples), md.compute_psi(traj_samples)
+        phis = md.compute_phi(traj_samples)[1].flatten()
+        psis = md.compute_psi(traj_samples)[1].flatten()
         fig, ax = plt.subplots()
         plot_range = [-np.pi, np.pi]
         h, x_bins, y_bins, im = ax.hist2d(
@@ -224,7 +226,7 @@ class ALDPDataModule(BaseDataModule):
 
         for i, sample in enumerate(samples.reshape(-1, self.n_particles, self.n_dimensions)):
             aligned_sample, is_isomorphic = align_topology(
-                sample.cpu(), adj_list.tolist(), self.get_atom_types()
+                sample, adj_list.tolist(), self.get_atom_types()
             )
             if is_isomorphic:
                 aligned_samples.append(aligned_sample)
