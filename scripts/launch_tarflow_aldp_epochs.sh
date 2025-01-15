@@ -1,5 +1,5 @@
 #!/bin/bash
-python src/train.py -m launcher=mila_l40s \
+python src/train.py -m launcher=ox_h100 \
 model=normalizing_flow logger=wandb \
 data=aldp \
 trainer=gpu trainer.max_epochs=1000 \
