@@ -183,8 +183,8 @@ class ALDPDataModule(BaseDataModule):
             [np.exp(-6) * h.max(), np.exp(-4.0) * h.max(), np.exp(-2) * h.max(), h.max()]
         )
         ax.set_xlabel(r"$\varphi$", fontsize=45)
-        ax.set_title("Boltzmann Generator", fontsize=45)
-        # ax.set_ylabel(r"$\psi$", fontsize=45)
+        # ax.set_title("Boltzmann Generator", fontsize=45)
+        ax.set_ylabel(r"$\psi$", fontsize=45)
         ax.xaxis.set_tick_params(labelsize=25)
         ax.yaxis.set_tick_params(labelsize=25)
         ax.yaxis.set_ticks([])
@@ -195,7 +195,7 @@ class ALDPDataModule(BaseDataModule):
         cbar.ax.invert_yaxis()
         cbar.ax.set_ylabel(r"Free energy / $k_B T$", fontsize=35)
         if wandb_logger is not None:
-            wandb_logger.log_image(f"{prefix}ramachandran", [fig])
+            wandb_logger.log_image(f"{prefix}/ramachandran", [fig])
 
         return fig
 
