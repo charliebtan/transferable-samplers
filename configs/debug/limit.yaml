@@ -4,7 +4,6 @@
 
 defaults:
   - default
-  logger: csv
 
 trainer:
   max_epochs: 2
