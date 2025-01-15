@@ -8,8 +8,10 @@ import torch
 from bgmol.datasets import AImplicitUnconstrained
 from lightning.pytorch.loggers import WandbLogger
 from matplotlib.colors import LogNorm
+import torchvision
 
 from src.data.base_datamodule import BaseDataModule
+from src.data.components.center_of_mass import CenterOfMassTransform
 from src.data.components.rotation import Random3DRotationTransform
 from src.data.components.transform_dataset import TransformDataset
 from src.data.components.utils import align_topology
@@ -28,6 +30,7 @@ class ALDPDataModule(BaseDataModule):
         filename: str = "AD2_weighted.npy",
         n_particles: int = 22,
         n_dimensions: int = 3,
+        com_augmentation: bool = False,
         dim: int = 66,
         batch_size: int = 64,
         num_workers: int = 0,
@@ -44,7 +47,9 @@ class ALDPDataModule(BaseDataModule):
         )
         assert dim == n_particles * n_dimensions
 
+        # com is added once std known
         self.transforms = Random3DRotationTransform(self.n_particles, self.n_dimensions)
+
         self.scaling = scaling
 
         self.batch_size_per_device = batch_size
@@ -87,6 +92,13 @@ class ALDPDataModule(BaseDataModule):
 
         # compute std on only train data
         self.std = train_data.std()
+
+        if self.hparams.com_augmentation:
+            self.transforms = torchvision.transforms.Compose(
+                [
+                    self.transforms, CenterOfMassTransform(self.n_particles, self.n_dimensions, 1 / (self.std * self.scaling))
+                ]
+            )
 
         # standardize the data
         train_data = self.normalize(train_data)

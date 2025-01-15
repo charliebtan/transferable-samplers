@@ -10,7 +10,7 @@ class TransformDataset(torch.utils.data.Dataset):
         sample = self.data[idx]
         # sample might be a tuple (if TensorDataset has multiple tensors)
         # or a single tensor if there's just one
-        if self.transform:
+        if self.transform is not None:
             sample = self.transform(sample)
         return sample
 
