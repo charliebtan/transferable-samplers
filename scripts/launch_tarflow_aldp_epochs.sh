@@ -5,10 +5,9 @@ data=aldp \
 trainer=gpu trainer.max_epochs=1000 \
 model.optimizer._target_=torch.optim.AdamW \
 model.optimizer.weight_decay=0.0001 \
-tags=[tarflow,mle,aldp,priors_grid] \
+tags=[tarflow,mle,aldp,epochs_grid] \
 model.net.num_blocks=4 \
 model.net.channels=256 \
 trainer.check_val_every_n_epoch=20 \
-+model.force_gaussian_loss=0,1 \
-+model.mean_free_prior=0,1 \
-data.com_augmentation=0,1
+data.com_augmentation=0 \
+trainer.max_epochs=250,500,1000,2000
