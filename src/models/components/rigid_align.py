@@ -7,8 +7,8 @@ from einops import einsum
 def weighted_rigid_align(
     true_coords,
     pred_coords,
-    weights=None,
-    mask=None,
+    n_particles,
+    n_dimensions,
 ):
     """Compute weighted alignment.
 
@@ -18,11 +18,6 @@ def weighted_rigid_align(
         The ground truth atom coordinates
     pred_coords: torch.Tensor
         The predicted atom coordinates
-    weights: torch.Tensor
-        The weights for alignment
-    mask: torch.Tensor
-        The atoms mask
-
     Returns
     -------
     torch.Tensor
@@ -30,22 +25,17 @@ def weighted_rigid_align(
 
     """
 
-    if weights is None:
-        weights = torch.ones(true_coords.shape[0], device=true_coords)
+    assert true_coords.shape == pred_coords.shape
+    assert len(true_coords.shape) == 2
 
-    if mask is None:
-        mask = torch.ones(true_coords.shape[0], device=true_coords)
+    true_coords = true_coords.view(-1, n_particles, n_dimensions)
+    pred_coords = pred_coords.view(-1, n_particles, n_dimensions)
 
     batch_size, num_points, dim = true_coords.shape
-    weights = (mask * weights).unsqueeze(-1)
 
     # Compute weighted centroids
-    true_centroid = (true_coords * weights).sum(dim=1, keepdim=True) / weights.sum(
-        dim=1, keepdim=True
-    )
-    pred_centroid = (pred_coords * weights).sum(dim=1, keepdim=True) / weights.sum(
-        dim=1, keepdim=True
-    )
+    true_centroid = true_coords.mean(dim=1, keepdim=True)
+    pred_centroid = pred_coords.mean(dim=1, keepdim=True)
 
     # Center the coordinates
     true_coords_centered = true_coords - true_centroid
@@ -59,7 +49,7 @@ def weighted_rigid_align(
 
     # Compute the weighted covariance matrix
     cov_matrix = einsum(
-        weights * pred_coords_centered, true_coords_centered, "b n i, b n j -> b i j"
+        pred_coords_centered, true_coords_centered, "b n i, b n j -> b i j"
     )
 
     # Compute the SVD of the covariance matrix, required float32 for svd and determinant
@@ -92,5 +82,7 @@ def weighted_rigid_align(
         einsum(true_coords_centered, rot_matrix, "b n i, b j i -> b n j") + pred_centroid
     )
     aligned_coords.detach_()
+
+    aligned_coords = aligned_coords.view(batch_size, -1)
 
     return aligned_coords

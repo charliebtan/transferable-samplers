@@ -2,14 +2,15 @@ from typing import Tuple
 
 import torch
 
+from src.models.components.rigid_align import weighted_rigid_align
 from src.models.flow_matching_module import FlowMatchLitModule
 from src.models.normalizing_flow_module import NormalizingFlowLitModule
-
 
 class InvertibleReflowModule(NormalizingFlowLitModule):
     def __init__(
         self,
         base_flow_ckpt_path: str,
+        aligned_loss_fn: bool = False,
         *args,
         **kwargs,
     ) -> None:
@@ -37,15 +38,27 @@ class InvertibleReflowModule(NormalizingFlowLitModule):
     ) -> torch.Tensor:
         # sample the prior and get xt
         if self.samples is None:
+            self.base_flow.net.backup()
+            self.base_flow.net.copy_to_model()
             self.samples, self.prior_samples = self.base_flow.batched_generate_samples_no_ll(
                 self.hparams.num_reflow_samples, batch_size=self.hparams.reflow_batch_size
             )
             self.evaluate(prefix="base_flow", generator=self.base_flow.batched_generate_samples)
+            self.base_flow.net.restore_to_model()
         # Sample random indices from length of samples
         idx = torch.randint(0, self.samples.shape[0], (batch.shape[0],), device=self.device)
         batch_prior = self.prior_samples[idx]
         batch_target = self.samples[idx]
         x_pred, _ = self.net.forward(batch_prior)
+
+        if self.hparams.aligned_loss_fn:
+            batch_target = weighted_rigid_align(
+                true_coords=batch_target,
+                pred_coords=x_pred,
+                n_particles=self.datamodule.n_particles,
+                n_dimensions=self.datamodule.n_dimensions,
+            )
+
         loss = self.criterion(x_pred, batch_target)
 
         return loss
@@ -74,3 +87,6 @@ class InvertibleReflowModule(NormalizingFlowLitModule):
         log_p = prior_log_p.flatten() + logdets.flatten()
 
         return x_pred, log_p, torch.empty(0)
+
+if __name__ == "__main__":
+    _ = InvertibleReflowModule(None, None, None, None)
