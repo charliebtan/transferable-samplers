@@ -12,7 +12,6 @@ class CenterOfMassTransform(torch.nn.Module):
     def forward(self, data):
         assert len(data.shape) == 1, "only process single molecules"
         data = data.reshape(self.num_particles, self.dim)
-        
         # Calculate the current center of mass
         center_of_mass = data.mean(dim=0)
         

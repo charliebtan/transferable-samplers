@@ -97,7 +97,7 @@ class ALDPDataModule(BaseDataModule):
         if self.hparams.com_augmentation:
             self.transforms = torchvision.transforms.Compose(
                 [
-                    self.transforms, CenterOfMassTransform(self.n_particles, self.n_dimensions, 1 / (self.std * self.scaling))
+                    self.transforms, CenterOfMassTransform(self.n_particles, self.n_dimensions, self.std)
                 ]
             )
 
