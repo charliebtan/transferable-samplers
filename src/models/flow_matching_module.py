@@ -1,13 +1,12 @@
 import copy
-import math
-from typing import Any, Dict, Tuple
+from typing import Optional, Tuple
 
 import torch
-from lightning import LightningDataModule
 from torchdyn.core import NeuralODE
+from tqdm import tqdm
 
 from src.models.boltzmann_generator_module import BoltzmannGeneratorLitModule
-from src.models.components.wrappers import TorchdynWrapper
+from src.models.components.wrappers import TorchdynWrapper, torch_wrapper
 
 
 class FlowMatchLitModule(BoltzmannGeneratorLitModule):
@@ -116,6 +115,36 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
         log_p = prior_log_p.flatten() + dlog_p.flatten()
 
         return samples, log_p, prior_samples
+
+    def generate_samples_no_ll(self, batch_size) -> torch.Tensor:
+        x_0 = self.prior.sample(batch_size).to(self.device)
+        t_span = torch.linspace(0, 1, 2)
+        node = NeuralODE(
+            torch_wrapper(self.net),
+            atol=1e-4,
+            rtol=1e-4,
+            solver="dopri5",
+            sensitivity="adjoint",
+        )
+        x = node.trajectory(x_0, t_span=t_span)[-1]
+        return x, x_0
+
+    def batched_generate_samples_no_ll(
+        self, total_size: int, batch_size: Optional[int] = None
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        samples = []
+        prior_samples = []
+        for _ in tqdm(range(total_size // batch_size)):
+            s, ps = self.generate_samples_no_ll(batch_size)
+            samples.append(s)
+            prior_samples.append(ps)
+        if total_size % batch_size > 0:
+            s, lp, ps = self.generate_samples(total_size % batch_size)
+            samples.append(s)
+            prior_samples.append(ps)
+        samples = torch.cat(samples, dim=0)
+        prior_samples = torch.cat(prior_samples, dim=0)
+        return samples, prior_samples
 
 
 if __name__ == "__main__":

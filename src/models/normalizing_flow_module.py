@@ -1,14 +1,12 @@
 from typing import Tuple
 
 import torch
+from bgflow import NormalDistribution
 
 from src.models.boltzmann_generator_module import BoltzmannGeneratorLitModule
 
-from bgflow import NormalDistribution
-
 
 class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
-
     def __init__(
         self,
         mean_free_prior: bool = False,

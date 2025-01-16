@@ -7,13 +7,13 @@ import torch
 import torchmetrics
 from bgflow import MeanFreeNormalDistribution
 from lightning import LightningDataModule, LightningModule
-from src.models.components.distribution_distances import \
-    compute_distribution_distances
+from torchmetrics import MeanMetric
+from tqdm import tqdm
+
+from src.models.components.distribution_distances import compute_distribution_distances
 from src.models.components.ema import EMA
 from src.models.components.jarzynski_sampler import JarzynskiSampler
 from src.utils.tbg_utils import sampling_efficiency
-from torchmetrics import MeanMetric
-from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 

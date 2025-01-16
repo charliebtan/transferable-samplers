@@ -1,0 +1,9 @@
+defaults:
+  - default
+  - net: tarflow_large
+
+_target_: src.models.invertible_reflow_module.InvertibleReflowModule
+
+num_reflow_samples: 100000
+reflow_batch_size: 10000
+base_flow_ckpt_path: null

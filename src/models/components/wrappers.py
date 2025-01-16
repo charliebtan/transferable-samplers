@@ -68,3 +68,14 @@ class TorchdynWrapper(torch.nn.Module):
         )
 
         return torch.cat([dx, dlog_p[:, None]], dim=-1).detach()
+
+
+class torch_wrapper(torch.nn.Module):
+    """Wraps model to torchdyn compatible format."""
+
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+
+    def forward(self, t, x, *args, **kwargs):
+        return self.model(t, x)
