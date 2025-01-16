@@ -6,10 +6,10 @@ import matplotlib.pyplot as plt
 import mdtraj as md
 import numpy as np
 import torch
+import torchvision
 from bgmol.datasets import AImplicitUnconstrained
 from lightning.pytorch.loggers import WandbLogger
 from matplotlib.colors import LogNorm
-import torchvision
 
 from src.data.base_datamodule import BaseDataModule
 from src.data.components.center_of_mass import CenterOfMassTransform
@@ -48,7 +48,7 @@ class ALDPDataModule(BaseDataModule):
         )
         assert dim == n_particles * n_dimensions
 
-        # com is added once std known
+        # com is added once std known
         self.transforms = Random3DRotationTransform(self.n_particles, self.n_dimensions)
 
         self.scaling = scaling
@@ -97,7 +97,8 @@ class ALDPDataModule(BaseDataModule):
         if self.hparams.com_augmentation:
             self.transforms = torchvision.transforms.Compose(
                 [
-                    self.transforms, CenterOfMassTransform(self.n_particles, self.n_dimensions, self.std)
+                    self.transforms,
+                    CenterOfMassTransform(self.n_particles, self.n_dimensions, self.std),
                 ]
             )
 
@@ -160,13 +161,20 @@ class ALDPDataModule(BaseDataModule):
         correct_symmetry_rate = 1 - symmetry_change.sum() / len(symmetry_change)
         try:
             aligned_symmetric_samples = aligned_samples[~symmetry_change]
-            self.plot_ramachandran(aligned_symmetric_samples, prefix=prefix, wandb_logger=wandb_logger)
+            self.plot_ramachandran(
+                aligned_symmetric_samples, prefix=prefix, wandb_logger=wandb_logger
+            )
             return {
                 "correct_config_rate": correct_config_rate,
                 "correct_symmetry_rate": correct_symmetry_rate,
             }
         except:
-            logging.warning("Aligned samples:", aligned_samples.shape, "Symmetry change:", symmetry_change.shape)
+            logging.warning(
+                "Aligned samples:",
+                aligned_samples.shape,
+                "Symmetry change:",
+                symmetry_change.shape,
+            )
             return {
                 "correct_config_rate": -1.0,
                 "correct_symmetry_rate": -1.0,

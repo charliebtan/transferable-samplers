@@ -1,9 +1,9 @@
+# started from code from https://github.com/lucidrains/alphafold3-pytorch, MIT License, Copyright (c) 2024 Phil Wang
 
-   # started from code from https://github.com/lucidrains/alphafold3-pytorch, MIT License, Copyright (c) 2024 Phil Wang
-
-from einops import einsum
 import torch
 import torch.nn.functional as F
+from einops import einsum
+
 
 def weighted_rigid_align(
     true_coords,
@@ -66,9 +66,7 @@ def weighted_rigid_align(
     # Compute the SVD of the covariance matrix, required float32 for svd and determinant
     original_dtype = cov_matrix.dtype
     cov_matrix_32 = cov_matrix.to(dtype=torch.float32)
-    U, S, V = torch.linalg.svd(
-        cov_matrix_32, driver="gesvd" if cov_matrix_32.is_cuda else None
-    )
+    U, S, V = torch.linalg.svd(cov_matrix_32, driver="gesvd" if cov_matrix_32.is_cuda else None)
     V = V.mH
 
     # Catch ambiguous rotation by checking the magnitude of singular values
@@ -83,19 +81,17 @@ def weighted_rigid_align(
     rot_matrix = torch.einsum("b i j, b k j -> b i k", U, V).to(dtype=torch.float32)
 
     # Ensure proper rotation matrix with determinant 1
-    F = torch.eye(dim, dtype=cov_matrix_32.dtype, device=cov_matrix.device)[
-        None
-    ].repeat(batch_size, 1, 1)
+    F = torch.eye(dim, dtype=cov_matrix_32.dtype, device=cov_matrix.device)[None].repeat(
+        batch_size, 1, 1
+    )
     F[:, -1, -1] = torch.det(rot_matrix)
     rot_matrix = einsum(U, F, V, "b i j, b j k, b l k -> b i l")
     rot_matrix = rot_matrix.to(dtype=original_dtype)
 
     # Apply the rotation and translation
     aligned_coords = (
-        einsum(true_coords_centered, rot_matrix, "b n i, b j i -> b n j")
-        + pred_centroid
+        einsum(true_coords_centered, rot_matrix, "b n i, b j i -> b n j") + pred_centroid
     )
     aligned_coords.detach_()
 
     return aligned_coords
- 

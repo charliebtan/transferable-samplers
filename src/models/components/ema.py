@@ -50,8 +50,8 @@ class EMA(torch.nn.Module):
     def copy_to_model(self):
         # copy the shadow (ema) parameters to the model
         params = [p for p in self.model.parameters() if p.requires_grad]
-        for shaddow, param in zip(self.shadow_params, params):
-            param.data.copy_(shaddow.data)
+        for shadow, param in zip(self.shadow_params, params):
+            param.data.copy_(shadow.data)
 
     def backup(self):
         # Backup the current model parameters

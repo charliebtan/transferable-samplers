@@ -1,6 +1,7 @@
 from typing import Tuple
 
 import torch
+
 from src.models.flow_matching_module import FlowMatchLitModule
 from src.models.normalizing_flow_module import NormalizingFlowLitModule
 
@@ -23,7 +24,6 @@ class InvertibleReflowModule(NormalizingFlowLitModule):
         super().__init__(*args, **kwargs)
         self.base_flow = FlowMatchLitModule.load_from_checkpoint(
             base_flow_ckpt_path,
-
             datamodule=self.datamodule,
             jarzynski_sampler=self.hparams.jarzynski_sampler,
             sampling_config=self.hparams.sampling_config,
