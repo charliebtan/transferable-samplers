@@ -28,8 +28,8 @@ class ALPDataModule(BaseDataModule):
         self,
         data_dir: str = "data/alanine/",
         data_url: str = "https://osf.io/download/y7ntk/?view_only=1052300a21bd43c08f700016728aa96e",
-        filename: str = "AlaAlaAlaNme_300K.npy",
-        pdb_filename: str = "AlaAlaAlaNme_300K.pdb",
+        filename: str = "AlaAlaAla_310K.npy",
+        pdb_filename: str = "AlaAlaAla_310K.pdb",
         n_particles: int = 33,
         n_dimensions: int = 3,
         com_augmentation: bool = False,
@@ -75,7 +75,7 @@ class ALPDataModule(BaseDataModule):
         self.openmm_energy = OpenMMEnergy(
             bridge=OpenMMBridge(system, integrator, platform_name="CUDA")
         )
-        self.potential = self.openmm_energy.energy
+        self.potential = self.openmm_energy
 
     def setup(self, stage: Optional[str] = None) -> None:
         # Divide batch size by the number of devices.
@@ -88,7 +88,9 @@ class ALPDataModule(BaseDataModule):
 
         # load the data + tensorize
         data = np.load(f"{self.hparams.data_dir}/{self.hparams.filename}", allow_pickle=True)
-        data = torch.tensor(data) / self.scaling
+        data = data.reshape(-1, self.dim)
+        data = data[:300000]
+        data = torch.tensor(data).float() / self.scaling
         data = self.zero_center_of_mass(data)
 
         test_data = data[-100000:]
@@ -107,6 +109,7 @@ class ALPDataModule(BaseDataModule):
 
         # standardize the data
         train_data = self.normalize(train_data)
+        print("train_data shape", train_data.shape)
         test_data = self.normalize(test_data)
 
         # split the data
