@@ -55,7 +55,7 @@ class InvertibleReflowModule(NormalizingFlowLitModule):
                 true_coords=batch_target,
                 pred_coords=x_pred,
                 n_particles=self.datamodule.n_particles,
-                n_dim=self.datamodule.n_dim,
+                n_dimensions=self.datamodule.n_dimensions,
             )
 
         loss = self.criterion(x_pred, batch_target)

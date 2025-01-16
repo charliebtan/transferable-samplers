@@ -9,7 +9,7 @@ def weighted_rigid_align(
     true_coords,
     pred_coords,
     n_particles,
-    n_dim,
+    n_dimensions,
 ):
     """Compute weighted alignment.
 
@@ -29,8 +29,8 @@ def weighted_rigid_align(
     assert true_coords.shape == pred_coords.shape
     assert len(true_coords.shape) == 2
 
-    true_coords = true_coords.view(-1, n_particles, n_dim)
-    pred_coords = pred_coords.view(-1, n_particles, n_dim)
+    true_coords = true_coords.view(-1, n_particles, n_dimensions)
+    pred_coords = pred_coords.view(-1, n_particles, n_dimensions)
 
     batch_size, num_points, dim = true_coords.shape
 
