@@ -168,13 +168,14 @@ class ALDPDataModule(BaseDataModule):
                 "correct_config_rate": correct_config_rate,
                 "correct_symmetry_rate": correct_symmetry_rate,
             }
-        except:
+        except Exception as e:
             logging.warning(
                 "Aligned samples:",
                 aligned_samples.shape,
                 "Symmetry change:",
                 symmetry_change.shape,
             )
+            logging.warning(e)
             return {
                 "correct_config_rate": -1.0,
                 "correct_symmetry_rate": -1.0,

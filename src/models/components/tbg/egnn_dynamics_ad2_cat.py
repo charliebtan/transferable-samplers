@@ -3,16 +3,8 @@ import math
 import numpy as np
 import torch
 import torch.nn as nn
-
 from src.models.components.tbg.egnn import EGNN
 from src.models.components.tbg.utils import remove_mean
-
-# atom types for backbone
-atom_types = np.arange(22)
-atom_types[[1, 2, 3]] = 2
-atom_types[[19, 20, 21]] = 20
-atom_types[[11, 12, 13]] = 12
-H_INITIAL = torch.nn.functional.one_hot(torch.tensor(atom_types))
 
 
 class EGNN_dynamics_AD2_cat(nn.Module):
@@ -20,7 +12,6 @@ class EGNN_dynamics_AD2_cat(nn.Module):
         self,
         n_particles,
         n_dimensions,
-        h_initial=H_INITIAL,
         hidden_nf=64,
         act_fn=torch.nn.SiLU(),
         n_layers=5,  # changed to match AD2_classical_train_tgb_full.py
@@ -31,10 +22,12 @@ class EGNN_dynamics_AD2_cat(nn.Module):
         M=128,
     ):
         super().__init__()
+        self._n_particles = n_particles
+        self._n_dimensions = n_dimensions
         # Initial one hot encoding of the different element types
-        self.h_initial = h_initial
+        self.h_initial = self.get_h_initial()
 
-        h_size = h_initial.size(1)
+        h_size = self.h_initial.size(1)
         h_size += 2  # Add time and d_base
 
         self.egnn = EGNN(
@@ -49,13 +42,36 @@ class EGNN_dynamics_AD2_cat(nn.Module):
             agg=agg,
         )
 
-        self._n_particles = n_particles
-        self._n_dimensions = n_dimensions
         self.edges = self._create_edges()
         self._edges_dict = {}
         # Count function calls
         self.counter = 0
         self.M = M
+
+    def get_h_initial(self):
+        if self._n_particles == 22:
+            atom_types = np.arange(22)
+            atom_types[[1, 2, 3]] = 2
+            atom_types[[19, 20, 21]] = 20
+            atom_types[[11, 12, 13]] = 12
+            return torch.nn.functional.one_hot(torch.tensor(atom_types))
+        if self._n_particles == 33:
+            atom_types = np.arange(33)
+            atom_types[[1, 2, 3]] = 2
+            atom_types[[9, 10, 11]] = 10
+            atom_types[[19, 20, 21]] = 18
+            atom_types[[29, 30, 31]] = 31
+            h_initial = torch.nn.functional.one_hot(torch.tensor(atom_types))
+            return h_initial
+        if self._n_particles == 42:
+            atom_types = np.arange(42)
+            atom_types[[1, 2, 3]] = 2
+            atom_types[[11, 12, 13]] = 12
+            atom_types[[21, 22, 23]] = 22
+            atom_types[[31, 32, 33]] = 32
+            atom_types[[39, 40, 41]] = 40
+            h_initial = torch.nn.functional.one_hot(torch.tensor(atom_types))
+            return h_initial
 
     def forward(self, t, x, d_base=None, *args, **kwargs):
         t = t.view(-1, 1)

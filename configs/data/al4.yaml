@@ -1,0 +1,10 @@
+_target_: src.data.alp_datamodule.ALPDataModule
+data_dir: ${paths.data_dir}/alanine/
+filename: "AceAlaAlaAlaNme_300K.npy"
+pdb_filename: "AceAlaAlaAlaNme_300K.pdb"
+batch_size: 512 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
+num_workers: 2
+pin_memory: True
+n_particles: 42
+n_dimensions: 3
+dim: 126
