@@ -44,6 +44,9 @@ class EMA(torch.nn.Module):
     def forward(self, *args, **kwargs):
         return self.model(*args, **kwargs)
 
+    def reverse(self, *args, **kwargs):
+        return self.model.reverse(*args, **kwargs)
+
     def copy_to_model(self):
         # copy the shadow (ema) parameters to the model
         params = [p for p in self.model.parameters() if p.requires_grad]

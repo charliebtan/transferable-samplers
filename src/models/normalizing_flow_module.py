@@ -11,6 +11,8 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
 
     def __init__(
         self,
+        mean_free_prior: bool = False,
+        force_gaussian_loss: bool = False,
         *args,
         **kwargs,
     ) -> None:
@@ -22,8 +24,11 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
         """
         super().__init__(*args, **kwargs)
 
-        # overwrites the MeanFreeNormalDistribution in BoltzmannGeneratorLitModule
-        self.prior = NormalDistribution(self.datamodule.dim)
+        assert not (not self.hparams.mean_free_prior and self.hparams.force_gaussian_loss)
+
+        if not self.hparams.mean_free_prior:
+            # overwrites the MeanFreeNormalDistribution in BoltzmannGeneratorLitModule
+            self.prior = NormalDistribution(self.datamodule.dim)
 
     def model_step(
         self,
@@ -31,8 +36,11 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
     ) -> torch.Tensor:
         x1 = batch
         x0, dlogp = self.net(x1)
-        loss = (0.5 * x0.pow(2)).mean() - dlogp.mean()
-        # loss = self.prior.energy(x0).mean() - dlogp.mean()
+
+        if self.hparams.force_gaussian_loss:
+            loss = (0.5 * x0.pow(2)).mean() - dlogp.mean()
+        else:
+            loss = self.prior.energy(x0).mean() - dlogp.mean()
         return loss
 
     def proposal_energy(self, x: torch.Tensor) -> torch.Tensor:
@@ -53,8 +61,9 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
         prior_samples = self.prior.sample(batch_size).to(self.device)
         prior_log_p = -self.prior.energy(prior_samples)
         # This is a bit slow... but probably fine 2x calls
-        x_pred = self.net.reverse(prior_samples)
-        _, logdets = self.net(x_pred)
+        with torch.no_grad():
+            x_pred = self.net.reverse(prior_samples)
+            _, logdets = self.net(x_pred)
         log_p = prior_log_p.flatten() + logdets.flatten()
         return x_pred, log_p, torch.empty(0)
 
