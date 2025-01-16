@@ -40,6 +40,7 @@ class InvertibleReflowModule(NormalizingFlowLitModule):
             self.samples, self.prior_samples = self.base_flow.batched_generate_samples_no_ll(
                 self.hparams.num_reflow_samples, batch_size=self.hparams.reflow_batch_size
             )
+            self.evaluate(prefix="base_flow", generator=self.base_flow.batched_generate_samples)
         # Sample random indices from length of samples
         idx = torch.randint(0, self.samples.shape[0], (batch.shape[0],), device=self.device)
         batch_prior = self.prior_samples[idx]
@@ -73,7 +74,3 @@ class InvertibleReflowModule(NormalizingFlowLitModule):
         log_p = prior_log_p.flatten() + logdets.flatten()
 
         return x_pred, log_p, torch.empty(0)
-
-
-if __name__ == "__main__":
-    _ = InvertibleShortcutLitModule(None, None, None, None)

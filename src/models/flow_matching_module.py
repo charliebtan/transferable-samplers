@@ -139,7 +139,7 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
             samples.append(s)
             prior_samples.append(ps)
         if total_size % batch_size > 0:
-            s, lp, ps = self.generate_samples(total_size % batch_size)
+            s, ps = self.generate_samples_no_ll(total_size % batch_size)
             samples.append(s)
             prior_samples.append(ps)
         samples = torch.cat(samples, dim=0)

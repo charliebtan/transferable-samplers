@@ -1,7 +1,6 @@
 # started from code from https://github.com/lucidrains/alphafold3-pytorch, MIT License, Copyright (c) 2024 Phil Wang
 
 import torch
-import torch.nn.functional as F
 from einops import einsum
 
 

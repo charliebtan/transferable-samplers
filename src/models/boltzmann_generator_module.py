@@ -1,4 +1,5 @@
 import logging
+import matplotlib.pyplot as plt
 import math
 from typing import Any, Dict, Optional, Tuple
 
@@ -214,16 +215,19 @@ class BoltzmannGeneratorLitModule(LightningModule):
             self.net.restore_to_model()
         if self.hparams.eval_non_ema:
             self.evaluate(prefix + "/non_ema")
+        plt.close("all")
 
-    def evaluate(self, prefix: str = "val") -> None:
+    def evaluate(self, prefix: str = "val", generator=None) -> None:
         logging.info("Eval epoch end")
-        if prefix.startswith("val"):
+        if generator is None:
+            generator = self.batched_generate_samples
+        if prefix.startswith("val") or prefix.startswith("base"):
             num_proposal_samples = self.hparams.sampling_config.num_proposal_samples
             true_data = self.datamodule.data_val
         elif prefix.startswith("test"):
             num_proposal_samples = self.hparams.sampling_config.num_test_proposal_samples
             true_data = self.datamodule.data_test
-        samples, log_p, prior_samples = self.batched_generate_samples(num_proposal_samples)
+        samples, log_p, prior_samples = generator(num_proposal_samples)
         jarzynski_samples, jarzynski_weights = None, None
         if self.jarzynski_sampler is not None and self.jarzynski_sampler.enabled:
             num_jarzynski_samples = self.hparams.sampling_config.num_jarzynski_samples
