@@ -7,10 +7,11 @@ hydra:
   launcher:
     partition: main,long
     cpus_per_task: 4
-    mem_gb: 64
-    gres: gpu:l40s:1
+    mem_gb: 48
+    gres: gpu:1
     timeout_min: 3000
     array_parallelism: 10 # max num of tasks to run in parallel (via job array)
+    exclude: cn-a[001-011],cn-b[001-005],cn-c[001-040]
     setup:
       - "module purge"
       - "module load miniconda/3"
