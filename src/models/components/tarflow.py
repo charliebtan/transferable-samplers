@@ -298,7 +298,7 @@ class TarFlow(torch.nn.Module):
         self.img_size = img_size
         self.patch_size = patch_size
         # self.num_patches = (img_size // patch_size) ** 2
-        self.num_patches = img_size // patch_size
+        self.num_patches = img_size // patch_size // in_channels
         permutations = [
             PermutationIdentity(self.num_patches),
             PermutationFlip(self.num_patches),
@@ -321,18 +321,26 @@ class TarFlow(torch.nn.Module):
         self.blocks = torch.nn.ModuleList(blocks)
         # prior for nvp mode should be all ones, but needs to be learnd for the vp mode
         self.register_buffer("var", torch.ones(self.num_patches, in_channels * patch_size**2))
+        self.in_channels = in_channels
+        self.img_size = img_size
+        if self.in_channels != 1:
+            assert not self.img_size % self.in_channels
 
     def patchify(self, x: torch.Tensor) -> torch.Tensor:
         """Convert an image (N,C',H,W) to a sequence of patches (N,T,C')"""
-        if x.ndim == 2:
+        if self.in_channels != 1:
+            u = x.reshape(-1, self.img_size // self.in_channels, self.in_channels)
+        elif x.ndim == 2:
+            # TODO I think this can be done with a reshape because we only have one channel, I'm not sure if the
+            # memory layout is the same though or if this is important
             x = x.reshape(-1, 1, self.img_size, 1)  # B x 1 x D x 1
-        # TODO I think this can be done with a reshape because we only have one channel, I'm not sure if the
-        # memory layout is the same though or if this is important
-        u = torch.nn.functional.unfold(x, self.patch_size, stride=self.patch_size)
-        return u.transpose(1, 2)
+            u = torch.nn.functional.unfold(x, self.patch_size, stride=self.patch_size)
+            u = u.transpose(1, 2)
+        return u
 
     def unpatchify(self, x: torch.Tensor) -> torch.Tensor:
         """Convert a sequence of patches (N,T,C) to an image (N,C',H,W)"""
+        x = x.reshape(-1, self.img_size)
         return x
         # u = x.transpose(1, 2)
         # pdb.set_trace()
@@ -346,7 +354,7 @@ class TarFlow(torch.nn.Module):
         for block in self.blocks:
             x, logdet = block(x, y)
             logdets = logdets + logdet
-        x_pred = x.squeeze()
+        x_pred = self.unpatchify(x)
         return x_pred, logdets
 
     # TODO I've commented these out because I don't think we need them
@@ -371,8 +379,7 @@ class TarFlow(torch.nn.Module):
         annealed_guidance: bool = False,
         return_sequence: bool = False,
     ) -> torch.Tensor | list[torch.Tensor]:
-        if x.ndim == 2:
-            x = x.reshape(-1, self.img_size, 1)  # B x D x 1 (Don't ask just believe)
+        x = self.patchify(x)
         seq = [self.unpatchify(x)]
         x = x * self.var.sqrt()
         for block in reversed(self.blocks):
@@ -387,16 +394,18 @@ class TarFlow(torch.nn.Module):
 
 
 if __name__ == "__main__":
-    img_size = 8
-    in_channels = 1
+    img_size = 66
+    in_channels = 3
     patch_size = 1
     channels = 64
     num_blocks = 3
     layers_per_block = 2
     model = TarFlow(in_channels, img_size, patch_size, channels, num_blocks, layers_per_block)
 
-    x = torch.randn([128, 8])
-    v, _ = model.forward(x)
-    x_recon = model.reverse(x + v)
+    x = torch.randn([128, img_size])
+    x_pred, _ = model.forward(x)
+    x_recon = model.reverse(x_pred)
+
+    print(torch.abs(x - x_recon).mean())
     assert torch.allclose(x, x_recon), "Invertibility test failed"
     print("Invertibility test passed")
