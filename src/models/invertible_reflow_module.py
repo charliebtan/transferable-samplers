@@ -53,7 +53,9 @@ class InvertibleReflowModule(NormalizingFlowLitModule):
         if self.hparams.aligned_loss_fn:
             batch_target = weighted_rigid_align(
                 true_coords=batch_target,
-                pred_coords=x_pred
+                pred_coords=x_pred,
+                n_particles=self.datamodule.n_particles,
+                n_dim=self.datamodule.n_dim,
             )
 
         loss = self.criterion(x_pred, batch_target)
