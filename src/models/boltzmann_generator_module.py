@@ -15,6 +15,7 @@ from src.models.components.distribution_distances import compute_distribution_di
 from src.models.components.ema import EMA
 from src.models.components.jarzynski_sampler import JarzynskiSampler
 from src.utils.tbg_utils import sampling_efficiency
+from src.models.components.utils import RunningMedian
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         sampling_config,
         ema_decay: float,
         compile: bool,
+        stabilize_training: bool = False,
         *args,
         **kwargs,
     ) -> None:
@@ -53,7 +55,11 @@ class BoltzmannGeneratorLitModule(LightningModule):
         if args or kwargs:
             logger.warning(f"Unexpected arguments: {args}, {kwargs}")
 
-        self.net = EMA(net, decay=self.hparams.ema_decay)
+        self.net = net
+
+        if self.hparams.ema_decay > 0:
+            self.net = EMA(net, decay=self.hparams.ema_decay)
+
         self.datamodule = datamodule
 
         self.jarzynski_sampler = jarzynski_sampler(
@@ -74,6 +80,8 @@ class BoltzmannGeneratorLitModule(LightningModule):
         self.prior = MeanFreeNormalDistribution(
             self.datamodule.dim, self.datamodule.n_particles, two_event_dims=False
         )
+        if self.hparams.stabilize_training:
+            self.gradient_history = RunningMedian(100)
 
     def on_train_start(self) -> None:
         """Lightning hook that is called when training begins."""
@@ -208,13 +216,16 @@ class BoltzmannGeneratorLitModule(LightningModule):
     def on_eval_epoch_end(self, metrics, prefix: str = "val") -> None:
         self.log_dict(metrics)
         metrics.reset()
-        if self.hparams.eval_ema:
-            self.net.backup()
-            self.net.copy_to_model()
-            self.evaluate(prefix)
-            self.net.restore_to_model()
-        if self.hparams.eval_non_ema:
-            self.evaluate(prefix + "/non_ema")
+        if self.hparams.ema_decay > 0:
+            if self.hparams.eval_ema:
+                self.net.backup()
+                self.net.copy_to_model()
+                self.evaluate(prefix)
+                self.net.restore_to_model()
+            if self.hparams.eval_non_ema:
+                self.evaluate(prefix + "/non_ema")
+        else:
+                self.evaluate(prefix)
         plt.close("all")
 
     def evaluate(self, prefix: str = "val", generator=None) -> None:
@@ -302,6 +313,43 @@ class BoltzmannGeneratorLitModule(LightningModule):
         self.on_eval_epoch_end(self.test_metrics, "test")
         logging.info("Test epoch end")
 
+    def on_after_backward(self) -> None:
+        if not self.hparams.stabilize_training:
+            return
+
+        valid_gradients = True
+        flat_grads = torch.cat([p.grad.view(-1) for p in self.parameters() if p.grad is not None])
+        global_norm = torch.norm(flat_grads, p=2)
+        self.gradient_history.update(global_norm.item())
+        for name, param in self.named_parameters():
+            if param.grad is not None:
+                valid_gradients = not (
+                    torch.isnan(param.grad).any() or torch.isinf(param.grad).any()
+                )
+
+                if not valid_gradients:
+                    break
+
+        running_global_norm = self.gradient_history.compute()
+        self.log("global_gradient_norm", global_norm, on_step=True, prog_bar=True)
+        if not valid_gradients:
+            logger.warning(
+                "detected inf or nan values in gradients. not updating model parameters"
+            )
+            self.zero_grad()
+        elif global_norm > 20 * running_global_norm:
+            logger.warning(
+                f"detected large_gradient {global_norm} which is more than 20 times the running median {running_global_norm}. not updating model parameters"
+            )
+            self.zero_grad()
+        elif global_norm > 5 * running_global_norm:
+            logger.warning(
+                f"detected large_gradient {global_norm} which is more than 5 "
+                f"times the running median {running_global_norm}. clipping"
+                "gradients"
+            )
+            norm = torch.nn.utils.clip_grad_norm_(self.parameters(), 5 * running_global_norm)
+            self.log("clipped_gradient_norm", norm, on_step=True, prog_bar=True)
     def proposal_energy(self, x: torch.Tensor) -> torch.Tensor:
         # x is considered to be a sample from the proposal distribution
         raise NotImplementedError

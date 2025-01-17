@@ -4,13 +4,15 @@ import torch
 from bgflow import NormalDistribution
 
 from src.models.boltzmann_generator_module import BoltzmannGeneratorLitModule
-
+import ipdb
 
 class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
     def __init__(
         self,
         mean_free_prior: bool = False,
-        force_gaussian_loss: bool = False,
+        force_gaussian_loss: bool = True,
+        energy_kl_loss: bool = False,
+        energy_kl_weight: float = 0.01,
         *args,
         **kwargs,
     ) -> None:
@@ -22,11 +24,14 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
         """
         super().__init__(*args, **kwargs)
 
-        assert not (not self.hparams.mean_free_prior and self.hparams.force_gaussian_loss)
+        # assert not (not self.hparams.mean_free_prior and self.hparams.force_gaussian_loss)
 
         if not self.hparams.mean_free_prior:
             # overwrites the MeanFreeNormalDistribution in BoltzmannGeneratorLitModule
             self.prior = NormalDistribution(self.datamodule.dim)
+
+        self.energy_kl_loss = energy_kl_loss
+        self.energy_kl_weight = energy_kl_weight
 
     def model_step(
         self,
@@ -39,11 +44,24 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
             loss = (0.5 * x0.pow(2)).mean() - dlogp.mean()
         else:
             loss = self.prior.energy(x0).mean() - dlogp.mean()
+
+        if self.energy_kl_loss:
+            samples, log_p, _ = self.generate_samples(x1.shape[0])
+            energy_loss = self.energy_kl(samples, log_p).mean()
+            loss = loss + self.energy_kl_weight * energy_loss
+            self.log("Energy Loss", energy_loss.item(), prog_bar=True)
         return loss
 
     def proposal_energy(self, x: torch.Tensor) -> torch.Tensor:
         x_pred, dlogp = self.net.forward(x)
         return -(-self.prior.energy(x).view(-1) - dlogp.view(-1))
+
+    def energy_kl(self, x: torch.Tensor, model_log_p: torch.Tensor) -> torch.Tensor:
+        sample_target_energy = self.datamodule.energy(x)
+
+        # Energy is -1* log_p
+        energy_kl = sample_target_energy + model_log_p
+        return energy_kl
 
     def generate_samples(
         self, batch_size: int, n_timesteps: int = None
