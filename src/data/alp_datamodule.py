@@ -116,3 +116,31 @@ class ALPDataModule(BaseDataModule):
         self.data_train = TransformDataset(train_data[:-100000], transform=self.transforms)
         self.data_val = train_data[-100000:]
         self.data_test = test_data
+
+    def get_dataset_fig(
+        self,
+        samples,
+        log_p_samples: torch.Tensor,
+        samples_jarzynski: torch.Tensor = None,
+        jarzynski_log_p: torch.Tensor = None,
+        min_energy=-20,
+        max_energy=80,
+        ylim=(0, 0.1),
+    ):
+        if self.n_particles == 42:
+            min_energy = -20
+            max_energy = 80
+            ylim = (0, 0.1)
+        if self.n_particles == 33:
+            min_energy = -200
+            max_energy = -100
+            ylim = (0, 0.1)
+        return super().get_dataset_fig(
+            samples,
+            log_p_samples,
+            samples_jarzynski,
+            jarzynski_log_p,
+            min_energy,
+            max_energy,
+            ylim=ylim,
+        )
