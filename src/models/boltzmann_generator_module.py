@@ -1,4 +1,5 @@
 import logging
+from bgflow import NormalDistribution
 import matplotlib.pyplot as plt
 import math
 from typing import Any, Dict, Optional, Tuple
@@ -36,6 +37,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         sampling_config,
         ema_decay: float,
         compile: bool,
+        mean_free_prior: bool = True,
         *args,
         **kwargs,
     ) -> None:
@@ -74,6 +76,9 @@ class BoltzmannGeneratorLitModule(LightningModule):
         self.prior = MeanFreeNormalDistribution(
             self.datamodule.dim, self.datamodule.n_particles, two_event_dims=False
         )
+        if not self.hparams.mean_free_prior:
+            # overwrites the MeanFreeNormalDistribution in BoltzmannGeneratorLitModule
+            self.prior = NormalDistribution(self.datamodule.dim)
 
     def on_train_start(self) -> None:
         """Lightning hook that is called when training begins."""

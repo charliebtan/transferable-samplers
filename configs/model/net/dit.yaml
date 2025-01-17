@@ -1,0 +1,12 @@
+_target_: src.models.components.dit.DIT3D
+vocab_size: ${data.n_dimensions}
+n_particles: ${data.n_particles}
+#hidden_size: 512
+hidden_size: 768
+cond_dim: 128
+#n_blocks: 4
+#n_heads: 8
+scale_by_sigma: True
+dropout: 0.1
+n_blocks: 12
+n_heads: 12

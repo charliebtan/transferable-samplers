@@ -5,14 +5,17 @@ class TorchdynWrapper(torch.nn.Module):
     """Wraps model to torchdyn compatible format with additional dimension representing the change
     in likelihood over time."""
 
-    def __init__(self, model, d_base: int = None, div_estimator="exact"):
+    def __init__(self, model, d_base: int = None, div_estimator="exact_no_functional"):
         super().__init__()
         self.model = model
         self.d_base = d_base
         self.nfe = 0
+        self.div_estimator = div_estimator
 
         if div_estimator == "exact":
             self.div_fn = self.div_fn_exact
+        elif div_estimator == "exact_no_functional":
+            self.div_fn = self.div_fn_exact_no_functional
         else:
             self.div_fn = self.div_fn_hutch
             if div_estimator == "hutch_guassian":
@@ -56,6 +59,22 @@ class TorchdynWrapper(torch.nn.Module):
 
         return torch.trace(J(x))
 
+    def div_fn_exact_no_functional(self, t, x):
+        d_base_vec = None
+        if self.d_base is not None:
+            d_base_vec = torch.ones(x.shape[0], device=x.device) * self.d_base
+        with torch.enable_grad():
+            x.requires_grad = True
+            y = self.model(t, x, d_base=d_base_vec)
+            sum_diag = 0.0
+            for i in range(y.shape[1]):
+                sum_diag += (
+                    torch.autograd.grad(y[:, i].sum(), x, create_graph=True)[0]
+                    .contiguous()[:, i]
+                    .contiguous()
+                )
+        return sum_diag.contiguous()
+
     def forward(self, t, x, *args, **kwargs):
         x = x[..., :-1]  # remove the divergence estimate
 
@@ -64,9 +83,12 @@ class TorchdynWrapper(torch.nn.Module):
             dx = self.model(t, x, d_base=d_base_vec)
         else:
             dx = self.model(t, x, d_base=self.d_base)
-        dlog_p = -torch.vmap(self.div_fn, in_dims=(None, 0), randomness="different")(
-            torch.tensor([t], device=x.device), x
-        )
+        if self.div_estimator == "exact_no_functional":
+            dlog_p = self.div_fn(torch.tensor([t], device=x.device), x)
+        else:
+            dlog_p = -torch.vmap(self.div_fn, in_dims=(None, 0), randomness="different")(
+                torch.tensor([t], device=x.device), x
+            )
 
         self.nfe += 1
         return torch.cat([dx, dlog_p[:, None]], dim=-1).detach()
