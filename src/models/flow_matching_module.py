@@ -100,7 +100,7 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
     def evaluate(self, prefix: str = "val", generator=None) -> None:
         results = super().evaluate(prefix=prefix, generator=generator)
 
-        self.log(f"{prefix}_nfe", self.nfe / self.num_integrations)
+        self.log(f"{prefix}_nfe", self.nfe / (self.num_integrations + 1e-4))
         self.nfe = 0
         self.num_integrations = 0
         return results
@@ -131,7 +131,7 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
     def generate_samples_no_ll(self, batch_size) -> torch.Tensor:
         x_0 = self.prior.sample(batch_size).to(self.device)
         t_span = torch.linspace(0, 1, 2)
-        wrapped_net = (torch_wrapper(self.net),)
+        wrapped_net = torch_wrapper(self.net)
         node = NeuralODE(
             wrapped_net,
             atol=1e-4,
