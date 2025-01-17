@@ -94,7 +94,7 @@ class ALPDataModule(BaseDataModule):
         if self.hparams.make_iid:
             rand_idx = torch.randperm(data.shape[0])
             data = data[rand_idx]
-        # data = data[:300000]
+        data = data[:300000]
         data = self.zero_center_of_mass(data)
 
         test_data = data[-100000:]
