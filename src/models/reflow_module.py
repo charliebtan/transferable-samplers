@@ -33,8 +33,16 @@ class ReflowModule(FlowMatchLitModule):
         idx = torch.randint(0, self.samples.shape[0], (batch.shape[0],), device=self.device)
         batch_prior = self.prior_samples[idx]
         batch_target = self.samples[idx]
-        x_pred, _ = self.net.forward(batch_prior)
-        loss = self.criterion(x_pred, batch_target)
-
+        vt_target = batch_target - batch_prior
+        t = torch.zeros(batch.shape[0], 1, device=batch.device)
+        vt_pred = self.forward(t, batch_prior)
+        loss = self.criterion(vt_pred, vt_target)
         return loss
-    pass
+
+    def flow(self, x: torch.Tensor, reverse=False) -> torch.Tensor:
+        dlog_p_init = torch.zeros((x.shape[0], 1), device=x.device)
+        t = torch.zeros(x.shape[0], 1, device=x.device)
+        vt_pred = self.forward(t, x)
+        x = x + vt_pred
+        # Inaccurate dlog_p
+        return x, dlog_p_init

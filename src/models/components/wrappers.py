@@ -9,6 +9,7 @@ class TorchdynWrapper(torch.nn.Module):
         super().__init__()
         self.model = model
         self.d_base = d_base
+        self.nfe = 0
 
         if div_estimator == "exact":
             self.div_fn = self.div_fn_exact
@@ -67,6 +68,7 @@ class TorchdynWrapper(torch.nn.Module):
             torch.tensor([t], device=x.device), x
         )
 
+        self.nfe += 1
         return torch.cat([dx, dlog_p[:, None]], dim=-1).detach()
 
 
@@ -76,6 +78,8 @@ class torch_wrapper(torch.nn.Module):
     def __init__(self, model):
         super().__init__()
         self.model = model
+        self.nfe = 0
 
     def forward(self, t, x, *args, **kwargs):
+        self.nfe += 1
         return self.model(t, x)

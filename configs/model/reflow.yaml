@@ -1,0 +1,9 @@
+defaults:
+  - default
+  - net: egnn_dynamics_ad2_cat
+
+_target_: src.models.reflow_module.ReflowModule
+
+num_reflow_samples: 100000
+reflow_batch_size: 10000
+base_flow_ckpt_path: null

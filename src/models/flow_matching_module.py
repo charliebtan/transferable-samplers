@@ -2,11 +2,10 @@ import copy
 from typing import Optional, Tuple
 
 import torch
-from torchdyn.core import NeuralODE
-from tqdm import tqdm
-
 from src.models.boltzmann_generator_module import BoltzmannGeneratorLitModule
 from src.models.components.wrappers import TorchdynWrapper, torch_wrapper
+from torchdyn.core import NeuralODE
+from tqdm import tqdm
 
 
 class FlowMatchLitModule(BoltzmannGeneratorLitModule):
@@ -24,6 +23,8 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
         :param scheduler: The learning rate scheduler to use for training.
         """
         super().__init__(*args, **kwargs)
+        self.nfe = 0
+        self.num_integrations = 0
 
     def forward(self, t: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass through the model `self.net`.
@@ -74,14 +75,17 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
     def flow(self, x: torch.Tensor, reverse=False) -> torch.Tensor:
         dlog_p_init = torch.zeros((x.shape[0], 1), device=x.device)
         t_span = torch.linspace(1, 0, 2) if reverse else torch.linspace(0, 1, 2)
-
+        wrapped_net = TorchdynWrapper(copy.deepcopy(self.net))
         node = NeuralODE(
-            TorchdynWrapper(copy.deepcopy(self.net)),
+            wrapped_net,
             atol=1e-4,
             rtol=1e-4,
             solver="dopri5",
             sensitivity="adjoint",
         )
+        self.nfe += wrapped_net.nfe
+        self.num_integrations += 1
+        wrapped_net.nfe = 0
 
         traj = node.trajectory(
             torch.cat([x, dlog_p_init], dim=-1),
@@ -92,6 +96,14 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
         x = traj[-1][..., :-1]
 
         return x, dlog_p
+
+    def evaluate(self, prefix: str = "val", generator=None) -> None:
+        results = super().evaluate(prefix=prefix, generator=generator)
+
+        self.log(f"{prefix}_nfe", self.nfe / self.num_integrations)
+        self.nfe = 0
+        self.num_integrations = 0
+        return results
 
     def generate_samples(
         self,
@@ -119,13 +131,16 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
     def generate_samples_no_ll(self, batch_size) -> torch.Tensor:
         x_0 = self.prior.sample(batch_size).to(self.device)
         t_span = torch.linspace(0, 1, 2)
+        wrapped_net = (torch_wrapper(self.net),)
         node = NeuralODE(
-            torch_wrapper(self.net),
+            wrapped_net,
             atol=1e-4,
             rtol=1e-4,
             solver="dopri5",
             sensitivity="adjoint",
         )
+        self.nfe += wrapped_net.nfe
+        self.num_integrations += 1
         x = node.trajectory(x_0, t_span=t_span)[-1]
         return x, x_0
 
@@ -134,14 +149,19 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         samples = []
         prior_samples = []
+        nfe = 0
         for _ in tqdm(range(total_size // batch_size)):
             s, ps = self.generate_samples_no_ll(batch_size)
             samples.append(s)
             prior_samples.append(ps)
+            nfe += self.nfe
+            self.nfe = 0
         if total_size % batch_size > 0:
             s, ps = self.generate_samples_no_ll(total_size % batch_size)
             samples.append(s)
             prior_samples.append(ps)
+            nfe += self.nfe
+            self.nfe = 0
         samples = torch.cat(samples, dim=0)
         prior_samples = torch.cat(prior_samples, dim=0)
         return samples, prior_samples
