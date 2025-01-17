@@ -38,6 +38,7 @@ class ALPDataModule(BaseDataModule):
         num_workers: int = 0,
         pin_memory: bool = False,
         scaling: float = 1.0,
+        make_iid: bool = False,
     ):
         super().__init__(
             data_dir=data_dir,
@@ -89,8 +90,11 @@ class ALPDataModule(BaseDataModule):
         # load the data + tensorize
         data = np.load(f"{self.hparams.data_dir}/{self.hparams.filename}", allow_pickle=True)
         data = data.reshape(-1, self.dim)
-        data = data[:300000]
         data = torch.tensor(data).float() / self.scaling
+        if self.hparams.make_iid:
+            rand_idx = torch.randperm(data.shape[0])
+            data = data[rand_idx]
+        # data = data[:300000]
         data = self.zero_center_of_mass(data)
 
         test_data = data[-100000:]
