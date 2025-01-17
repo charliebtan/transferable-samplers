@@ -46,6 +46,6 @@ sampling_config:
 
 ema_decay: 0.999
 eval_ema: true
-eval_non_ema: true
+eval_non_ema: false
 # compile model for faster training with pytorch 2.0
 compile: false
