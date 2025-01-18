@@ -39,7 +39,6 @@ class BoltzmannGeneratorLitModule(LightningModule):
         compile: bool,
         mean_free_prior: bool = True,
         stabilize_training: bool = False,
-        mean_free_prior: bool = True,
         *args,
         **kwargs,
     ) -> None:
