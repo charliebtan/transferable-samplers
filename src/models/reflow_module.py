@@ -16,6 +16,10 @@ class ReflowModule(FlowMatchLitModule):
         self.base_flow = FlowMatchLitModule.load_from_checkpoint(
             base_flow_ckpt_path,
             datamodule=self.datamodule,
+            atol=self.hparams.atol,
+            rtol=self.hparams.rtol,
+            div_estimator=self.hparams.div_estimator,
+            logp_tol_scale=self.hparams.logp_tol_scale,
         )
         self.samples = None
         self.prior_samples = None

@@ -7,3 +7,7 @@ _target_: src.models.reflow_module.ReflowModule
 num_reflow_samples: 100000
 reflow_batch_size: 10000
 base_flow_ckpt_path: null
+atol: 1e-4
+rtol: 1e-4
+div_estimator: "exact"
+logp_tol_scale: 1.0
