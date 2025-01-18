@@ -1,6 +1,7 @@
 import logging
 import math
 from typing import Any, Dict, Optional, Tuple
+import hydra
 
 import matplotlib.pyplot as plt
 import ot as pot
@@ -232,6 +233,14 @@ class BoltzmannGeneratorLitModule(LightningModule):
             num_proposal_samples = self.hparams.sampling_config.num_test_proposal_samples
             true_data = self.datamodule.data_test
         samples, log_p, prior_samples = generator(num_proposal_samples)
+        samples_dict = {
+            "samples": samples,
+            "log_p": log_p,
+            "prior_samples": prior_samples,
+        }
+        output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
+        logging.info(f"Saving {len(samples)} samples to {output_dir}/{prefix}_samples.pt")
+        torch.save(samples_dict, f"{output_dir}/{prefix}_samples.pt")
         jarzynski_samples, jarzynski_weights = None, None
         if self.jarzynski_sampler is not None and self.jarzynski_sampler.enabled:
             num_jarzynski_samples = min(
@@ -240,12 +249,11 @@ class BoltzmannGeneratorLitModule(LightningModule):
             jarzynski_samples, jarzynski_weights = self.jarzynski_sampler.sample(
                 samples[:num_jarzynski_samples]
             )
-
+            sample_target_jarzynski_energy = self.datamodule.energy(jarzynski_samples)
+            print("jarzynski_sample_energy", sample_target_jarzynski_energy.mean())
         sample_target_energy = self.datamodule.energy(samples)
         print("sample_energy", sample_target_energy.mean())
-        sample_target_energy = self.datamodule.energy(jarzynski_samples)
-        print("jarzynski_sample_energy", sample_target_energy.mean())
-        target_target_energy = self.datamodule.energy(true_data[:10000])
+        target_target_energy = self.datamodule.energy(true_data)
         print("target_energy", target_target_energy.mean())
         assert log_p.shape == sample_target_energy.shape
         logits = -sample_target_energy - log_p

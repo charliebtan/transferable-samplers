@@ -60,36 +60,32 @@ class TorchdynWrapper(torch.nn.Module):
 
         return torch.trace(J(x))
 
-    def div_fn_exact_no_functional(self, t, x):
-        d_base_vec = None
-        if self.d_base is not None:
-            d_base_vec = torch.ones(x.shape[0], device=x.device) * self.d_base
-        with torch.enable_grad():
-            x.requires_grad = True
-            y = self.model(t, x, d_base=d_base_vec)
-            sum_diag = 0.0
-            for i in range(y.shape[1]):
-                sum_diag += (
-                    torch.autograd.grad(y[:, i].sum(), x, create_graph=True)[0]
-                    .contiguous()[:, i]
-                    .contiguous()
-                )
+    def div_fn_exact_no_functional(self, y, x):
+        sum_diag = 0.0
+        for i in range(y.shape[1]):
+            sum_diag += (
+                torch.autograd.grad(y[:, i].sum(), x, create_graph=True)[0]
+                .contiguous()[:, i]
+                .contiguous()
+            )
         return sum_diag.contiguous()
 
     def forward(self, t, x, *args, **kwargs):
         x = x[..., :-1]  # remove the divergence estimate
 
-        if self.d_base is not None:
-            d_base_vec = torch.ones(x.shape[0], device=x.device) * self.d_base
-            dx = self.model(t, x, d_base=d_base_vec)
-        else:
-            dx = self.model(t, x, d_base=self.d_base)
-        if self.div_estimator == "exact_no_functional":
-            dlog_p = -self.div_fn(torch.tensor([t], device=x.device), x)
-        else:
-            dlog_p = -torch.vmap(self.div_fn, in_dims=(None, 0), randomness="different")(
-                torch.tensor([t], device=x.device), x
-            )
+        with torch.enable_grad():
+            x = x.requires_grad_(True)
+            if self.d_base is not None:
+                d_base_vec = torch.ones(x.shape[0], device=x.device) * self.d_base
+                dx = self.model(t, x, d_base=d_base_vec)
+            else:
+                dx = self.model(t, x, d_base=self.d_base)
+            if self.div_estimator == "exact_no_functional":
+                dlog_p = -self.div_fn(dx, x)
+            else:
+                dlog_p = -torch.vmap(self.div_fn, in_dims=(None, 0), randomness="different")(
+                    torch.tensor([t], device=x.device), x
+                )
 
         self.nfe += 1
         return torch.cat([dx, dlog_p[:, None] / self.logp_tol_scale], dim=-1).detach()
