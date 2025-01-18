@@ -77,7 +77,7 @@ class JarzynskiSampler(torch.nn.Module):
         X = samples_proposal
         A = torch.zeros(X.shape[0], device=X.device)  # the jarzynski weights
 
-        timesteps = torch.linspace(0.1, 1, num_timesteps + 1)
+        timesteps = torch.linspace(0.0, 1, num_timesteps + 1)
         dt = 1 / num_timesteps
 
         A_list = [A]
