@@ -5,12 +5,14 @@ class TorchdynWrapper(torch.nn.Module):
     """Wraps model to torchdyn compatible format with additional dimension representing the change
     in likelihood over time."""
 
-    def __init__(self, model, d_base: int = None, div_estimator="exact_no_functional"):
+    def __init__(self, model, d_base: int = None, div_estimator="exact", logp_tol_scale=1.0):
+    #def __init__(self, model, d_base: int = None, div_estimator="exact_no_functional", logp_tol_scale=1.0):
         super().__init__()
         self.model = model
         self.d_base = d_base
         self.nfe = 0
         self.div_estimator = div_estimator
+        self.logp_tol_scale=1.0
 
         if div_estimator == "exact":
             self.div_fn = self.div_fn_exact
@@ -91,7 +93,7 @@ class TorchdynWrapper(torch.nn.Module):
             )
 
         self.nfe += 1
-        return torch.cat([dx, dlog_p[:, None]], dim=-1).detach()
+        return torch.cat([dx, dlog_p[:, None] / self.logp_tol_scale], dim=-1).detach()
 
 
 class torch_wrapper(torch.nn.Module):

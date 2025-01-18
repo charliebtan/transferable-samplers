@@ -75,24 +75,24 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
     def flow(self, x: torch.Tensor, reverse=False) -> torch.Tensor:
         dlog_p_init = torch.zeros((x.shape[0], 1), device=x.device)
         t_span = torch.linspace(1, 0, 2) if reverse else torch.linspace(0, 1, 2)
-        wrapped_net = TorchdynWrapper(copy.deepcopy(self.net))
+        wrapped_net = TorchdynWrapper(copy.deepcopy(self.net), self.hparams.logp_tol_scale)
         node = NeuralODE(
             wrapped_net,
-            atol=1e-4,
-            rtol=1e-4,
+            atol=self.hparams.atol,
+            rtol=self.hparams.rtol,
             solver="dopri5",
             sensitivity="adjoint",
+        )
+        traj = node.trajectory(
+            torch.cat([x, dlog_p_init], dim=-1),
+            t_span=t_span,
         )
         self.nfe += wrapped_net.nfe
         self.num_integrations += 1
         wrapped_net.nfe = 0
 
-        traj = node.trajectory(
-            torch.cat([x, dlog_p_init], dim=-1),
-            t_span=t_span,
-        )
 
-        dlog_p = traj[-1][..., -1]
+        dlog_p = traj[-1][..., -1] * self.hparams.logp_tol_scale
         x = traj[-1][..., :-1]
 
         return x, dlog_p
@@ -100,7 +100,7 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
     def evaluate(self, prefix: str = "val", generator=None) -> None:
         results = super().evaluate(prefix=prefix, generator=generator)
 
-        self.log(f"{prefix}_nfe", self.nfe / (self.num_integrations + 1e-4))
+        self.log(f"{prefix}/nfe", self.nfe / (max(self.num_integrations, 1e-4)))
         self.nfe = 0
         self.num_integrations = 0
         return results
@@ -139,6 +139,7 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
             solver="dopri5",
             sensitivity="adjoint",
         )
+        print("nfe", wrapped_net.nfe)
         self.nfe += wrapped_net.nfe
         self.num_integrations += 1
         x = node.trajectory(x_0, t_span=t_span)[-1]
