@@ -244,6 +244,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
             num_proposal_samples = self.hparams.sampling_config.num_test_proposal_samples
             true_data = self.datamodule.data_test
         samples, log_p, prior_samples = generator(num_proposal_samples)
+        breakpoint()
         jarzynski_samples, jarzynski_weights = None, None
         if self.jarzynski_sampler is not None and self.jarzynski_sampler.enabled:
             num_jarzynski_samples = self.hparams.sampling_config.num_jarzynski_samples
@@ -253,7 +254,9 @@ class BoltzmannGeneratorLitModule(LightningModule):
             )
 
         sample_target_energy = self.datamodule.energy(samples)
+        print("sample_energy", sample_target_energy.mean())
         target_target_energy = self.datamodule.energy(true_data)
+        print("target_energy", target_target_energy.mean())
         assert log_p.shape == sample_target_energy.shape
         logits = -sample_target_energy - log_p
         ess = sampling_efficiency(logits)

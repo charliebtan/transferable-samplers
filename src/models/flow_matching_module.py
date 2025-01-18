@@ -91,11 +91,14 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
         self.num_integrations += 1
         wrapped_net.nfe = 0
 
-
         dlog_p = traj[-1][..., -1] * self.hparams.logp_tol_scale
         x = traj[-1][..., :-1]
 
         return x, dlog_p
+
+    def proposal_energy(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        x, dlogp = self.flow(x, reverse=True)
+        return -(-self.prior.energy(x).view(-1) - dlogp.view(-1))
 
     def evaluate(self, prefix: str = "val", generator=None) -> None:
         results = super().evaluate(prefix=prefix, generator=generator)
