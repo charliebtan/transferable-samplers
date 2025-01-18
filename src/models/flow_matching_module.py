@@ -76,7 +76,11 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
     def flow(self, x: torch.Tensor, reverse=False) -> torch.Tensor:
         dlog_p_init = torch.zeros((x.shape[0], 1), device=x.device)
         t_span = torch.linspace(1, 0, 2) if reverse else torch.linspace(0, 1, 2)
-        wrapped_net = TorchdynWrapper(copy.deepcopy(self.net), self.hparams.logp_tol_scale)
+        wrapped_net = TorchdynWrapper(
+            copy.deepcopy(self.net),
+            div_estimator=self.hparams.div_estimator,
+            logp_tol_scale=self.hparams.logp_tol_scale,
+        )
         node = NeuralODE(
             wrapped_net,
             atol=self.hparams.atol,

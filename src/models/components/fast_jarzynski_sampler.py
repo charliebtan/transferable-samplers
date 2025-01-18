@@ -1,9 +1,10 @@
 import math
 
 import torch
-from src.utils.tbg_utils import sampling_efficiency
 from tqdm import tqdm
+
 from src.models.components.jarzynski_sampler import JarzynskiSampler
+from src.utils.tbg_utils import sampling_efficiency
 
 
 class FastJarzynskiSampler(JarzynskiSampler):
@@ -38,9 +39,7 @@ class FastJarzynskiSampler(JarzynskiSampler):
                     target_energy = self.target_energy(x)
                     x_grad = torch.autograd.grad(target_energy.sum(), x)[0].detach()
                 # compute the updates
-                dX_t = -eps * x_grad * dt + math.sqrt(
-                    2 * eps * dt
-                ) * torch.randn_like(X_batch)
+                dX_t = -eps * x_grad * dt + math.sqrt(2 * eps * dt) * torch.randn_like(X_batch)
                 # This is a hack
                 dA_t = torch.zeros_like(A_batch)
 

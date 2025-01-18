@@ -91,7 +91,9 @@ class JarzynskiSampler(torch.nn.Module):
         for j, t in tqdm(enumerate(timesteps[:-1])):
             for batch_idx, (X_batch, A_batch) in enumerate(zip(X_batches, A_batches)):
                 # get the energy gradients
-                energy_grad_x, energy_grad_t = self.linear_energy_interpolation_gradients( X_batch, t)
+                energy_grad_x, energy_grad_t = self.linear_energy_interpolation_gradients(
+                    X_batch, t
+                )
                 breakpoint()
                 print("energy_grad_x", energy_grad_x)
                 print("energy_grad_t", energy_grad_t)
@@ -104,7 +106,6 @@ class JarzynskiSampler(torch.nn.Module):
                 print("dX_t", dX_t)
                 print("dA_t", dA_t)
                 print("t", t)
-
 
                 assert dX_t.shape == X_batch.shape, "dX_t should have the same shape as X_batch"
                 assert dA_t.shape == A_batch.shape, "dA_t should have the same shape as A_batch"

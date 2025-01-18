@@ -6,13 +6,12 @@ class TorchdynWrapper(torch.nn.Module):
     in likelihood over time."""
 
     def __init__(self, model, d_base: int = None, div_estimator="exact", logp_tol_scale=1.0):
-    #def __init__(self, model, d_base: int = None, div_estimator="exact_no_functional", logp_tol_scale=1.0):
         super().__init__()
         self.model = model
         self.d_base = d_base
         self.nfe = 0
         self.div_estimator = div_estimator
-        self.logp_tol_scale=1.0
+        self.logp_tol_scale = logp_tol_scale
 
         if div_estimator == "exact":
             self.div_fn = self.div_fn_exact
@@ -86,7 +85,7 @@ class TorchdynWrapper(torch.nn.Module):
         else:
             dx = self.model(t, x, d_base=self.d_base)
         if self.div_estimator == "exact_no_functional":
-            dlog_p = self.div_fn(torch.tensor([t], device=x.device), x)
+            dlog_p = -self.div_fn(torch.tensor([t], device=x.device), x)
         else:
             dlog_p = -torch.vmap(self.div_fn, in_dims=(None, 0), randomness="different")(
                 torch.tensor([t], device=x.device), x
