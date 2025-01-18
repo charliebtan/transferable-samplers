@@ -1,6 +1,8 @@
+from statistics import median
+
 import numpy as np
 import torch
-from statistics import median
+
 
 class RunningMedian:
     def __init__(self, window_size):
@@ -16,6 +18,7 @@ class RunningMedian:
         if not self.values:
             return 0.0
         return median(self.values)
+
 
 def sum_except_batch(x):
     return x.reshape(x.size(0), -1).sum(dim=-1)

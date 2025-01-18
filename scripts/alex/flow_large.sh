@@ -1,4 +1,4 @@
- 
+
 python src/train.py \
   experiment=aldp model/net=dit trainer=ddp  \
   data.batch_size=1024 +trainer.precision=bf16 \
@@ -11,5 +11,3 @@ python src/train.py \
   callbacks.model_checkpoint.every_n_epochs=2 \
   callbacks.model_checkpoint.save_on_train_epoch_end=True \
   callbacks.model_checkpoint.verbose=True
-
-

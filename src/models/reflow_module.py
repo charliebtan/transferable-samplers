@@ -1,5 +1,6 @@
-from src.models.flow_matching_module import FlowMatchLitModule
 import torch
+
+from src.models.flow_matching_module import FlowMatchLitModule
 
 
 class ReflowModule(FlowMatchLitModule):

@@ -3,6 +3,7 @@ import math
 import numpy as np
 import torch
 import torch.nn as nn
+
 from src.models.components.tbg.egnn import EGNN
 from src.models.components.tbg.utils import remove_mean
 

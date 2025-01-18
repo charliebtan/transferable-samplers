@@ -48,9 +48,7 @@ def weighted_rigid_align(
         )
 
     # Compute the weighted covariance matrix
-    cov_matrix = einsum(
-        pred_coords_centered, true_coords_centered, "b n i, b n j -> b i j"
-    )
+    cov_matrix = einsum(pred_coords_centered, true_coords_centered, "b n i, b n j -> b i j")
 
     # Compute the SVD of the covariance matrix, required float32 for svd and determinant
     original_dtype = cov_matrix.dtype

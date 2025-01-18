@@ -2,10 +2,11 @@ import copy
 from typing import Optional, Tuple
 
 import torch
-from src.models.boltzmann_generator_module import BoltzmannGeneratorLitModule
-from src.models.components.wrappers import TorchdynWrapper, torch_wrapper
 from torchdyn.core import NeuralODE
 from tqdm import tqdm
+
+from src.models.boltzmann_generator_module import BoltzmannGeneratorLitModule
+from src.models.components.wrappers import TorchdynWrapper, torch_wrapper
 
 
 class FlowMatchLitModule(BoltzmannGeneratorLitModule):

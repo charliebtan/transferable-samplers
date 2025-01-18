@@ -1,13 +1,12 @@
 import logging
-from bgflow import NormalDistribution
-import matplotlib.pyplot as plt
 import math
 from typing import Any, Dict, Optional, Tuple
 
+import matplotlib.pyplot as plt
 import ot as pot
 import torch
 import torchmetrics
-from bgflow import MeanFreeNormalDistribution
+from bgflow import MeanFreeNormalDistribution, NormalDistribution
 from lightning import LightningDataModule, LightningModule
 from torchmetrics import MeanMetric
 from tqdm import tqdm
@@ -15,8 +14,8 @@ from tqdm import tqdm
 from src.models.components.distribution_distances import compute_distribution_distances
 from src.models.components.ema import EMA
 from src.models.components.jarzynski_sampler import JarzynskiSampler
-from src.utils.tbg_utils import sampling_efficiency
 from src.models.components.utils import RunningMedian
+from src.utils.tbg_utils import sampling_efficiency
 
 logger = logging.getLogger(__name__)
 
@@ -234,7 +233,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
             if self.hparams.eval_non_ema:
                 self.evaluate(prefix + "/non_ema")
         else:
-                self.evaluate(prefix)
+            self.evaluate(prefix)
         plt.close("all")
 
     def evaluate(self, prefix: str = "val", generator=None) -> None:
@@ -359,6 +358,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
             )
             norm = torch.nn.utils.clip_grad_norm_(self.parameters(), 5 * running_global_norm)
             self.log("clipped_gradient_norm", norm, on_step=True, prog_bar=True)
+
     def proposal_energy(self, x: torch.Tensor) -> torch.Tensor:
         # x is considered to be a sample from the proposal distribution
         raise NotImplementedError
