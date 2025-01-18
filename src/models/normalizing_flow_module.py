@@ -4,7 +4,7 @@ import torch
 from bgflow import NormalDistribution
 
 from src.models.boltzmann_generator_module import BoltzmannGeneratorLitModule
-import ipdb
+
 
 class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
     def __init__(

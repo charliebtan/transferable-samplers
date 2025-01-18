@@ -13,14 +13,17 @@ from bgmol.datasets import AImplicitUnconstrained
 from lightning.pytorch.loggers import WandbLogger
 from matplotlib.colors import LogNorm
 from openmm import app
+
 from src.data.base_datamodule import BaseDataModule
 from src.data.components.center_of_mass import CenterOfMassTransform
 from src.data.components.rotation import Random3DRotationTransform
 from src.data.components.transform_dataset import TransformDataset
 from src.data.components.utils import align_topology
-from src.models.components.utils import (check_symmetry_change,
-                                         compute_chirality_sign,
-                                         find_chirality_centers)
+from src.models.components.utils import (
+    check_symmetry_change,
+    compute_chirality_sign,
+    find_chirality_centers,
+)
 
 
 class ALPDataModule(BaseDataModule):

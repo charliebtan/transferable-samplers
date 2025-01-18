@@ -118,11 +118,6 @@ def apply_rotary_pos_emb(qkv, cos, sin):
     return flash_attn.layers.rotary.apply_rotary_emb_qkv_(qkv, cos, sin)
 
 
-# function overload
-def modulate(x, shift, scale):
-    return x * (1 + scale.unsqueeze(1)) + shift.unsqueeze(1)
-
-
 #################################################################################
 #                                  Layers                                       #
 #################################################################################
@@ -328,7 +323,7 @@ class DDitFinalLayer(nn.Module):
 class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
     def __init__(self, config, vocab_size: int):
         super().__init__()
-        if type(config) == dict:
+        if isinstance(config, dict):
             config = omegaconf.OmegaConf.create(config)
 
         self.config = config

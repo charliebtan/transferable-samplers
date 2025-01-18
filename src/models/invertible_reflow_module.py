@@ -6,6 +6,7 @@ from src.models.components.rigid_align import weighted_rigid_align
 from src.models.flow_matching_module import FlowMatchLitModule
 from src.models.normalizing_flow_module import NormalizingFlowLitModule
 
+
 class InvertibleReflowModule(NormalizingFlowLitModule):
     def __init__(
         self,
@@ -87,6 +88,7 @@ class InvertibleReflowModule(NormalizingFlowLitModule):
         log_p = prior_log_p.flatten() + logdets.flatten()
 
         return x_pred, log_p, torch.empty(0)
+
 
 if __name__ == "__main__":
     _ = InvertibleReflowModule(None, None, None, None)

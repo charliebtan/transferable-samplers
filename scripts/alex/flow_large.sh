@@ -1,4 +1,4 @@
- 
+#!/bin/bash
 python src/train.py \
   experiment=aldp model/net=dit trainer=ddp  \
   data.batch_size=1024 +trainer.precision=bf16 \
@@ -13,6 +13,3 @@ python src/train.py \
   callbacks.model_checkpoint.verbose=True \
   ckpt_path=/network/scratch/a/alexander.tong/fast-tbg/logs/train/runs/2025-01-17_18-51-29/checkpoints/last.ckpt \
   trainer.check_val_every_n_epoch=200
-
-
-
