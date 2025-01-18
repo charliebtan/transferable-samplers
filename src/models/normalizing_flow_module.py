@@ -64,7 +64,7 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
         return energy_kl
 
     def generate_samples(
-        self, batch_size: int, n_timesteps: int = None
+        self, batch_size: int, n_timesteps: int = None, dummy_ll=False
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Generate samples from the model.
 

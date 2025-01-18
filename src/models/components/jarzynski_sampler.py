@@ -78,7 +78,6 @@ class JarzynskiSampler(torch.nn.Module):
         A = torch.zeros(X.shape[0], device=X.device)  # the jarzynski weights
 
         timesteps = torch.linspace(0.1, 1, num_timesteps + 1)
-        breakpoint()
         dt = 1 / num_timesteps
 
         A_list = [A]
@@ -94,7 +93,6 @@ class JarzynskiSampler(torch.nn.Module):
                 energy_grad_x, energy_grad_t = self.linear_energy_interpolation_gradients(
                     X_batch, t
                 )
-                breakpoint()
                 print("energy_grad_x", energy_grad_x)
                 print("energy_grad_t", energy_grad_t)
 

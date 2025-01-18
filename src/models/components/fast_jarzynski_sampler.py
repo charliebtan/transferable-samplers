@@ -58,6 +58,8 @@ class FastJarzynskiSampler(JarzynskiSampler):
             # cat the batches to compute global statistics
             X = torch.cat(X_batches, dim=0)
             A = torch.cat(A_batches, dim=0)
+            if j % 100 == 0:
+                print("energy", j, self.target_energy(X).mean())
 
             assert A.dim() == 1, "A should be a flat vector"
             jarzynski_weights = torch.softmax(A, dim=-1)

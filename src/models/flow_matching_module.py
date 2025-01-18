@@ -73,14 +73,18 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
 
         return loss
 
-    def flow(self, x: torch.Tensor, reverse=False) -> torch.Tensor:
-        dlog_p_init = torch.zeros((x.shape[0], 1), device=x.device)
+    def flow(self, x: torch.Tensor, reverse=False, dummy_ll=False) -> torch.Tensor:
+        dlog_p = torch.zeros((x.shape[0], 1), device=x.device)
         t_span = torch.linspace(1, 0, 2) if reverse else torch.linspace(0, 1, 2)
-        wrapped_net = TorchdynWrapper(
-            copy.deepcopy(self.net),
-            div_estimator=self.hparams.div_estimator,
-            logp_tol_scale=self.hparams.logp_tol_scale,
-        )
+        if dummy_ll:
+            wrapped_net = torch_wrapper(self.net)
+        else:
+            wrapped_net = TorchdynWrapper(
+                copy.deepcopy(self.net),
+                div_estimator=self.hparams.div_estimator,
+                logp_tol_scale=self.hparams.logp_tol_scale,
+            )
+
         node = NeuralODE(
             wrapped_net,
             atol=self.hparams.atol,
@@ -88,17 +92,15 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
             solver="dopri5",
             sensitivity="adjoint",
         )
-        traj = node.trajectory(
-            torch.cat([x, dlog_p_init], dim=-1),
-            t_span=t_span,
-        )
+        if not dummy_ll:
+            x = torch.cat([x, dlog_p], dim=-1)
+        x = node.trajectory(x, t_span=t_span)[-1]
         self.nfe += wrapped_net.nfe
         self.num_integrations += 1
         wrapped_net.nfe = 0
-
-        dlog_p = traj[-1][..., -1] * self.hparams.logp_tol_scale
-        x = traj[-1][..., :-1]
-
+        if not dummy_ll:
+            dlog_p = x[..., -1] * self.hparams.logp_tol_scale
+            x = x[..., :-1]
         return x, dlog_p
 
     def proposal_energy(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -116,6 +118,7 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
     def generate_samples(
         self,
         batch_size: int,
+        dummy_ll: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Generate samples from the model.
 
@@ -130,50 +133,16 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
         prior_log_p = -self.prior.energy(prior_samples)
 
         with torch.no_grad():
-            samples, dlog_p = self.flow(prior_samples, reverse=False)
+            samples, dlog_p = self.flow(prior_samples, reverse=False, dummy_ll=dummy_ll)
 
         log_p = prior_log_p.flatten() + dlog_p.flatten()
 
         return samples, log_p, prior_samples
 
-    def generate_samples_no_ll(self, batch_size) -> torch.Tensor:
-        x_0 = self.prior.sample(batch_size).to(self.device)
-        t_span = torch.linspace(0, 1, 2)
-        wrapped_net = torch_wrapper(self.net)
-        node = NeuralODE(
-            wrapped_net,
-            atol=1e-4,
-            rtol=1e-4,
-            solver="dopri5",
-            sensitivity="adjoint",
-        )
-        print("nfe", wrapped_net.nfe)
-        self.nfe += wrapped_net.nfe
-        self.num_integrations += 1
-        x = node.trajectory(x_0, t_span=t_span)[-1]
-        return x, x_0
-
     def batched_generate_samples_no_ll(
         self, total_size: int, batch_size: Optional[int] = None
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        samples = []
-        prior_samples = []
-        nfe = 0
-        for _ in tqdm(range(total_size // batch_size)):
-            s, ps = self.generate_samples_no_ll(batch_size)
-            samples.append(s)
-            prior_samples.append(ps)
-            nfe += self.nfe
-            self.nfe = 0
-        if total_size % batch_size > 0:
-            s, ps = self.generate_samples_no_ll(total_size % batch_size)
-            samples.append(s)
-            prior_samples.append(ps)
-            nfe += self.nfe
-            self.nfe = 0
-        samples = torch.cat(samples, dim=0)
-        prior_samples = torch.cat(prior_samples, dim=0)
-        return samples, prior_samples
+        return super().batched_generate_samples(total_size, batch_size, dummy_ll=True)
 
 
 if __name__ == "__main__":

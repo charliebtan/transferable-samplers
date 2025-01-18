@@ -21,11 +21,6 @@ logger = logging.getLogger(__name__)
 
 
 class BoltzmannGeneratorLitModule(LightningModule):
-    """
-
-    TODO - Add a description.
-
-    """
 
     def __init__(
         self,
@@ -90,15 +85,6 @@ class BoltzmannGeneratorLitModule(LightningModule):
             # overwrites the MeanFreeNormalDistribution in BoltzmannGeneratorLitModule
             self.prior = NormalDistribution(self.datamodule.dim)
 
-    def on_train_start(self) -> None:
-        """Lightning hook that is called when training begins."""
-        # by default lightning executes validation step sanity checks before training starts,
-        # so it's worth to make sure validation metrics don't store results from these checks
-        # self.val_loss.reset()
-        # self.val_acc.reset()
-        # self.val_acc_best.reset()
-        pass
-
     def training_step(
         self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
     ) -> torch.Tensor:
@@ -161,7 +147,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         return samples, log_p, prior_samples
 
     def batched_generate_samples(
-        self, total_size: int, batch_size: Optional[int] = None
+        self, total_size: int, batch_size: Optional[int] = None, dummy_ll: bool = False
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         if batch_size is None:
             batch_size = self.hparams.sampling_config.batch_size
@@ -169,12 +155,12 @@ class BoltzmannGeneratorLitModule(LightningModule):
         log_ps = []
         prior_samples = []
         for _ in tqdm(range(total_size // batch_size)):
-            s, lp, ps = self.generate_samples(batch_size)
+            s, lp, ps = self.generate_samples(batch_size, dummy_ll=dummy_ll)
             samples.append(s)
             log_ps.append(lp)
             prior_samples.append(ps)
         if total_size % batch_size > 0:
-            s, lp, ps = self.generate_samples(total_size % batch_size)
+            s, lp, ps = self.generate_samples(total_size % batch_size, dummy_ll=dummy_ll)
             samples.append(s)
             log_ps.append(lp)
             prior_samples.append(ps)
@@ -246,18 +232,20 @@ class BoltzmannGeneratorLitModule(LightningModule):
             num_proposal_samples = self.hparams.sampling_config.num_test_proposal_samples
             true_data = self.datamodule.data_test
         samples, log_p, prior_samples = generator(num_proposal_samples)
-        breakpoint()
         jarzynski_samples, jarzynski_weights = None, None
         if self.jarzynski_sampler is not None and self.jarzynski_sampler.enabled:
-            num_jarzynski_samples = self.hparams.sampling_config.num_jarzynski_samples
-            assert num_jarzynski_samples <= num_proposal_samples
+            num_jarzynski_samples = min(
+                self.hparams.sampling_config.num_jarzynski_samples, len(samples)
+            )
             jarzynski_samples, jarzynski_weights = self.jarzynski_sampler.sample(
                 samples[:num_jarzynski_samples]
             )
 
         sample_target_energy = self.datamodule.energy(samples)
         print("sample_energy", sample_target_energy.mean())
-        target_target_energy = self.datamodule.energy(true_data)
+        sample_target_energy = self.datamodule.energy(jarzynski_samples)
+        print("jarzynski_sample_energy", sample_target_energy.mean())
+        target_target_energy = self.datamodule.energy(true_data[:10000])
         print("target_energy", target_target_energy.mean())
         assert log_p.shape == sample_target_energy.shape
         logits = -sample_target_energy - log_p
