@@ -38,6 +38,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         sampling_config,
         ema_decay: float,
         compile: bool,
+        mean_free_prior: bool = True,
         stabilize_training: bool = False,
         mean_free_prior: bool = True,
         *args,
@@ -82,6 +83,9 @@ class BoltzmannGeneratorLitModule(LightningModule):
         self.prior = MeanFreeNormalDistribution(
             self.datamodule.dim, self.datamodule.n_particles, two_event_dims=False
         )
+        if not self.hparams.mean_free_prior:
+            # overwrites the MeanFreeNormalDistribution in BoltzmannGeneratorLitModule
+            self.prior = NormalDistribution(self.datamodule.dim)
         if self.hparams.stabilize_training:
             self.gradient_history = RunningMedian(100)
         if not self.hparams.mean_free_prior:
