@@ -140,6 +140,7 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
 
         return samples, log_p, prior_samples
 
+    @torch.no_grad()
     def batched_generate_samples_no_ll(
         self, total_size: int, batch_size: Optional[int] = None
     ) -> Tuple[torch.Tensor, torch.Tensor]:

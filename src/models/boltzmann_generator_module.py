@@ -18,6 +18,9 @@ from src.models.components.jarzynski_sampler import JarzynskiSampler
 from src.models.components.utils import RunningMedian
 from src.utils.tbg_utils import sampling_efficiency
 
+from lightning.pytorch.utilities import grad_norm
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -363,6 +366,16 @@ class BoltzmannGeneratorLitModule(LightningModule):
         raise NotImplementedError
         x0, dlogp = self.flow(x, reverse=True)
         return -(-self.prior.energy(x0).view(-1) - dlogp.view(-1))
+
+    # https://github.com/Lightning-AI/pytorch-lightning/issues/1462 
+    def on_before_optimizer_step(self, optimizer, *args, **kwargs) -> None:
+         total_norm = 0.0
+         for param in self.trainer.lightning_module.parameters():
+             if param.grad is not None:
+                 param_norm = param.grad.detach().data.norm(2)
+                 total_norm += param_norm.item() ** 2
+         total_norm = total_norm ** (1.0 / 2)
+         self.log_dict({"train/grad_norm": total_norm}, prog_bar=True)
 
     def optimizer_step(self, *args, **kwargs):
         super().optimizer_step(*args, **kwargs)
