@@ -1,9 +1,10 @@
 #!/bin/bash
+
 python src/train.py \
   experiment=aldp model/net=dit trainer=ddp  \
   data.batch_size=1024 +trainer.precision=bf16 \
-  ++data.com_augmentation=True data=al4 model.sampling_config.batch_size=10 \
-  model.sampling_config.num_proposal_samples=20 model.mean_free_prior=false \
+  ++data.com_augmentation=True data=al3 model.sampling_config.batch_size=20 \
+  model.sampling_config.num_proposal_samples=40 model.mean_free_prior=false \
   +trainer.num_sanity_val_steps=0 data.pin_memory=False \
   trainer.strategy=ddp_find_unused_parameters_true \
   callbacks.model_checkpoint.monitor=null \
