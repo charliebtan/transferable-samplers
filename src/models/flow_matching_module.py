@@ -145,6 +145,7 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
         x = node.trajectory(x_0, t_span=t_span)[-1]
         return x, x_0
 
+    @torch.no_grad()
     def batched_generate_samples_no_ll(
         self, total_size: int, batch_size: Optional[int] = None
     ) -> Tuple[torch.Tensor, torch.Tensor]:
