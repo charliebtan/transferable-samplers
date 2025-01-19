@@ -1,6 +1,6 @@
 #!/bin/bash
 python src/train.py -m launcher=mila_48gb \
-experiment=aldp trainer=gpu train=False \ 
+experiment=aldp trainer=gpu train=False \
 tags=[cnf,aldp,jarz] \
 ckpt_path=/home/mila/b/bosejoey/last-ema-alex.ckpt \
 data.batch_size=1024 model.jarzynski_sampler.batch_size=64 \
