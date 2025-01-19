@@ -1,4 +1,5 @@
 from typing import Any, Dict, List, Optional, Tuple
+import os
 
 import hydra
 import lightning as L
@@ -85,7 +86,14 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
     if cfg.get("train"):
         log.info("Starting training!")
-        trainer.fit(model=model, datamodule=datamodule, ckpt_path=cfg.get("ckpt_path"))
+        ckpt_path = cfg.get("ckpt_path")
+        if ckpt_path:
+            if os.path.exists(ckpt_path):
+                log.info(f"Resuming training from checkpoint: {ckpt_path}")
+            else:
+                log.warning(f"Checkpoint path {ckpt_path} not found! Ignoring...")
+                ckpt_path = None
+        trainer.fit(model=model, datamodule=datamodule, ckpt_path=ckpt_path)
 
     train_metrics = trainer.callback_metrics
 

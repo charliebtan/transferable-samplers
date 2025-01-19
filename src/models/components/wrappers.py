@@ -40,7 +40,7 @@ class TorchdynWrapper(torch.nn.Module):
         else:
             self.div_fn = self.div_fn_hutch
             self.n = n_eps
-            if div_estimator == "hutch_guassian":
+            if div_estimator == "hutch_gaussian":
                 self.eps_fn = gaussian
             elif div_estimator == "hutch_rademacher":
                 self.eps_fn = rademacher

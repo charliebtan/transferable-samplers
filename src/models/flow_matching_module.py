@@ -1,13 +1,14 @@
 import copy
+import logging
 from typing import Optional, Tuple
 
 import torch
+from src.models.boltzmann_generator_module import BoltzmannGeneratorLitModule
+from src.models.components.wrappers import TorchdynWrapper, torch_wrapper
 from torchdyn.core import NeuralODE
 from tqdm import tqdm
 
-from src.models.boltzmann_generator_module import BoltzmannGeneratorLitModule
-from src.models.components.wrappers import TorchdynWrapper, torch_wrapper
-
+logger = logging.getLogger(__name__)
 
 class FlowMatchLitModule(BoltzmannGeneratorLitModule):
     """
@@ -73,6 +74,35 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
 
         return loss
 
+    def test_integrators(self) -> torch.Tensor:
+        x = self.prior.sample(self.hparams.sampling_config.batch_size).to(self.device)
+        integrators = ["exact", "exact_no_functional", "hutch_rademacher", "hutch_gaussian"]
+        logger.info("Testing integrators")
+        self.hparams.div_estimator = "exact"
+        self.nfe = 0
+        self.hparams.n_eps = 1
+        base_x, base_dlog_p = self.flow(x, reverse=False)
+        for integrator in integrators:
+            logger.info(f"Testing integrator {integrator}")
+            self.hparams.div_estimator = integrator
+            for n in [1, 2, 4, 8, 16, 32]:
+                if integrator.startswith("exact") and n > 1:
+                    continue
+                self.hparams.n_eps = n
+                x, dlog_p = self.flow(x, reverse=False)
+                self.log_dict(
+                    {
+                        f"test_integrators/{integrator}_{n}/x_err": torch.norm(base_x - x),
+                        f"test_integrators/{integrator}_{n}/dlog_p_err": torch.norm(
+                            base_dlog_p - dlog_p
+                        ),
+                        f"test_integrators/{integrator}_{n}/nfe": self.nfe
+                        / (max(self.num_integrations, 1e-4)),
+                    }
+                )
+                logger.info(f"estimator: {integrator} n: {n}, x_err: {torch.norm(base_x - x)}, dlog_p_err: {torch.norm(base_dlog_p - dlog_p)}, nfe: {self.nfe / max(self.num_integrations, 1e-4)}")
+                self.nfe = 0
+
     def flow(self, x: torch.Tensor, reverse=False, dummy_ll=False) -> torch.Tensor:
         dlog_p = torch.zeros((x.shape[0], 1), device=x.device)
         t_span = torch.linspace(1, 0, 2) if reverse else torch.linspace(0, 1, 2)
@@ -109,6 +139,10 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
         return -(-self.prior.energy(x).view(-1) - dlogp.view(-1))
 
     def evaluate(self, prefix: str = "val", generator=None, output_dir=None) -> None:
+        logger.info(f"has test_integrators {hasattr(self.hparams, 'test_integrators')}")
+        if True and hasattr(self.hparams, "test_integrators"):
+            self.test_integrators()
+            return {}
         results = super().evaluate(prefix=prefix, generator=generator, output_dir=output_dir)
 
         self.log(f"{prefix}/nfe", self.nfe / (max(self.num_integrations, 1e-4)))
