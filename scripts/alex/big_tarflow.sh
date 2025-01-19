@@ -13,7 +13,7 @@
 #SBATCH --requeue                     # Requeue upon pre-emption
 #SBATCH --signal=SIGUSR1@90
 
-RUN_NAME="big_al4_tarflow_v4"
+RUN_NAME="big_al4_tarflow_v6"
 
 #python -u src/train.py \
 srun python -u src/train.py \
@@ -22,6 +22,7 @@ data=al4 \
 trainer=ddp trainer.max_epochs=1000 \
 model.optimizer._target_=torch.optim.AdamW \
 model.optimizer.weight_decay=0.0001 \
+model.optimizer.lr=0.0001 \
 model.sampling_config.batch_size=2000 \
 model.sampling_config.num_proposal_samples=10000 \
 tags=[tarflow,mle,aldp,big,v2] \
@@ -40,5 +41,5 @@ callbacks.model_checkpoint.save_top_k=-1 \
 callbacks.model_checkpoint.every_n_epochs=10 \
 callbacks.model_checkpoint.save_on_train_epoch_end=True \
 callbacks.model_checkpoint.verbose=True \
-data.batch_size=256
+data.batch_size=2048
 #+trainer.limit_train_batches=10.0 \

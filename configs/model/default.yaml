@@ -31,6 +31,7 @@ jarzynski_sampler:
   langevin_eps: 0.1
   num_timesteps: 10
   enabled: false
+  ess_threshold: 0.0
 
 sampling_config:
   num_proposal_samples: 10_000

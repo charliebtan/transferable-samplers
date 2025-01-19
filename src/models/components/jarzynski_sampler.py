@@ -93,18 +93,12 @@ class JarzynskiSampler(torch.nn.Module):
                 energy_grad_x, energy_grad_t = self.linear_energy_interpolation_gradients(
                     X_batch, t
                 )
-                print("energy_grad_x", energy_grad_x)
-                print("energy_grad_t", energy_grad_t)
 
                 # compute the updates
                 dX_t = -eps * energy_grad_x * dt + math.sqrt(2 * eps * dt) * torch.randn_like(
                     X_batch
                 )
                 dA_t = -energy_grad_t * dt
-                print("dX_t", dX_t)
-                print("dA_t", dA_t)
-                print("t", t)
-
                 assert dX_t.shape == X_batch.shape, "dX_t should have the same shape as X_batch"
                 assert dA_t.shape == A_batch.shape, "dA_t should have the same shape as A_batch"
 
@@ -123,6 +117,8 @@ class JarzynskiSampler(torch.nn.Module):
 
             assert A.dim() == 1, "A should be a flat vector"
             jarzynski_weights = torch.softmax(A, dim=-1)
+            if j % 100 == 0:
+                print("energy", j, self.target_energy(X).mean())
 
             A_list.append(A)
             ESS = sampling_efficiency(A)
