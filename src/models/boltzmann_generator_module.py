@@ -186,6 +186,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         """
         raise NotImplementedError
 
+    @torch.no_grad()
     def eval_step(
         self,
         batch: Tuple[torch.Tensor, torch.Tensor],
