@@ -2,7 +2,7 @@ import torch
 
 
 def gaussian(x, n):
-    shape = x.size()
+    shape = list(x.size())
     shape[0] *= n
     return torch.randn(shape, dtype=x.dtype, layout=x.layout, device=x.device)
 
@@ -24,7 +24,7 @@ class TorchdynWrapper(torch.nn.Module):
     in likelihood over time."""
 
     def __init__(
-        self, model, d_base: int = None, div_estimator="exact", logp_tol_scale=1.0, n_eps=2
+        self, model, d_base: int = None, div_estimator="exact", logp_tol_scale=1.0, n_eps=1
     ):
         super().__init__()
         self.model = model
@@ -66,7 +66,7 @@ class TorchdynWrapper(torch.nn.Module):
                 return self.model(t, y, d_base=self.d_base)
 
         _, vjpfunc = torch.func.vjp(vecfield, x.repeat(self.n, 1))
-        return (vjpfunc(eps)[0] * eps).sum()
+        return (vjpfunc(eps)[0] * eps).sum() / self.n
 
     def div_fn_exact(self, t, x):
         def vecfield(y):
