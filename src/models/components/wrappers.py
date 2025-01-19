@@ -1,11 +1,31 @@
 import torch
 
 
+def gaussian(x, n):
+    shape = x.size()
+    shape[0] *= n
+    return torch.randn(shape, dtype=x.dtype, layout=x.layout, device=x.device)
+
+
+def rademacher(x, n):
+    shape = list(x.size())
+    shape[0] *= n
+    return (
+        torch.randint(
+            low=0, high=2, size=shape, dtype=x.dtype, layout=x.layout, device=x.device
+        ).float()
+        * 2
+        - 1.0
+    )
+
+
 class TorchdynWrapper(torch.nn.Module):
     """Wraps model to torchdyn compatible format with additional dimension representing the change
     in likelihood over time."""
 
-    def __init__(self, model, d_base: int = None, div_estimator="exact", logp_tol_scale=1.0):
+    def __init__(
+        self, model, d_base: int = None, div_estimator="exact", logp_tol_scale=1.0, n_eps=2
+    ):
         super().__init__()
         self.model = model
         self.d_base = d_base
@@ -19,10 +39,11 @@ class TorchdynWrapper(torch.nn.Module):
             self.div_fn = self.div_fn_exact_no_functional
         else:
             self.div_fn = self.div_fn_hutch
+            self.n = n_eps
             if div_estimator == "hutch_guassian":
-                self.eps_fn = lambda x: torch.randn_like(x)
+                self.eps_fn = gaussian
             elif div_estimator == "hutch_rademacher":
-                self.eps_fn = lambda x: torch.randint_like(x, low=0, high=2).float() * 2 - 1.0
+                self.eps_fn = rademacher
             else:
                 raise NotImplementedError(
                     f"likelihood estimator {div_estimator} is not implemented"
@@ -33,18 +54,18 @@ class TorchdynWrapper(torch.nn.Module):
 
         Using Rademacher random variables for epsilons.
         """
+        x = x.view(1, -1)  # batch dims required by EGNN architecture
 
-        eps = self.eps_fn(x)
+        eps = self.eps_fn(x, self.n)
 
         def vecfield(y):
-            y = y.view(1, -1)  # batch dims required by EGNN architecture
             if self.d_base is not None:
                 d_base_vec = torch.ones(y.shape[0]) * self.d
                 return self.model(t, y, d_base=d_base_vec)
             else:
                 return self.model(t, y, d_base=self.d_base)
 
-        _, vjpfunc = torch.func.vjp(vecfield, x)
+        _, vjpfunc = torch.func.vjp(vecfield, x.repeat(self.n, 1))
         return (vjpfunc(eps)[0] * eps).sum()
 
     def div_fn_exact(self, t, x):

@@ -1,5 +1,6 @@
-import torch
+import os
 
+import torch
 from src.models.flow_matching_module import FlowMatchLitModule
 
 
@@ -29,11 +30,23 @@ class ReflowModule(FlowMatchLitModule):
         batch: torch.Tensor,
     ) -> torch.Tensor:
         # sample the prior and get xt
+        output_dir = self.hparams.base_flow_ckpt_path
+        # strip the file from output_dir
+        output_dir = output_dir[: output_dir.rfind("/")]
         if self.samples is None:
-            self.samples, self.prior_samples = self.base_flow.batched_generate_samples_no_ll(
-                self.hparams.num_reflow_samples, batch_size=self.hparams.reflow_batch_size
-            )
-            self.evaluate(prefix="base_flow", generator=self.base_flow.batched_generate_samples)
+            if os.path.exists(f"{output_dir}/samples.pt"):
+                self.samples, _, self.prior_samples = torch.load(f"{output_dir}/samples.pt")
+            else:
+                self.samples, _, self.prior_samples = (
+                    self.base_flow.batched_generate_samples_no_ll(
+                        self.hparams.num_reflow_samples, batch_size=self.hparams.reflow_batch_size
+                    )
+                )
+                self.evaluate(
+                    prefix="base_flow",
+                    generator=self.base_flow.batched_generate_samples_no_ll,
+                    output_dir=output_dir,
+                )
         # Sample random indices from length of samples
         idx = torch.randint(0, self.samples.shape[0], (batch.shape[0],), device=self.device)
         batch_prior = self.prior_samples[idx]
@@ -44,7 +57,7 @@ class ReflowModule(FlowMatchLitModule):
         loss = self.criterion(vt_pred, vt_target)
         return loss
 
-    def flow(self, x: torch.Tensor, reverse=False) -> torch.Tensor:
+    def flow(self, x: torch.Tensor, reverse=False, dummy_ll=True) -> torch.Tensor:
         dlog_p_init = torch.zeros((x.shape[0], 1), device=x.device)
         t = torch.zeros(x.shape[0], 1, device=x.device)
         vt_pred = self.forward(t, x)

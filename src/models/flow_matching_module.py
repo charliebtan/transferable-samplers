@@ -83,6 +83,7 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
                 copy.deepcopy(self.net),
                 div_estimator=self.hparams.div_estimator,
                 logp_tol_scale=self.hparams.logp_tol_scale,
+                n_eps=self.hparams.n_eps,
             )
 
         node = NeuralODE(
@@ -107,8 +108,8 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
         x, dlogp = self.flow(x, reverse=True)
         return -(-self.prior.energy(x).view(-1) - dlogp.view(-1))
 
-    def evaluate(self, prefix: str = "val", generator=None) -> None:
-        results = super().evaluate(prefix=prefix, generator=generator)
+    def evaluate(self, prefix: str = "val", generator=None, output_dir=None) -> None:
+        results = super().evaluate(prefix=prefix, generator=generator, output_dir=output_dir)
 
         self.log(f"{prefix}/nfe", self.nfe / (max(self.num_integrations, 1e-4)))
         self.nfe = 0

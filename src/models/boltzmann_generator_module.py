@@ -222,7 +222,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
             self.evaluate(prefix)
         plt.close("all")
 
-    def evaluate(self, prefix: str = "val", generator=None) -> None:
+    def evaluate(self, prefix: str = "val", generator=None, output_dir=None) -> None:
         logging.info("Eval epoch end")
         if generator is None:
             generator = self.batched_generate_samples
@@ -238,7 +238,8 @@ class BoltzmannGeneratorLitModule(LightningModule):
             "log_p": log_p,
             "prior_samples": prior_samples,
         }
-        output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
+        if output_dir is None:
+            output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
         logging.info(f"Saving {len(samples)} samples to {output_dir}/{prefix}_samples.pt")
         torch.save(samples_dict, f"{output_dir}/{prefix}_samples.pt")
         jarzynski_samples, jarzynski_weights = None, None
