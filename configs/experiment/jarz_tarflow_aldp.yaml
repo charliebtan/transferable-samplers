@@ -1,0 +1,20 @@
+# @package _global_
+
+defaults:
+  - override /model: normalizing_flow
+  - override /data: aldp
+
+ckpt_path: '${oc.env:AL2_TAR_NEW}'
+train: False
+
+model:
+  sampling_config:
+    batch_size: 10_000
+    num_test_proposal_samples: 100_000
+    num_jarzynski_samples: 100_000
+  net:
+    num_blocks: 6
+    in_channels: 1
+  jarzynski_sampler:
+    langevin_eps: 0.01
+    num_timesteps: 1000
