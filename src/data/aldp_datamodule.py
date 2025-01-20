@@ -10,17 +10,17 @@ import torchvision
 from bgmol.datasets import AImplicitUnconstrained
 from lightning.pytorch.loggers import WandbLogger
 from matplotlib.colors import LogNorm
-
 from src.data.base_datamodule import BaseDataModule
 from src.data.components.center_of_mass import CenterOfMassTransform
 from src.data.components.rotation import Random3DRotationTransform
 from src.data.components.transform_dataset import TransformDataset
 from src.data.components.utils import align_topology
-from src.models.components.utils import (
-    check_symmetry_change,
-    compute_chirality_sign,
-    find_chirality_centers,
-)
+from src.models.components.distribution_distances import (
+    compute_distribution_distances_with_prefix, energy_distances)
+from src.models.components.optimal_transport import torus_wasserstein
+from src.models.components.utils import (check_symmetry_change,
+                                         compute_chirality_sign,
+                                         find_chirality_centers)
 
 
 class ALDPDataModule(BaseDataModule):
@@ -149,6 +149,19 @@ class ALDPDataModule(BaseDataModule):
             loggers=loggers,
             prefix=prefix,
         )
+        samples_metrics = self.align_and_compute_metrics(
+            samples, prefix=prefix + "/rama", wandb_logger=wandb_logger
+        )
+        if samples_jarzynski is not None:
+            samples_jarzynski_metrics = self.align_and_compute_metrics(
+                samples_jarzynski, prefix=prefix + "/rama_jarzynski", wandb_logger=wandb_logger
+            )
+            samples_metrics.update(samples_jarzynski_metrics)
+        return samples_metrics
+
+    def align_and_compute_metrics(
+        self, samples, prefix: str = "", wandb_logger: WandbLogger = None
+    ):
         samples = self.unnormalize(samples).cpu()
         aligned_samples, aligned_idxs = self.align_samples(samples)
         correct_config_rate = len(aligned_samples) / len(samples)
@@ -164,10 +177,16 @@ class ALDPDataModule(BaseDataModule):
             self.plot_ramachandran(
                 aligned_symmetric_samples, prefix=prefix, wandb_logger=wandb_logger
             )
-            return {
-                "correct_config_rate": correct_config_rate,
-                "correct_symmetry_rate": correct_symmetry_rate,
-            }
+            metrics = self.get_ramachandran_metrics(
+                aligned_symmetric_samples[:5000], prefix=prefix
+            )
+            metrics.update(
+                {
+                    "correct_config_rate": correct_config_rate,
+                    "correct_symmetry_rate": correct_symmetry_rate,
+                }
+            )
+            return metrics
         except Exception as e:
             logging.warning(
                 "Aligned samples:",
@@ -197,6 +216,22 @@ class ALDPDataModule(BaseDataModule):
         model_samples[symmetry_change] *= -1
         symmetry_change = check_symmetry_change(model_samples, chirality_centers, reference_signs)
         return symmetry_change
+
+    def get_ramachandran_metrics(self, samples, prefix: str = ""):
+        x_pred = self.get_phi_psi_vectors(samples)
+        x_true = self.get_phi_psi_vectors(self.unnormalize(self.data_test)[: x_pred.shape[0]])
+
+        metrics = compute_distribution_distances_with_prefix(x_true, x_pred, prefix=prefix)
+        metrics[prefix + "/torus_wasserstein"] = torus_wasserstein(x_true, x_pred)
+        return metrics
+
+    def get_phi_psi_vectors(self, samples):
+        samples = samples.reshape(-1, self.n_particles, self.n_dimensions)
+        traj_samples = md.Trajectory(samples, topology=self.bgmol_dataset.system.mdtraj_topology)
+        phis = md.compute_phi(traj_samples)[1].flatten()
+        psis = md.compute_psi(traj_samples)[1].flatten()
+        x = torch.stack([torch.from_numpy(phis), torch.from_numpy(psis)], dim=1)
+        return x
 
     def plot_ramachandran(self, samples, prefix: str = "", wandb_logger: WandbLogger = None):
         samples = samples.reshape(-1, self.n_particles, self.n_dimensions)

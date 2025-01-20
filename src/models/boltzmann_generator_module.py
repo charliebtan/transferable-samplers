@@ -1,25 +1,23 @@
 import logging
 import math
 from typing import Any, Dict, Optional, Tuple
-import hydra
 
+import hydra
 import matplotlib.pyplot as plt
 import ot as pot
 import torch
 import torchmetrics
 from bgflow import MeanFreeNormalDistribution, NormalDistribution
 from lightning import LightningDataModule, LightningModule
-from torchmetrics import MeanMetric
-from tqdm import tqdm
-
-from src.models.components.distribution_distances import compute_distribution_distances
+from lightning.pytorch.utilities import grad_norm
+from src.models.components.distribution_distances import (
+    compute_distribution_distances_with_prefix, energy_distances)
 from src.models.components.ema import EMA
 from src.models.components.jarzynski_sampler import JarzynskiSampler
 from src.models.components.utils import RunningMedian
 from src.utils.tbg_utils import sampling_efficiency
-
-from lightning.pytorch.utilities import grad_norm
-
+from torchmetrics import MeanMetric
+from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 
@@ -245,7 +243,27 @@ class BoltzmannGeneratorLitModule(LightningModule):
             output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
         logging.info(f"Saving {len(samples)} samples to {output_dir}/{prefix}_samples.pt")
         torch.save(samples_dict, f"{output_dir}/{prefix}_samples.pt")
-        jarzynski_samples, jarzynski_weights = None, None
+
+        sample_target_energy = self.datamodule.energy(samples)
+        print("sample_energy", sample_target_energy.mean())
+        target_target_energy = self.datamodule.energy(true_data)
+        print("target_energy", target_target_energy.mean())
+
+        assert log_p.shape == sample_target_energy.shape
+        logits = -sample_target_energy - log_p
+        ess = sampling_efficiency(logits)
+        self.log(f"{prefix}/effective_sample_size", ess, sync_dist=True)
+        num_eval_samples = min(
+            self.hparams.sampling_config.num_eval_samples, len(samples), len(true_data)
+        )
+        dist_metrics = compute_distribution_distances_with_prefix(
+            self.datamodule.unnormalize(samples[:num_eval_samples]).cpu(),
+            self.datamodule.unnormalize(true_data[:num_eval_samples]).cpu(),
+            prefix=prefix
+        )
+        dist_metrics[f"{prefix}/num_eval_samples"] = num_eval_samples
+        energy_metrics = energy_distances(sample_target_energy, target_target_energy, prefix)
+        jarzynski_samples, jarzynski_weights, jarzynski_energy_metrics = None, None, None
         if self.jarzynski_sampler is not None and self.jarzynski_sampler.enabled:
             num_jarzynski_samples = min(
                 self.hparams.sampling_config.num_jarzynski_samples, len(samples)
@@ -255,34 +273,22 @@ class BoltzmannGeneratorLitModule(LightningModule):
             )
             sample_target_jarzynski_energy = self.datamodule.energy(jarzynski_samples)
             print("jarzynski_sample_energy", sample_target_jarzynski_energy.mean())
-        sample_target_energy = self.datamodule.energy(samples)
-        print("sample_energy", sample_target_energy.mean())
-        target_target_energy = self.datamodule.energy(true_data)
-        print("target_energy", target_target_energy.mean())
-        assert log_p.shape == sample_target_energy.shape
-        logits = -sample_target_energy - log_p
-        ess = sampling_efficiency(logits)
-        self.log(f"{prefix}/effective_sample_size", ess, sync_dist=True)
-        num_eval_samples = min(
-            self.hparams.sampling_config.num_eval_samples, len(samples), len(true_data)
-        )
-        names, dists = compute_distribution_distances(
-            self.datamodule.unnormalize(samples[:num_eval_samples]).cpu(),
-            self.datamodule.unnormalize(true_data[:num_eval_samples]).cpu(),
-        )
-        energy_w2 = math.sqrt(
-            pot.emd2_1d(target_target_energy.cpu().numpy(), sample_target_energy.cpu().numpy())
-        )
-        energy_w1 = pot.emd2_1d(
-            target_target_energy.cpu().numpy(),
-            sample_target_energy.cpu().numpy(),
-            metric="euclidean",
-        )
-        names = [f"{prefix}/{name}" for name in names]
-        dist_metrics = dict(zip(names, dists))
-        dist_metrics[f"{prefix}/energy_w2"] = energy_w2
-        dist_metrics[f"{prefix}/energy_w1"] = energy_w1
-        dist_metrics[f"{prefix}/num_eval_samples"] = num_eval_samples
+            jarzynski_energy_metrics = energy_distances(
+                sample_target_jarzynski_energy, target_target_energy, prefix + "/jarzynski"
+            )
+            dist_metrics.update(jarzynski_energy_metrics)
+            num_eval_samples = min(
+                num_jarzynski_samples,
+                self.hparams.sampling_config.num_eval_samples,
+                len(true_data),
+            )
+            jarzynski_dist_metrics = compute_distribution_distances_with_prefix(
+                self.datamodule.unnormalize(samples[:num_eval_samples]),
+                self.datamodule.unnormalize(true_data[:num_eval_samples]),
+                prefix=prefix + "/jarzynski",
+            )
+            jarzynski_dist_metrics[f"{prefix}/jarzynski/num_eval_samples"] = num_eval_samples
+            dist_metrics.update(jarzynski_dist_metrics)
         dataset_metrics = self.datamodule.log_on_epoch_end(
             samples,
             log_p,
@@ -291,9 +297,8 @@ class BoltzmannGeneratorLitModule(LightningModule):
             loggers=self.loggers,
             prefix=prefix,
         )
-        if dataset_metrics is not None:
-            for key, value in dataset_metrics.items():
-                dist_metrics[f"{prefix}/{key}"] = value
+        dist_metrics.update(dataset_metrics)
+        dist_metrics.update(energy_metrics)
         self.log_dict(dist_metrics)
 
     def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
@@ -367,15 +372,15 @@ class BoltzmannGeneratorLitModule(LightningModule):
         x0, dlogp = self.flow(x, reverse=True)
         return -(-self.prior.energy(x0).view(-1) - dlogp.view(-1))
 
-    # https://github.com/Lightning-AI/pytorch-lightning/issues/1462 
+    # https://github.com/Lightning-AI/pytorch-lightning/issues/1462
     def on_before_optimizer_step(self, optimizer, *args, **kwargs) -> None:
-         total_norm = 0.0
-         for param in self.trainer.lightning_module.parameters():
-             if param.grad is not None:
-                 param_norm = param.grad.detach().data.norm(2)
-                 total_norm += param_norm.item() ** 2
-         total_norm = total_norm ** (1.0 / 2)
-         self.log_dict({"train/grad_norm": total_norm}, prog_bar=True)
+        total_norm = 0.0
+        for param in self.trainer.lightning_module.parameters():
+            if param.grad is not None:
+                param_norm = param.grad.detach().data.norm(2)
+                total_norm += param_norm.item() ** 2
+        total_norm = total_norm ** (1.0 / 2)
+        self.log_dict({"train/grad_norm": total_norm}, prog_bar=True)
 
     def optimizer_step(self, *args, **kwargs):
         super().optimizer_step(*args, **kwargs)

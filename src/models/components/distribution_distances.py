@@ -1,10 +1,33 @@
 import math
 from typing import Union
 
+import numpy as np
+import ot as pot
 import torch
+from scipy.optimize import linear_sum_assignment
 
 from .mmd import mix_rbf_mmd2
 from .optimal_transport import wasserstein
+
+
+def energy_distances(pred, true, prefix=""):
+    pred = pred.cpu().numpy()
+    true = true.cpu().numpy()
+    energy_w2 = math.sqrt(pot.emd2_1d(true, pred))
+    energy_w1 = pot.emd2_1d(true, pred, metric="euclidean")
+    mean_dist = np.abs(pred.mean() - true.mean())
+    cropped_pred = np.clip(pred, -1000, 1000)
+    cropped_true = np.clip(true, -1000, 1000)
+    cropped_energy_w2 = math.sqrt(pot.emd2_1d(cropped_true, cropped_pred))
+    cropped_energy_w1 = pot.emd2_1d(cropped_true, cropped_pred, metric="euclidean")
+    return_dict = {
+        f"{prefix}/energy_w2": energy_w2,
+        f"{prefix}/energy_w1": energy_w1,
+        f"{prefix}/mean_dist": mean_dist,
+        f"{prefix}/cropped_energy_w2": cropped_energy_w2,
+        f"{prefix}/cropped_energy_w1": cropped_energy_w1,
+    }
+    return return_dict
 
 
 def compute_distances(pred, true):
@@ -46,8 +69,13 @@ def compute_distribution_distances(pred: torch.Tensor, true: Union[torch.Tensor,
     return NAMES, dists
 
 
-import ot as pot
-from scipy.optimize import linear_sum_assignment
+def compute_distribution_distances_with_prefix(pred, true, prefix):
+    pred = pred.cpu()
+    true = true.cpu()
+    names, dists = compute_distribution_distances(pred, true)
+    names = [f"{prefix}/{name}" for name in names]
+    metrics = dict(zip(names, dists))
+    return metrics
 
 
 def find_rigid_alignment(A, B):
