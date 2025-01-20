@@ -13,4 +13,5 @@ trainer.check_val_every_n_epoch=50 \
 model.mean_free_prior=1 \
 +data.com_augmentation=1 \
 model.net.in_channels=3 \
+model.sampling_config.num_proposal_samples=100_000 \
 data.batch_size=256
