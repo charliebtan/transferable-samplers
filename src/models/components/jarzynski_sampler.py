@@ -14,7 +14,7 @@ class JarzynskiSampler(torch.nn.Module):
         batch_size: int = 1000,
         langevin_eps: float = 0.4,
         num_timesteps: int = 1000,
-        ess_threshold: float = 1.0,
+        ess_threshold: float = -1.0,
         enabled: bool = True,
     ):
         super().__init__()
