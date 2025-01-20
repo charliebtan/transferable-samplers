@@ -4,8 +4,7 @@ model=normalizing_flow logger=wandb \
 data=al3,al4 \
 trainer=gpu trainer.max_epochs=1000 \
 model.optimizer._target_=torch.optim.AdamW \
-model.optimizer.weight_decay=0.0001 \
-tags=[tarflow,mle,al34_model_size_grid] \
+tags=[tarflow,mle,al34_model_size_grid_v2] \
 model.net.num_blocks=4,6,8 \
 model.net.layers_per_block=2,4,6 \
 model.net.channels=256,512 \
@@ -14,6 +13,4 @@ trainer.check_val_every_n_epoch=50 \
 model.mean_free_prior=1 \
 +data.com_augmentation=1 \
 model.net.in_channels=3 \
-model.optimizer.lr=1e-4 \
-model.optimizer.betas=(0.9,0.95) \
 data.batch_size=256
