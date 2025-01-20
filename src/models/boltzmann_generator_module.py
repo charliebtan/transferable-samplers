@@ -211,7 +211,6 @@ class BoltzmannGeneratorLitModule(LightningModule):
     def on_eval_epoch_end(self, metrics, prefix: str = "val") -> None:
         self.log_dict(metrics)
         metrics.reset()
-        # try:
         if self.hparams.ema_decay > 0:
             if self.hparams.eval_ema:
                 self.net.backup()
@@ -223,10 +222,6 @@ class BoltzmannGeneratorLitModule(LightningModule):
         else:
             self.evaluate(prefix)
         plt.close("all")
-
-    #            except Exception as e:
-    #                logger.warning("Skipping evaluation due to exception")
-    #                logger.warning(e)
 
     def evaluate(self, prefix: str = "val", generator=None, output_dir=None) -> None:
         logging.info("Eval epoch end")
@@ -249,32 +244,71 @@ class BoltzmannGeneratorLitModule(LightningModule):
         logging.info(f"Saving {len(samples)} samples to {output_dir}/{prefix}_samples.pt")
         torch.save(samples_dict, f"{output_dir}/{prefix}_samples.pt")
 
+        # compute energy
         sample_target_energy = self.datamodule.energy(samples)
-        print("sample_energy", sample_target_energy.mean())
+        self.log(f"{prefix}/mean_energy", sample_target_energy.mean(), sync_dist=True)
         target_target_energy = self.datamodule.energy(true_data)
-        print("target_energy", target_target_energy.mean())
 
+        # compute weights + resample
         assert log_p.shape == sample_target_energy.shape
         logits = -sample_target_energy - log_p
         ess = sampling_efficiency(logits)
         self.log(f"{prefix}/effective_sample_size", ess, sync_dist=True)
+        # clip the top 1% of the logits to avoid numerical issues
+        for quantile in [0.1, 0.01, 0.002]:
+            clipped_logits_mask = logits > torch.quantile(logits, 1 - quantile)
+            ess = sampling_efficiency(logits[~clipped_logits_mask])
+            self.log(f"{prefix}/clip_{quantile}/effective_sample_size", ess, sync_dist=True)
+            self.log(
+                f"{prefix}/clip_{quantile}/n_clipped",
+                clipped_logits_mask.float().sum(),
+                sync_dist=True,
+            )
+
+        if "clip_logits" in self.hparams and self.hparams.clip_logits:
+            clipped_logits_mask = logits > torch.quantile(
+                logits, 1 - float(self.hparams.clip_logits)
+            )
+            logits = logits[~clipped_logits_mask]
+            samples = samples[~clipped_logits_mask]
         resampled_samples = resample(samples, logits)
         num_eval_samples = min(
             self.hparams.sampling_config.num_eval_samples, len(samples), len(true_data)
         )
+
+        # compute dist metrics
         dist_metrics = compute_distribution_distances_with_prefix(
             self.datamodule.unnormalize(samples[:num_eval_samples]).cpu(),
             self.datamodule.unnormalize(true_data[:num_eval_samples]).cpu(),
             prefix=prefix,
         )
         dist_metrics[f"{prefix}/num_eval_samples"] = num_eval_samples
+        self.log_dict(dist_metrics)
 
+        # compute resampled dist metrics
         resampled_dist_metrics = compute_distribution_distances_with_prefix(
             self.datamodule.unnormalize(resampled_samples[:num_eval_samples]).cpu(),
             self.datamodule.unnormalize(true_data[:num_eval_samples]).cpu(),
             prefix=prefix + "/resampled",
         )
+        self.log_dict(resampled_dist_metrics)
+
+        # compute energy metrics
         energy_metrics = energy_distances(sample_target_energy, target_target_energy, prefix)
+        self.log_dict(energy_metrics)
+
+        # compute resampled energy metrics
+        resampled_sample_target_energy = self.datamodule.energy(resampled_samples)
+        self.log(
+            f"{prefix}/resampled/mean_energy",
+            resampled_sample_target_energy.mean(),
+            sync_dist=True,
+        )
+        resampled_energy_metrics = energy_distances(
+            resampled_sample_target_energy, target_target_energy, prefix + "/resampled"
+        )
+        self.log_dict(resampled_energy_metrics)
+
         jarzynski_samples, jarzynski_weights, jarzynski_energy_metrics = None, None, None
         if self.jarzynski_sampler is not None and self.jarzynski_sampler.enabled:
             num_jarzynski_samples = min(
@@ -283,44 +317,67 @@ class BoltzmannGeneratorLitModule(LightningModule):
             jarzynski_samples, jarzynski_weights = self.jarzynski_sampler.sample(
                 samples[:num_jarzynski_samples]
             )
-            sample_target_jarzynski_energy = self.datamodule.energy(jarzynski_samples)
-            print("jarzynski_sample_energy", sample_target_jarzynski_energy.mean())
-            jarzynski_energy_metrics = energy_distances(
-                sample_target_jarzynski_energy, target_target_energy, prefix + "/jarzynski"
-            )
-            dist_metrics.update(jarzynski_energy_metrics)
+
             num_eval_samples = min(
                 num_jarzynski_samples,
                 self.hparams.sampling_config.num_eval_samples,
                 len(true_data),
             )
+
+            jarzynski_ess = sampling_efficiency(jarzynski_weights)
+            self.log(f"{prefix}/jarzynski/effective_sample_size", jarzynski_ess, sync_dist=True)
+
+            # compute jarzynski dist metrics
             jarzynski_dist_metrics = compute_distribution_distances_with_prefix(
                 self.datamodule.unnormalize(jarzynski_samples[:num_eval_samples]),
                 self.datamodule.unnormalize(true_data[:num_eval_samples]),
                 prefix=prefix + "/jarzynski",
             )
+            jarzynski_dist_metrics[f"{prefix}/jarzynski/num_eval_samples"] = num_eval_samples
+            self.log_dict(jarzynski_dist_metrics)
+
+            # compute resampled jarzynski dist metrics
             resampled_jarzynski_samples = resample(jarzynski_samples, jarzynski_weights)
-            resampled_dist_metrics = compute_distribution_distances_with_prefix(
+            resampled_jarzynski_dist_metrics = compute_distribution_distances_with_prefix(
                 self.datamodule.unnormalize(resampled_jarzynski_samples[:num_eval_samples]).cpu(),
                 self.datamodule.unnormalize(true_data[:num_eval_samples]).cpu(),
                 prefix=prefix + "/jarzynski/resampled",
             )
-            jarzynski_dist_metrics[f"{prefix}/jarzynski/num_eval_samples"] = num_eval_samples
-            dist_metrics.update(jarzynski_dist_metrics)
-            dist_metrics.update(resampled_dist_metrics)
+            self.log_dict(resampled_jarzynski_dist_metrics)
+
+            # compute jarzynski energy metrics
+            sample_target_jarzynski_energy = self.datamodule.energy(jarzynski_samples)
+            self.log(f"{prefix}/jarzynski/mean_energy", sample_target_jarzynski_energy.mean())
+            jarzynski_energy_metrics = energy_distances(
+                sample_target_jarzynski_energy, target_target_energy, prefix + "/jarzynski"
+            )
+            self.log_dict(jarzynski_energy_metrics)
+
+            # compute resampled jarzynski energy metrics
+            resampled_sample_target_jarzynski_energy = self.datamodule(resampled_jarzynski_samples)
+            self.log(
+                f"{prefix}/jarzynski/resampled/mean_energy",
+                resampled_sample_target_jarzynski_energy.mean(),
+            )
+            resampled_jarzynski_energy_metrics = energy_distances(
+                resampled_sample_target_jarzynski_energy,
+                target_target_energy,
+                prefix + "/jarzynski/resampled",
+            )
+            self.log_dict(resampled_jarzynski_energy_metrics)
+
+        # log dataset metrics
         dataset_metrics = self.datamodule.log_on_epoch_end(
             samples,
             log_p,
             jarzynski_samples,
             jarzynski_weights,
+            resampled_samples,
             loggers=self.loggers,
             prefix=prefix,
         )
         if dataset_metrics is not None:
-            dist_metrics.update(dataset_metrics)
-        dist_metrics.update(energy_metrics)
-        dist_metrics.update(resampled_dist_metrics)
-        self.log_dict(dist_metrics)
+            self.log_dict(dataset_metrics)
 
     def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
         pass
@@ -331,11 +388,11 @@ class BoltzmannGeneratorLitModule(LightningModule):
 
     def on_validation_epoch_start(self) -> None:
         logging.info("Validation epoch start")
-        self.train_metrics.reset()
+        self.val_metrics.reset()
 
     def on_test_epoch_start(self) -> None:
         logging.info("Test epoch start")
-        self.train_metrics.reset()
+        self.test_metrics.reset()
 
     def on_train_epoch_end(self) -> None:
         self.train_metrics.reset()

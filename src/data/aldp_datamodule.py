@@ -142,6 +142,7 @@ class ALDPDataModule(BaseDataModule):
         log_p_samples: torch.Tensor,
         samples_jarzynski: torch.Tensor = None,
         jarzynski_log_p: torch.Tensor = None,
+        resampled_samples: torch.Tensor = None,
         loggers=None,
         prefix: str = "",
     ) -> None:
@@ -151,12 +152,18 @@ class ALDPDataModule(BaseDataModule):
             log_p_samples,
             samples_jarzynski,
             jarzynski_log_p,
+            resampled_samples,
             loggers=loggers,
             prefix=prefix,
         )
         samples_metrics = self.align_and_compute_metrics(
             samples, prefix=prefix + "/rama", wandb_logger=wandb_logger
         )
+        if resampled_samples is not None:
+            resampled_sample_metrics = self.align_and_compute_metrics(
+                resampled_samples, prefix=prefix + "/resampled/rama", wandb_logger=wandb_logger
+            )
+            samples_metrics.update(resampled_sample_metrics)
         if samples_jarzynski is not None:
             samples_jarzynski_metrics = self.align_and_compute_metrics(
                 samples_jarzynski, prefix=prefix + "/rama_jarzynski", wandb_logger=wandb_logger

@@ -141,6 +141,7 @@ class ALPDataModule(BaseDataModule):
         log_p_samples: torch.Tensor,
         samples_jarzynski: torch.Tensor = None,
         jarzynski_log_p: torch.Tensor = None,
+        resampled_samples: torch.Tensor = None,
         loggers=None,
         prefix: str = "",
     ) -> None:
@@ -150,11 +151,18 @@ class ALPDataModule(BaseDataModule):
             log_p_samples,
             samples_jarzynski,
             jarzynski_log_p,
+            resampled_samples,
             loggers=loggers,
             prefix=prefix,
         )
         samples = self.unnormalize(samples).cpu()
         sample_metrics = self.get_ramachandran_metrics(samples[:5000], prefix=prefix + "/rama")
+        if resampled_samples is not None:
+            resampled_samples = self.unnormalize(resampled_samples).cpu()
+            resampled_sample_metrics = self.get_ramachandran_metrics(
+                samples[:5000], prefix=prefix + "/resampled/rama"
+            )
+            sample_metrics.update(resampled_sample_metrics)
         if samples_jarzynski is not None:
             sample_jarzynski_metrics = self.get_ramachandran_metrics(
                 samples_jarzynski[:5000], prefix=prefix + "/rama_jarzynski"

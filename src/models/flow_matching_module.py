@@ -107,6 +107,7 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
                 )
                 self.nfe = 0
 
+    @torch.no_grad()
     def flow(self, x: torch.Tensor, reverse=False, dummy_ll=False) -> torch.Tensor:
         dlog_p = torch.zeros((x.shape[0], 1), device=x.device)
         t_span = torch.linspace(1, 0, 2) if reverse else torch.linspace(0, 1, 2)
@@ -131,6 +132,7 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
             x = torch.cat([x, dlog_p], dim=-1)
         x = node.trajectory(x, t_span=t_span)[-1]
         self.nfe += wrapped_net.nfe
+        print(self.nfe)
         self.num_integrations += 1
         wrapped_net.nfe = 0
         if not dummy_ll:
@@ -168,11 +170,16 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
             probability.
         """
 
-        prior_samples = self.prior.sample(batch_size).to(self.device)
+        local_batch_size = batch_size // self.trainer.world_size
+        prior_samples = self.prior.sample(local_batch_size).to(self.device)
         prior_log_p = -self.prior.energy(prior_samples)
 
         with torch.no_grad():
             samples, dlog_p = self.flow(prior_samples, reverse=False, dummy_ll=dummy_ll)
+            samples = self.all_gather(samples).reshape(batch_size, -1)
+            dlog_p = self.all_gather(dlog_p).reshape(-1, *dlog_p.shape[1:])
+        prior_log_p = self.all_gather(prior_log_p).reshape(-1, *prior_log_p.shape[1:])
+        prior_samples = self.all_gather(prior_samples).reshape(-1, *prior_samples.shape[1:])
 
         log_p = prior_log_p.flatten() + dlog_p.flatten()
 

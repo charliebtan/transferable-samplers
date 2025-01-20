@@ -180,6 +180,7 @@ class BaseDataModule(LightningDataModule):
         log_p_samples: torch.Tensor,
         samples_jarzynski: torch.Tensor = None,
         jarzynski_log_p: torch.Tensor = None,
+        resampled_samples: torch.Tensor = None,
         loggers: List[Any] = None,
         prefix: str = "",
     ) -> None:
