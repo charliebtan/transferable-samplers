@@ -83,7 +83,8 @@ class BoltzmannGeneratorLitModule(LightningModule):
             )
         else:
             self.prior = NormalDistribution(self.datamodule.dim)
-        self.gradient_history = RunningMedian(100)
+        if self.hparams.stabilize_training:
+            self.gradient_history = RunningMedian(100)
 
     def training_step(
         self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
