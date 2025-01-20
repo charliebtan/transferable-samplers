@@ -9,7 +9,6 @@ from src.models.boltzmann_generator_module import BoltzmannGeneratorLitModule
 class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
     def __init__(
         self,
-        mean_free_prior: bool = False,
         force_gaussian_loss: bool = True,
         energy_kl_loss: bool = False,
         energy_kl_weight: float = 0.01,
@@ -23,12 +22,6 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
         :param scheduler: The learning rate scheduler to use for training.
         """
         super().__init__(*args, **kwargs)
-
-        # assert not (not self.hparams.mean_free_prior and self.hparams.force_gaussian_loss)
-
-        if not self.hparams.mean_free_prior:
-            # overwrites the MeanFreeNormalDistribution in BoltzmannGeneratorLitModule
-            self.prior = NormalDistribution(self.datamodule.dim)
 
         self.energy_kl_loss = energy_kl_loss
         self.energy_kl_weight = energy_kl_weight

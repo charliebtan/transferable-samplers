@@ -76,18 +76,13 @@ class BoltzmannGeneratorLitModule(LightningModule):
         self.val_metrics = self.train_metrics.clone(prefix="val/")
         self.test_metrics = self.train_metrics.clone(prefix="test/")
 
-        # the prior is overwritten in NormalizingFlowLitModule to have nonzero mean
-        self.prior = MeanFreeNormalDistribution(
-            self.datamodule.dim, self.datamodule.n_particles, two_event_dims=False
-        )
-        if not self.hparams.mean_free_prior:
-            # overwrites the MeanFreeNormalDistribution in BoltzmannGeneratorLitModule
+        if self.hparams.mean_free_prior:
+            self.prior = MeanFreeNormalDistribution(
+                self.datamodule.dim, self.datamodule.n_particles, two_event_dims=False
+            )
+        else:
             self.prior = NormalDistribution(self.datamodule.dim)
-        if self.hparams.stabilize_training:
-            self.gradient_history = RunningMedian(100)
-        if not self.hparams.mean_free_prior:
-            # overwrites the MeanFreeNormalDistribution in BoltzmannGeneratorLitModule
-            self.prior = NormalDistribution(self.datamodule.dim)
+        self.gradient_history = RunningMedian(100)
 
     def training_step(
         self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
