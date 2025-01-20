@@ -4,6 +4,20 @@ import numpy as np
 import torch
 
 
+def resample(samples, logits):
+    """
+    Resample samples with given logits.
+    Args:
+        samples: Samples to resample
+        logits: Logits for resampling
+    Returns:
+        Resampled samples
+    """
+    probs = torch.softmax(logits, dim=-1)
+    resampled_samples = torch.multinomial(probs, samples.size(0), replacement=True)
+    return samples[resampled_samples]
+
+
 class RunningMedian:
     def __init__(self, window_size):
         self.window_size = window_size

@@ -19,7 +19,7 @@ from src.models.components.distribution_distances import (
 )
 from src.models.components.ema import EMA
 from src.models.components.jarzynski_sampler import JarzynskiSampler
-from src.models.components.utils import RunningMedian
+from src.models.components.utils import RunningMedian, resample
 from src.utils.tbg_utils import sampling_efficiency
 
 logger = logging.getLogger(__name__)
@@ -261,6 +261,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         logits = -sample_target_energy - log_p
         ess = sampling_efficiency(logits)
         self.log(f"{prefix}/effective_sample_size", ess, sync_dist=True)
+        resampled_samples = resample(samples, logits)
         num_eval_samples = min(
             self.hparams.sampling_config.num_eval_samples, len(samples), len(true_data)
         )
@@ -270,6 +271,12 @@ class BoltzmannGeneratorLitModule(LightningModule):
             prefix=prefix,
         )
         dist_metrics[f"{prefix}/num_eval_samples"] = num_eval_samples
+
+        resampled_dist_metrics = compute_distribution_distances_with_prefix(
+            self.datamodule.unnormalize(resampled_samples[:num_eval_samples]).cpu(),
+            self.datamodule.unnormalize(true_data[:num_eval_samples]).cpu(),
+            prefix=prefix + "/resampled",
+        )
         energy_metrics = energy_distances(sample_target_energy, target_target_energy, prefix)
         jarzynski_samples, jarzynski_weights, jarzynski_energy_metrics = None, None, None
         if self.jarzynski_sampler is not None and self.jarzynski_sampler.enabled:
@@ -291,12 +298,19 @@ class BoltzmannGeneratorLitModule(LightningModule):
                 len(true_data),
             )
             jarzynski_dist_metrics = compute_distribution_distances_with_prefix(
-                self.datamodule.unnormalize(samples[:num_eval_samples]),
+                self.datamodule.unnormalize(jarzynski_samples[:num_eval_samples]),
                 self.datamodule.unnormalize(true_data[:num_eval_samples]),
                 prefix=prefix + "/jarzynski",
             )
+            resampled_jarzynski_samples = resample(jarzynski_samples, jarzynski_weights)
+            resampled_dist_metrics = compute_distribution_distances_with_prefix(
+                self.datamodule.unnormalize(resampled_jarzynski_samples[:num_eval_samples]).cpu(),
+                self.datamodule.unnormalize(true_data[:num_eval_samples]).cpu(),
+                prefix=prefix + "/jarzynski/resampled",
+            )
             jarzynski_dist_metrics[f"{prefix}/jarzynski/num_eval_samples"] = num_eval_samples
             dist_metrics.update(jarzynski_dist_metrics)
+            dist_metrics.update(resampled_dist_metrics)
         dataset_metrics = self.datamodule.log_on_epoch_end(
             samples,
             log_p,
@@ -307,6 +321,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         )
         dist_metrics.update(dataset_metrics)
         dist_metrics.update(energy_metrics)
+        dist_metrics.update(resampled_dist_metrics)
         self.log_dict(dist_metrics)
 
     def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
@@ -341,7 +356,6 @@ class BoltzmannGeneratorLitModule(LightningModule):
         valid_gradients = True
         flat_grads = torch.cat([p.grad.view(-1) for p in self.parameters() if p.grad is not None])
         global_norm = torch.norm(flat_grads, p=2)
-        self.gradient_history.update(global_norm.item())
         for name, param in self.named_parameters():
             if param.grad is not None:
                 valid_gradients = not (
@@ -351,7 +365,6 @@ class BoltzmannGeneratorLitModule(LightningModule):
                 if not valid_gradients:
                     break
 
-        running_global_norm = self.gradient_history.compute()
         self.log("global_gradient_norm", global_norm, on_step=True, prog_bar=True)
         if not valid_gradients:
             logger.warning(
@@ -360,20 +373,23 @@ class BoltzmannGeneratorLitModule(LightningModule):
             self.zero_grad()
             return
 
-        if self.hparams.stabilize_training:
-            if global_norm > 20 * running_global_norm:
-                logger.warning(
-                    f"detected large_gradient {global_norm} which is more than 20 times the running median {running_global_norm}. not updating model parameters"
-                )
-                self.zero_grad()
-            elif global_norm > 5 * running_global_norm:
-                logger.warning(
-                    f"detected large_gradient {global_norm} which is more than 5 "
-                    f"times the running median {running_global_norm}. clipping"
-                    "gradients"
-                )
-                norm = torch.nn.utils.clip_grad_norm_(self.parameters(), 5 * running_global_norm)
-                self.log("clipped_gradient_norm", norm, on_step=True, prog_bar=True)
+        if not self.hparams.stabilize_training:
+            return
+        self.gradient_history.update(global_norm.item())
+        running_global_norm = self.gradient_history.compute()
+        if global_norm > 20 * running_global_norm:
+            logger.warning(
+                f"detected large_gradient {global_norm} which is more than 20 times the running median {running_global_norm}. not updating model parameters"
+            )
+            self.zero_grad()
+        elif global_norm > 5 * running_global_norm:
+            logger.warning(
+                f"detected large_gradient {global_norm} which is more than 5 "
+                f"times the running median {running_global_norm}. clipping"
+                "gradients"
+            )
+            norm = torch.nn.utils.clip_grad_norm_(self.parameters(), 5 * running_global_norm)
+            self.log("clipped_gradient_norm", norm, on_step=True, prog_bar=True)
 
     def proposal_energy(self, x: torch.Tensor) -> torch.Tensor:
         # x is considered to be a sample from the proposal distribution
