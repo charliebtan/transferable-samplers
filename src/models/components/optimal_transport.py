@@ -90,6 +90,18 @@ class OTPlanSampler:
         return to_return
 
 
+def torus_wasserstein(x0, x1):
+    a, b = pot.unif(x0.shape[0]), pot.unif(x1.shape[0])
+    if x0.dim() > 2:
+        x0 = x0.reshape(x0.shape[0], -1)
+    if x1.dim() > 2:
+        x1 = x1.reshape(x1.shape[0], -1)
+
+    pdists = (((x0[None, :, :] - x1[:, None, :]) % np.pi) ** 2).sum(-1)
+    ret = math.sqrt(pot.emd2(a, b, pdists.detach().cpu().numpy(), numItermax=1e7))
+    return ret
+
+
 def wasserstein(
     x0: torch.Tensor,
     x1: torch.Tensor,

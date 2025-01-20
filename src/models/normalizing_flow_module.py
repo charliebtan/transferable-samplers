@@ -12,6 +12,7 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
         force_gaussian_loss: bool = True,
         energy_kl_loss: bool = False,
         energy_kl_weight: float = 0.01,
+        log_invertibility_error: bool = True,
         *args,
         **kwargs,
     ) -> None:
@@ -57,7 +58,10 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
         return energy_kl
 
     def generate_samples(
-        self, batch_size: int, n_timesteps: int = None, dummy_ll=False
+        self,
+        batch_size: int,
+        n_timesteps: int = None,
+        dummy_ll=False,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Generate samples from the model.
 
@@ -72,7 +76,9 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
         # This is a bit slow... but probably fine 2x calls
         with torch.no_grad():
             x_pred = self.net.reverse(prior_samples)
-            _, logdets = self.net(x_pred)
+            x_recon, logdets = self.net(x_pred)
+            self.log("invert_error", torch.sum((x_pred - x_recon) ** 2))
+
         log_p = prior_log_p.flatten() + logdets.flatten()
         return x_pred, log_p, torch.empty(0)
 

@@ -1,25 +1,26 @@
 import logging
 import math
 from typing import Any, Dict, Optional, Tuple
-import hydra
 
+import hydra
 import matplotlib.pyplot as plt
 import ot as pot
 import torch
 import torchmetrics
 from bgflow import MeanFreeNormalDistribution, NormalDistribution
 from lightning import LightningDataModule, LightningModule
+from lightning.pytorch.utilities import grad_norm
 from torchmetrics import MeanMetric
 from tqdm import tqdm
 
-from src.models.components.distribution_distances import compute_distribution_distances
+from src.models.components.distribution_distances import (
+    compute_distribution_distances_with_prefix,
+    energy_distances,
+)
 from src.models.components.ema import EMA
 from src.models.components.jarzynski_sampler import JarzynskiSampler
-from src.models.components.utils import RunningMedian
+from src.models.components.utils import RunningMedian, resample
 from src.utils.tbg_utils import sampling_efficiency
-
-from lightning.pytorch.utilities import grad_norm
-
 
 logger = logging.getLogger(__name__)
 
@@ -181,6 +182,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         """
         raise NotImplementedError
 
+    @torch.no_grad()
     def eval_step(
         self,
         batch: Tuple[torch.Tensor, torch.Tensor],
@@ -206,19 +208,23 @@ class BoltzmannGeneratorLitModule(LightningModule):
         self.eval_step(batch, batch_idx, prefix="test")
 
     def on_eval_epoch_end(self, metrics, prefix: str = "val") -> None:
-        self.log_dict(metrics)
-        metrics.reset()
-        if self.hparams.ema_decay > 0:
-            if self.hparams.eval_ema:
-                self.net.backup()
-                self.net.copy_to_model()
+        try:
+            self.log_dict(metrics)
+            metrics.reset()
+            if self.hparams.ema_decay > 0:
+                if self.hparams.eval_ema:
+                    self.net.backup()
+                    self.net.copy_to_model()
+                    self.evaluate(prefix)
+                    self.net.restore_to_model()
+                if self.hparams.eval_non_ema:
+                    self.evaluate(prefix + "/non_ema")
+            else:
                 self.evaluate(prefix)
-                self.net.restore_to_model()
-            if self.hparams.eval_non_ema:
-                self.evaluate(prefix + "/non_ema")
-        else:
-            self.evaluate(prefix)
-        plt.close("all")
+            plt.close("all")
+        except Exception as e:
+            logger.warning("Skipping evaluation due to exception")
+            logger.warning(e)
 
     def evaluate(self, prefix: str = "val", generator=None, output_dir=None) -> None:
         logging.info("Eval epoch end")
@@ -240,7 +246,34 @@ class BoltzmannGeneratorLitModule(LightningModule):
             output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
         logging.info(f"Saving {len(samples)} samples to {output_dir}/{prefix}_samples.pt")
         torch.save(samples_dict, f"{output_dir}/{prefix}_samples.pt")
-        jarzynski_samples, jarzynski_weights = None, None
+
+        sample_target_energy = self.datamodule.energy(samples)
+        print("sample_energy", sample_target_energy.mean())
+        target_target_energy = self.datamodule.energy(true_data)
+        print("target_energy", target_target_energy.mean())
+
+        assert log_p.shape == sample_target_energy.shape
+        logits = -sample_target_energy - log_p
+        ess = sampling_efficiency(logits)
+        self.log(f"{prefix}/effective_sample_size", ess, sync_dist=True)
+        resampled_samples = resample(samples, logits)
+        num_eval_samples = min(
+            self.hparams.sampling_config.num_eval_samples, len(samples), len(true_data)
+        )
+        dist_metrics = compute_distribution_distances_with_prefix(
+            self.datamodule.unnormalize(samples[:num_eval_samples]).cpu(),
+            self.datamodule.unnormalize(true_data[:num_eval_samples]).cpu(),
+            prefix=prefix,
+        )
+        dist_metrics[f"{prefix}/num_eval_samples"] = num_eval_samples
+
+        resampled_dist_metrics = compute_distribution_distances_with_prefix(
+            self.datamodule.unnormalize(resampled_samples[:num_eval_samples]).cpu(),
+            self.datamodule.unnormalize(true_data[:num_eval_samples]).cpu(),
+            prefix=prefix + "/resampled",
+        )
+        energy_metrics = energy_distances(sample_target_energy, target_target_energy, prefix)
+        jarzynski_samples, jarzynski_weights, jarzynski_energy_metrics = None, None, None
         if self.jarzynski_sampler is not None and self.jarzynski_sampler.enabled:
             num_jarzynski_samples = min(
                 self.hparams.sampling_config.num_jarzynski_samples, len(samples)
@@ -250,34 +283,29 @@ class BoltzmannGeneratorLitModule(LightningModule):
             )
             sample_target_jarzynski_energy = self.datamodule.energy(jarzynski_samples)
             print("jarzynski_sample_energy", sample_target_jarzynski_energy.mean())
-        sample_target_energy = self.datamodule.energy(samples)
-        print("sample_energy", sample_target_energy.mean())
-        target_target_energy = self.datamodule.energy(true_data)
-        print("target_energy", target_target_energy.mean())
-        assert log_p.shape == sample_target_energy.shape
-        logits = -sample_target_energy - log_p
-        ess = sampling_efficiency(logits)
-        self.log(f"{prefix}/effective_sample_size", ess, sync_dist=True)
-        num_eval_samples = min(
-            self.hparams.sampling_config.num_eval_samples, len(samples), len(true_data)
-        )
-        names, dists = compute_distribution_distances(
-            self.datamodule.unnormalize(samples[:num_eval_samples]).cpu(),
-            self.datamodule.unnormalize(true_data[:num_eval_samples]).cpu(),
-        )
-        energy_w2 = math.sqrt(
-            pot.emd2_1d(target_target_energy.cpu().numpy(), sample_target_energy.cpu().numpy())
-        )
-        energy_w1 = pot.emd2_1d(
-            target_target_energy.cpu().numpy(),
-            sample_target_energy.cpu().numpy(),
-            metric="euclidean",
-        )
-        names = [f"{prefix}/{name}" for name in names]
-        dist_metrics = dict(zip(names, dists))
-        dist_metrics[f"{prefix}/energy_w2"] = energy_w2
-        dist_metrics[f"{prefix}/energy_w1"] = energy_w1
-        dist_metrics[f"{prefix}/num_eval_samples"] = num_eval_samples
+            jarzynski_energy_metrics = energy_distances(
+                sample_target_jarzynski_energy, target_target_energy, prefix + "/jarzynski"
+            )
+            dist_metrics.update(jarzynski_energy_metrics)
+            num_eval_samples = min(
+                num_jarzynski_samples,
+                self.hparams.sampling_config.num_eval_samples,
+                len(true_data),
+            )
+            jarzynski_dist_metrics = compute_distribution_distances_with_prefix(
+                self.datamodule.unnormalize(jarzynski_samples[:num_eval_samples]),
+                self.datamodule.unnormalize(true_data[:num_eval_samples]),
+                prefix=prefix + "/jarzynski",
+            )
+            resampled_jarzynski_samples = resample(jarzynski_samples, jarzynski_weights)
+            resampled_dist_metrics = compute_distribution_distances_with_prefix(
+                self.datamodule.unnormalize(resampled_jarzynski_samples[:num_eval_samples]).cpu(),
+                self.datamodule.unnormalize(true_data[:num_eval_samples]).cpu(),
+                prefix=prefix + "/jarzynski/resampled",
+            )
+            jarzynski_dist_metrics[f"{prefix}/jarzynski/num_eval_samples"] = num_eval_samples
+            dist_metrics.update(jarzynski_dist_metrics)
+            dist_metrics.update(resampled_dist_metrics)
         dataset_metrics = self.datamodule.log_on_epoch_end(
             samples,
             log_p,
@@ -286,9 +314,9 @@ class BoltzmannGeneratorLitModule(LightningModule):
             loggers=self.loggers,
             prefix=prefix,
         )
-        if dataset_metrics is not None:
-            for key, value in dataset_metrics.items():
-                dist_metrics[f"{prefix}/{key}"] = value
+        dist_metrics.update(dataset_metrics)
+        dist_metrics.update(energy_metrics)
+        dist_metrics.update(resampled_dist_metrics)
         self.log_dict(dist_metrics)
 
     def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
@@ -323,7 +351,6 @@ class BoltzmannGeneratorLitModule(LightningModule):
         valid_gradients = True
         flat_grads = torch.cat([p.grad.view(-1) for p in self.parameters() if p.grad is not None])
         global_norm = torch.norm(flat_grads, p=2)
-        self.gradient_history.update(global_norm.item())
         for name, param in self.named_parameters():
             if param.grad is not None:
                 valid_gradients = not (
@@ -333,7 +360,6 @@ class BoltzmannGeneratorLitModule(LightningModule):
                 if not valid_gradients:
                     break
 
-        running_global_norm = self.gradient_history.compute()
         self.log("global_gradient_norm", global_norm, on_step=True, prog_bar=True)
         if not valid_gradients:
             logger.warning(
@@ -342,20 +368,23 @@ class BoltzmannGeneratorLitModule(LightningModule):
             self.zero_grad()
             return
 
-        if self.hparams.stabilize_training:
-            if global_norm > 20 * running_global_norm:
-                logger.warning(
-                    f"detected large_gradient {global_norm} which is more than 20 times the running median {running_global_norm}. not updating model parameters"
-                )
-                self.zero_grad()
-            elif global_norm > 5 * running_global_norm:
-                logger.warning(
-                    f"detected large_gradient {global_norm} which is more than 5 "
-                    f"times the running median {running_global_norm}. clipping"
-                    "gradients"
-                )
-                norm = torch.nn.utils.clip_grad_norm_(self.parameters(), 5 * running_global_norm)
-                self.log("clipped_gradient_norm", norm, on_step=True, prog_bar=True)
+        if not self.hparams.stabilize_training:
+            return
+        self.gradient_history.update(global_norm.item())
+        running_global_norm = self.gradient_history.compute()
+        if global_norm > 20 * running_global_norm:
+            logger.warning(
+                f"detected large_gradient {global_norm} which is more than 20 times the running median {running_global_norm}. not updating model parameters"
+            )
+            self.zero_grad()
+        elif global_norm > 5 * running_global_norm:
+            logger.warning(
+                f"detected large_gradient {global_norm} which is more than 5 "
+                f"times the running median {running_global_norm}. clipping"
+                "gradients"
+            )
+            norm = torch.nn.utils.clip_grad_norm_(self.parameters(), 5 * running_global_norm)
+            self.log("clipped_gradient_norm", norm, on_step=True, prog_bar=True)
 
     def proposal_energy(self, x: torch.Tensor) -> torch.Tensor:
         # x is considered to be a sample from the proposal distribution
@@ -363,7 +392,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         x0, dlogp = self.flow(x, reverse=True)
         return -(-self.prior.energy(x0).view(-1) - dlogp.view(-1))
 
-    # https://github.com/Lightning-AI/pytorch-lightning/issues/1462 
+    # https://github.com/Lightning-AI/pytorch-lightning/issues/1462
     def on_before_optimizer_step(self, optimizer, *args, **kwargs) -> None:
         total_norm = 0.0
         for param in self.trainer.lightning_module.parameters():
