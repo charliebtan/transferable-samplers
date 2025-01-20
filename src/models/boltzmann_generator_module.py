@@ -330,8 +330,6 @@ class BoltzmannGeneratorLitModule(LightningModule):
         logging.info("Test epoch end")
 
     def on_after_backward(self) -> None:
-        if not self.hparams.stabilize_training:
-            return
 
         valid_gradients = True
         flat_grads = torch.cat([p.grad.view(-1) for p in self.parameters() if p.grad is not None])
@@ -353,19 +351,22 @@ class BoltzmannGeneratorLitModule(LightningModule):
                 "detected inf or nan values in gradients. not updating model parameters"
             )
             self.zero_grad()
-        elif global_norm > 20 * running_global_norm:
-            logger.warning(
-                f"detected large_gradient {global_norm} which is more than 20 times the running median {running_global_norm}. not updating model parameters"
-            )
-            self.zero_grad()
-        elif global_norm > 5 * running_global_norm:
-            logger.warning(
-                f"detected large_gradient {global_norm} which is more than 5 "
-                f"times the running median {running_global_norm}. clipping"
-                "gradients"
-            )
-            norm = torch.nn.utils.clip_grad_norm_(self.parameters(), 5 * running_global_norm)
-            self.log("clipped_gradient_norm", norm, on_step=True, prog_bar=True)
+            return
+
+        if self.hparams.stabilize_training:
+            if global_norm > 20 * running_global_norm:
+                logger.warning(
+                    f"detected large_gradient {global_norm} which is more than 20 times the running median {running_global_norm}. not updating model parameters"
+                )
+                self.zero_grad()
+            elif global_norm > 5 * running_global_norm:
+                logger.warning(
+                    f"detected large_gradient {global_norm} which is more than 5 "
+                    f"times the running median {running_global_norm}. clipping"
+                    "gradients"
+                )
+                norm = torch.nn.utils.clip_grad_norm_(self.parameters(), 5 * running_global_norm)
+                self.log("clipped_gradient_norm", norm, on_step=True, prog_bar=True)
 
     def proposal_energy(self, x: torch.Tensor) -> torch.Tensor:
         # x is considered to be a sample from the proposal distribution

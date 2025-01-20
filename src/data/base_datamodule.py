@@ -251,16 +251,19 @@ class BaseDataModule(LightningDataModule):
             label="True data",
             color="g",
         )
-        axs[0].hist(
-            dist_samples.view(-1),
-            bins=100,
-            alpha=0.5,
-            density=True,
-            histtype="step",
-            linewidth=4,
-            label="Proposal",
-            color="r",
-        )
+        try:
+            axs[0].hist(
+                dist_samples.view(-1),
+                bins=100,
+                alpha=0.5,
+                density=True,
+                histtype="step",
+                linewidth=4,
+                label="Proposal",
+                color="r",
+            )
+        except:
+            pass
         if samples_jarzynski is not None:
             dist_samples_jarzynski = (
                 self.interatomic_dist(self.unnormalize(samples_jarzynski)).detach().cpu()
@@ -295,29 +298,35 @@ class BaseDataModule(LightningDataModule):
             linewidth=4,
             label="True data",
         )
-        axs[1].hist(
-            energy_samples.cpu(),
-            bins=100,
-            density=True,
-            alpha=0.4,
-            range=(min_energy, max_energy),
-            color="r",
-            histtype="step",
-            linewidth=4,
-            label="Proposal",
-        )
-        axs[1].hist(
-            energy_samples,
-            bins=100,
-            density=True,
-            range=(min_energy, max_energy),
-            alpha=0.4,
-            histtype="step",
-            linewidth=4,
-            color="b",
-            label="Proposal (reweighted)",
-            weights=importance_weights,
-        )
+        try:
+            axs[1].hist(
+                energy_samples.cpu(),
+                bins=100,
+                density=True,
+                alpha=0.4,
+                range=(min_energy, max_energy),
+                color="r",
+                histtype="step",
+                linewidth=4,
+                label="Proposal",
+            )
+        except:
+            pass
+        try:
+            axs[1].hist(
+                energy_samples,
+                bins=100,
+                density=True,
+                range=(min_energy, max_energy),
+                alpha=0.4,
+                histtype="step",
+                linewidth=4,
+                color="b",
+                label="Proposal (reweighted)",
+                weights=importance_weights,
+            )
+        except:
+            pass
         if samples_jarzynski is not None:
             energies_jarzynski = self.energy(samples_jarzynski)
             jarzynski_logits = -energies_jarzynski.flatten() - jarzynski_log_p.flatten()
