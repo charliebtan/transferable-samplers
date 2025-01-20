@@ -10,14 +10,17 @@ import torchmetrics
 from bgflow import MeanFreeNormalDistribution, NormalDistribution
 from lightning import LightningDataModule, LightningModule
 from lightning.pytorch.utilities import grad_norm
+from torchmetrics import MeanMetric
+from tqdm import tqdm
+
 from src.models.components.distribution_distances import (
-    compute_distribution_distances_with_prefix, energy_distances)
+    compute_distribution_distances_with_prefix,
+    energy_distances,
+)
 from src.models.components.ema import EMA
 from src.models.components.jarzynski_sampler import JarzynskiSampler
 from src.models.components.utils import RunningMedian
 from src.utils.tbg_utils import sampling_efficiency
-from torchmetrics import MeanMetric
-from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 
@@ -264,7 +267,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         dist_metrics = compute_distribution_distances_with_prefix(
             self.datamodule.unnormalize(samples[:num_eval_samples]).cpu(),
             self.datamodule.unnormalize(true_data[:num_eval_samples]).cpu(),
-            prefix=prefix
+            prefix=prefix,
         )
         dist_metrics[f"{prefix}/num_eval_samples"] = num_eval_samples
         energy_metrics = energy_distances(sample_target_energy, target_target_energy, prefix)

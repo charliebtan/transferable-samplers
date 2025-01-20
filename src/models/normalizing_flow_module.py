@@ -65,7 +65,10 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
         return energy_kl
 
     def generate_samples(
-        self, batch_size: int, n_timesteps: int = None, dummy_ll=False,
+        self,
+        batch_size: int,
+        n_timesteps: int = None,
+        dummy_ll=False,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Generate samples from the model.
 
@@ -81,7 +84,7 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
         with torch.no_grad():
             x_pred = self.net.reverse(prior_samples)
             x_recon, logdets = self.net(x_pred)
-            self.log("invert_error", torch.sum((x_pred - x_recon)**2))
+            self.log("invert_error", torch.sum((x_pred - x_recon) ** 2))
 
         log_p = prior_log_p.flatten() + logdets.flatten()
         return x_pred, log_p, torch.empty(0)

@@ -3,12 +3,14 @@ import logging
 from typing import Optional, Tuple
 
 import torch
-from src.models.boltzmann_generator_module import BoltzmannGeneratorLitModule
-from src.models.components.wrappers import TorchdynWrapper, torch_wrapper
 from torchdyn.core import NeuralODE
 from tqdm import tqdm
 
+from src.models.boltzmann_generator_module import BoltzmannGeneratorLitModule
+from src.models.components.wrappers import TorchdynWrapper, torch_wrapper
+
 logger = logging.getLogger(__name__)
+
 
 class FlowMatchLitModule(BoltzmannGeneratorLitModule):
     """
@@ -100,7 +102,9 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
                         / (max(self.num_integrations, 1e-4)),
                     }
                 )
-                logger.info(f"estimator: {integrator} n: {n}, x_err: {torch.norm(base_x - x)}, dlog_p_err: {torch.norm(base_dlog_p - dlog_p)}, nfe: {self.nfe / max(self.num_integrations, 1e-4)}")
+                logger.info(
+                    f"estimator: {integrator} n: {n}, x_err: {torch.norm(base_x - x)}, dlog_p_err: {torch.norm(base_dlog_p - dlog_p)}, nfe: {self.nfe / max(self.num_integrations, 1e-4)}"
+                )
                 self.nfe = 0
 
     def flow(self, x: torch.Tensor, reverse=False, dummy_ll=False) -> torch.Tensor:
