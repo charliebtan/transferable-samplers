@@ -209,23 +209,24 @@ class BoltzmannGeneratorLitModule(LightningModule):
         self.eval_step(batch, batch_idx, prefix="test")
 
     def on_eval_epoch_end(self, metrics, prefix: str = "val") -> None:
-            self.log_dict(metrics)
-            metrics.reset()
-            try:
-                if self.hparams.ema_decay > 0:
-                    if self.hparams.eval_ema:
-                        self.net.backup()
-                        self.net.copy_to_model()
-                        self.evaluate(prefix)
-                        self.net.restore_to_model()
-                    if self.hparams.eval_non_ema:
-                        self.evaluate(prefix + "/non_ema")
-                else:
-                    self.evaluate(prefix)
-                plt.close("all")
-            except Exception as e:
-                logger.warning("Skipping evaluation due to exception")
-                logger.warning(e)
+        self.log_dict(metrics)
+        metrics.reset()
+        # try:
+        if self.hparams.ema_decay > 0:
+            if self.hparams.eval_ema:
+                self.net.backup()
+                self.net.copy_to_model()
+                self.evaluate(prefix)
+                self.net.restore_to_model()
+            if self.hparams.eval_non_ema:
+                self.evaluate(prefix + "/non_ema")
+        else:
+            self.evaluate(prefix)
+        plt.close("all")
+
+    #            except Exception as e:
+    #                logger.warning("Skipping evaluation due to exception")
+    #                logger.warning(e)
 
     def evaluate(self, prefix: str = "val", generator=None, output_dir=None) -> None:
         logging.info("Eval epoch end")
