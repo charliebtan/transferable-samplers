@@ -5,7 +5,7 @@ defaults:
 
 hydra:
   launcher:
-    partition: long
+    partition: main,long
     cpus_per_task: 4
     mem_gb: 48
     gres: gpu:l40s:1

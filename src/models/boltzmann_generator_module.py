@@ -209,23 +209,23 @@ class BoltzmannGeneratorLitModule(LightningModule):
         self.eval_step(batch, batch_idx, prefix="test")
 
     def on_eval_epoch_end(self, metrics, prefix: str = "val") -> None:
-            self.log_dict(metrics)
-            metrics.reset()
-            try:
-                if self.hparams.ema_decay > 0:
-                    if self.hparams.eval_ema:
-                        self.net.backup()
-                        self.net.copy_to_model()
-                        self.evaluate(prefix)
-                        self.net.restore_to_model()
-                    if self.hparams.eval_non_ema:
-                        self.evaluate(prefix + "/non_ema")
-                else:
+        self.log_dict(metrics.compute())
+        metrics.reset()
+        try:
+            if self.hparams.ema_decay > 0:
+                if self.hparams.eval_ema:
+                    self.net.backup()
+                    self.net.copy_to_model()
                     self.evaluate(prefix)
-                plt.close("all")
-            except Exception as e:
-                logger.warning("Skipping evaluation due to exception")
-                logger.warning(e)
+                    self.net.restore_to_model()
+                if self.hparams.eval_non_ema:
+                    self.evaluate(prefix + "/non_ema")
+            else:
+                self.evaluate(prefix)
+            plt.close("all")
+        except Exception as e:
+            logger.warning("Skipping evaluation due to exception")
+            logger.warning(e)
 
     def evaluate(self, prefix: str = "val", generator=None, output_dir=None) -> None:
         logging.info("Eval epoch end")
@@ -363,11 +363,11 @@ class BoltzmannGeneratorLitModule(LightningModule):
 
     def on_validation_epoch_start(self) -> None:
         logging.info("Validation epoch start")
-        self.train_metrics.reset()
+        self.val_metrics.reset()
 
     def on_test_epoch_start(self) -> None:
         logging.info("Test epoch start")
-        self.train_metrics.reset()
+        self.test_metrics.reset()
 
     def on_train_epoch_end(self) -> None:
         self.train_metrics.reset()
