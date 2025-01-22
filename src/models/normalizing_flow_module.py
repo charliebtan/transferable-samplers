@@ -77,7 +77,24 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
         with torch.no_grad():
             x_pred = self.net.reverse(prior_samples)
             x_recon, logdets = self.net(x_pred)
-            self.log("invert_mse", torch.mean((prior_samples - x_recon) ** 2))
+            self.log("invert/mse", torch.mean((prior_samples - x_recon) ** 2))
+            self.log('invert/max_abs', torch.max(abs(prior_samples - x_recon)))
+            self.log('invert/mean_abs', torch.mean(abs(prior_samples - x_recon)))
+            self.log('invert/median_abs', torch.median(abs(prior_samples - x_recon)))
+            cutoff = 0.01
+            self.log(f'invert/fail_count_{cutoff}',
+                torch.sum(abs(prior_samples - x_recon) > cutoff).sum()
+            )
+            self.log(f'invert/fail_count_sample_{cutoff}',
+                (torch.sum(abs(prior_samples - x_recon) > cutoff, dim=1) > 0).sum()
+            )
+            cutoff = 0.001
+            self.log(f'invert/fail_count_{cutoff}',
+                torch.sum(abs(prior_samples - x_recon) > cutoff).sum()
+            )
+            self.log(f'invert/fail_count_sample_{cutoff}',
+                (torch.sum(abs(prior_samples - x_recon) > cutoff, dim=1) > 0).sum()
+            )
 
         log_p = prior_log_p.flatten() + logdets.flatten()
         return x_pred, log_p, torch.empty(0)

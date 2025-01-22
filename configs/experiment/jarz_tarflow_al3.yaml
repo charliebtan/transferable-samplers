@@ -1,0 +1,29 @@
+# @package _global_
+
+defaults:
+  - override /model: normalizing_flow
+  - override /data: al3
+
+ckpt_path: "/home/mila/b/bosejoey/scratch/fast-tbg/logs/train/multiruns/2025-01-20_17-23-26/16/checkpoints/last.ckpt"
+train: False
+
+model:
+  sampling_config:
+    batch_size: 10000
+    num_test_proposal_samples: 4096
+    num_jarzynski_samples: 20000
+    jarzynski_prefilter_cutoff: null
+  net:
+    in_channels: 3
+    channels: 256
+    num_blocks: 8
+    layers_per_block: 6
+  jarzynski_sampler:
+    langevin_eps: 0.1
+    num_timesteps: 
+    enabled: True
+
+  data:
+   - batch_size: 4096
+
+tags: [jarz]

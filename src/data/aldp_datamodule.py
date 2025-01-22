@@ -142,6 +142,7 @@ class ALDPDataModule(BaseDataModule):
         log_p_samples: torch.Tensor,
         samples_jarzynski: torch.Tensor = None,
         jarzynski_log_p: torch.Tensor = None,
+        samples_test: torch.Tensor = None, # TODO does nothing
         loggers=None,
         prefix: str = "",
     ) -> None:

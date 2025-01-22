@@ -237,7 +237,21 @@ class BoltzmannGeneratorLitModule(LightningModule):
         elif prefix.startswith("test"):
             num_proposal_samples = self.hparams.sampling_config.num_test_proposal_samples
             true_data = self.datamodule.data_test
-        samples, log_p, prior_samples = generator(num_proposal_samples)
+
+        if True:
+        
+            samples, log_p, prior_samples = generator(num_proposal_samples)
+
+            torch.save(samples, "samples.pth")
+            torch.save(log_p, "log_p.pth")
+            torch.save(prior_samples, "prior_samples.pth")
+        
+        else:
+
+            samples = torch.load("samples.pth")
+            log_p = torch.load("log_p.pth")
+            prior_samples = torch.load("prior_samples.pth")
+
         samples_dict = {
             "samples": samples,
             "log_p": log_p,
@@ -250,6 +264,15 @@ class BoltzmannGeneratorLitModule(LightningModule):
 
         # compute energy
         sample_target_energy = self.datamodule.energy(samples)
+
+        # filter_array = sample_target_energy < 100
+
+        # samples = samples[filter_array]
+        # log_p = log_p[filter_array]
+        # sample_target_energy = sample_target_energy[filter_array]
+        # self.log(prefix + "filtered_samples", torch.sum(~filter_array))
+
+        # compute energy
         self.log(f"{prefix}/mean_energy", sample_target_energy.mean(), sync_dist=True)
         target_target_energy = self.datamodule.energy(true_data)
 
@@ -292,11 +315,20 @@ class BoltzmannGeneratorLitModule(LightningModule):
 
         jarzynski_samples, jarzynski_weights, jarzynski_energy_metrics = None, None, None
         if self.jarzynski_sampler is not None and self.jarzynski_sampler.enabled:
+
+            if self.hparams.sampling_config.jarzynski_prefilter_cutoff is not None:
+                prefilter_array = sample_target_energy < self.hparams.sampling_config.jarzynski_prefilter_cutoff
+            else:
+                prefilter_array = torch.ones_like(sample_target_energy).int()
+
+            prefiltered_samples = samples[prefilter_array]
+            self.log(f"{prefix}/prefiltered_samples", torch.sum(~prefilter_array))
+
             num_jarzynski_samples = min(
-                self.hparams.sampling_config.num_jarzynski_samples, len(samples)
+                self.hparams.sampling_config.num_jarzynski_samples, len(prefiltered_samples)
             )
             jarzynski_samples, jarzynski_weights = self.jarzynski_sampler.sample(
-                samples[:num_jarzynski_samples]
+                prefiltered_samples[:num_jarzynski_samples]
             )
 
             num_eval_samples = min(
@@ -335,7 +367,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
             self.log_dict(jarzynski_energy_metrics)
             
             # compute resampled jarzynski energy metrics
-            resampled_sample_target_jarzynski_energy = self.datamodule(resampled_jarzynski_samples)
+            resampled_sample_target_jarzynski_energy = self.datamodule.energy(resampled_jarzynski_samples)
             self.log(f"{prefix}/jarzynski/resampled/mean_energy", resampled_sample_target_jarzynski_energy.mean())
             resampled_jarzynski_energy_metrics = energy_distances(
                 resampled_sample_target_jarzynski_energy, target_target_energy, prefix + "/jarzynski/resampled"
@@ -348,6 +380,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
             log_p,
             jarzynski_samples,
             jarzynski_weights,
+            samples_test=true_data,
             loggers=self.loggers,
             prefix=prefix,
         )

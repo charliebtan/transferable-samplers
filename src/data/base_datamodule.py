@@ -181,6 +181,7 @@ class BaseDataModule(LightningDataModule):
         samples_jarzynski: torch.Tensor = None,
         jarzynski_log_p: torch.Tensor = None,
         loggers: List[Any] = None,
+        samples_test: torch.Tensor = None, # TODO does nothing
         prefix: str = "",
     ) -> None:
         wandb_logger = self.get_wandb_logger(loggers)
