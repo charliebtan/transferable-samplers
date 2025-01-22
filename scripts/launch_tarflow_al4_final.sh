@@ -5,8 +5,8 @@ data=al4 \
 trainer=gpu trainer.max_epochs=1000 \
 model.optimizer._target_=torch.optim.AdamW \
 tags=[tarflow,mle,al4_final] \
-model.net.num_blocks=8 \
-model.net.layers_per_block=8 \
+model.net.num_blocks=6 \
+model.net.layers_per_block=6 \
 model.optimizer.weight_decay=4e-4 \
 model.net.channels=384 \
 trainer.check_val_every_n_epoch=50 \
