@@ -4,14 +4,15 @@ defaults:
   - override /model: normalizing_flow
   - override /data: aldp
 
-ckpt_path: '${oc.env:AL2_TAR_NEW}'
+ckpt_path: "/home/mila/b/bosejoey/scratch/fast-tbg/logs/train/multiruns/2025-01-15_14-22-34/7/checkpoints/last.ckpt"
 train: False
 
 model:
   sampling_config:
     batch_size: 10000
-    num_test_proposal_samples: 10000
-    num_jarzynski_samples: 10000
+    num_test_proposal_samples: 4096
+    num_jarzynski_samples: 20000
+    jarzynski_prefilter_cutoff: null
   net:
     num_blocks: 6
     in_channels: 1
@@ -19,3 +20,8 @@ model:
     langevin_eps: 0.1
     num_timesteps: 100
     enabled: True
+
+  data:
+   - batch_size: 4096
+
+tags: [jarz]

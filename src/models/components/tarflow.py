@@ -407,5 +407,8 @@ if __name__ == "__main__":
     x_recon = model.reverse(x_pred)
 
     print(torch.abs(x - x_recon).mean())
+    print(torch.mean((x - x_recon) ** 2))
+    print(torch.max(abs(x - x_recon)))
+
     assert torch.allclose(x, x_recon), "Invertibility test failed"
     print("Invertibility test passed")
