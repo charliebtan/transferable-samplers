@@ -172,11 +172,6 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
         prior_samples = self.prior.sample(batch_size).to(self.device)
         prior_log_p = -self.prior.energy(prior_samples)
 
-        prior_p = torch.exp(prior_log_p)
-        print(prior_p)
-        print(torch.max(prior_p))
-        breakpoint()
-
         with torch.no_grad():
             samples, dlog_p = self.flow(prior_samples, reverse=False, dummy_ll=dummy_ll)
 

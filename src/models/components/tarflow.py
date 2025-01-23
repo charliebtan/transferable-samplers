@@ -199,7 +199,7 @@ class MetaBlock(torch.nn.Module):
             xa = torch.zeros_like(x)
 
         scale = (-xa.float()).exp().type(xa.dtype)
-        return self.permutation((x_in - xb) * scale, inverse=True), -xa.sum(dim=[1, 2])
+        return self.permutation((x_in - xb) * scale, inverse=True), -xa.mean(dim=[1, 2])
 
     def reverse_step(
         self,
@@ -386,7 +386,6 @@ class TarFlow(torch.nn.Module):
             x = block.reverse(x, y, guidance, guide_what, attn_temp, annealed_guidance)
             seq.append(self.unpatchify(x))
         x = self.unpatchify(x)
-        x = x.squeeze()
         if not return_sequence:
             return x
         else:
@@ -412,3 +411,20 @@ if __name__ == "__main__":
 
     assert torch.allclose(x, x_recon), "Invertibility test failed"
     print("Invertibility test passed")
+
+    for i in range(16):
+
+        x_i = x[i:i+1]
+
+        with torch.no_grad():
+            x_pred = model.reverse(x_i)
+            x_recon, fwd_logdets = model(x_pred)
+            fwd_logdets = fwd_logdets * img_size # rescale from mean to sum
+
+        rev_jac_true = torch.autograd.functional.jacobian(model.reverse, x_i, vectorize=True)
+
+        rev_logdets_true = torch.logdet(rev_jac_true.squeeze())
+
+        assert torch.allclose(- fwd_logdets, rev_logdets_true) 
+    print("logdet test passed")
+

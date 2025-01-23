@@ -47,8 +47,9 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
         return loss
 
     def proposal_energy(self, x: torch.Tensor) -> torch.Tensor:
-        x_pred, dlogp = self.net.forward(x)
-        return -(-self.prior.energy(x).view(-1) + dlogp.view(-1))
+        x_pred, fwd_logdets = self.net(x)
+        fwd_logdets = fwd_logdets * self.datamodule.dim # rescale from mean to sum
+        return -(-self.prior.energy(x_pred).view(-1) + fwd_logdets.view(-1))
 
     def energy_kl(self, x: torch.Tensor, model_log_p: torch.Tensor) -> torch.Tensor:
         sample_target_energy = self.datamodule.energy(x)
@@ -74,27 +75,14 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
 
         self.prior = NormalDistribution(self.datamodule.dim)
 
-        # dist = torch.distributions.multivariate_normal.MultivariateNormal(torch.zeros(self.datamodule.dim), torch.eye(self.datamodule.dim))
-
         prior_samples = self.prior.sample(batch_size).to(self.device)
         prior_log_p = -self.prior.energy(prior_samples)
-        # prior_log_p = - 0.5 * prior_samples.pow(2).sum(dim=-1, keepdim=True)
 
-        # prior_p = torch.exp(prior_log_p)
-        # print(prior_p)
-        # print(torch.max(prior_p))
-
-        # print()
-
-        # print(torch.exp(dist.log_prob(prior_samples.cpu())))
-    
-        # breakpoint()
-
-        # This is a bit slow... but probably fine 2x calls
         with torch.no_grad():
 
             x_pred = self.net.reverse(prior_samples)
-            x_recon, logdets = self.net(x_pred)
+            x_recon, fwd_logdets = self.net(x_pred)
+            fwd_logdets = fwd_logdets * self.datamodule.dim # rescale from mean to sum
 
             self.log("invert/mse", torch.mean((prior_samples - x_recon) ** 2))
             self.log('invert/max_abs', torch.max(abs(prior_samples - x_recon)))
@@ -115,13 +103,7 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
                 (torch.sum(abs(prior_samples - x_recon) > cutoff, dim=1) > 0).sum().float()
             )
         
-        log_p = prior_log_p.flatten() + logdets.flatten()
-
-        # print(prior_log_p.view(-1, 1))
-        # print(logdets.view(-1, 1))
-        # print(log_p.view(-1, 1))
-
-        # print(self.datamodule.energy(x_pred).view(-1, 1))
+        log_p = prior_log_p.flatten() + fwd_logdets.flatten()
 
         return x_pred, log_p, torch.empty(0)
 
