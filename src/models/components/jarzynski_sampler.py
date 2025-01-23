@@ -3,6 +3,8 @@ import math
 import torch
 from tqdm import tqdm
 
+import matplotlib.pyplot as plt
+
 from src.utils.tbg_utils import sampling_efficiency
 
 
@@ -69,8 +71,7 @@ class JarzynskiSampler(torch.nn.Module):
     def sample(self, samples_proposal):
         if not self.enabled:
             return None, None
-        # TODO I think I should test with a simple energy function and make
-        # sure I am getting the correct energies etc
+
         num_timesteps = self.num_timesteps
         eps = self.langevin_eps
 
@@ -87,6 +88,9 @@ class JarzynskiSampler(torch.nn.Module):
         X_batches = [X[i : i + self.batch_size] for i in range(0, X.shape[0], self.batch_size)]
         A_batches = [A[i : i + self.batch_size] for i in range(0, A.shape[0], self.batch_size)]
 
+        stepwise_target_energy = []
+        stepwise_interpolation_energy = []
+
         for j, t in tqdm(enumerate(timesteps[:-1])):
             for batch_idx, (X_batch, A_batch) in enumerate(zip(X_batches, A_batches)):
                 # get the energy gradients
@@ -98,18 +102,15 @@ class JarzynskiSampler(torch.nn.Module):
                 dX_t = -eps * energy_grad_x * dt + math.sqrt(2 * eps * dt) * torch.randn_like(
                     X_batch
                 )
+
                 dA_t = -energy_grad_t * dt
+
                 assert dX_t.shape == X_batch.shape, "dX_t should have the same shape as X_batch"
                 assert dA_t.shape == A_batch.shape, "dA_t should have the same shape as A_batch"
 
                 # apply the updates to the batch in the list
                 X_batches[batch_idx] = X_batch + dX_t
                 A_batches[batch_idx] = A_batch + dA_t
-
-                if X_batches[batch_idx].isnan().any():
-                    raise ValueError("X_batch has NaNs")
-                if A_batches[batch_idx].isnan().any():
-                    raise ValueError("A_batch has NaNs")
 
             # cat the batches to compute global statistics
             X = torch.cat(X_batches, dim=0)
@@ -122,7 +123,7 @@ class JarzynskiSampler(torch.nn.Module):
 
             A_list.append(A)
             ESS = sampling_efficiency(A)
-            ESS_list.append(ESS)
+            ESS_list.append(ESS.cpu())
 
             if ESS < self.ess_threshold:
                 # qmc_rand = sampler.random(n=len(A))
@@ -134,6 +135,43 @@ class JarzynskiSampler(torch.nn.Module):
             if j % 1000 == 0:
                 pass
                 # print("energy", j, target_energy(X))
+            
+            stepwise_target_energy.append(self.target_energy(X))
+            stepwise_interpolation_energy.append(self.linear_energy_interpolation(X, t))
+
+            if X.isnan().any() or A.isnan().any() or not (j + 1) % 10:
+
+                stepwise_target_energy_np = torch.stack(stepwise_target_energy).cpu().numpy()
+                stepwise_interpolation_energy_np = torch.stack(stepwise_interpolation_energy).cpu().numpy()
+
+                fig, axs = plt.subplots(1, 3, figsize=(15, 5))
+
+                for k in range(stepwise_target_energy_np.shape[1]):
+
+                    axs[0].plot(stepwise_target_energy_np[:, k], linewidth=1, alpha=0.5)
+                    axs[1].plot(stepwise_interpolation_energy_np[:, k], linewidth=1, alpha=0.5)
+
+                axs[2].plot(ESS_list, linewidth=1, alpha=0.3)
+
+                axs[2].set_yscale('log')
+
+                axs[0].set_xlabel('Steps', fontsize=12)
+                axs[0].set_ylabel('Target energy', fontsize=12)
+
+                axs[1].set_xlabel('Steps', fontsize=12)
+                axs[1].set_ylabel('Interpolation energy', fontsize=12)
+
+                axs[2].set_xlabel('Steps', fontsize=12)
+                axs[2].set_ylabel('ESS', fontsize=12)
+
+                plt.tight_layout()
+                self.wandb_logger.log_image(f"langevin/langevin_fig_{j}", [fig])
+                plt.close()
+
+            if X.isnan().any():
+                raise ValueError("X has NaNs")
+            elif A.isnan().any():
+                raise ValueError("A has NaNs")
 
         jarzynski_samples = X
         jarzynski_weights = torch.softmax(A, dim=-1)

@@ -190,6 +190,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         batch_idx: int,
         prefix: str = "val",
     ) -> None:
+        return
         loss = self.model_step(batch)
         if prefix == "val":
             self.val_metrics.update(loss)
@@ -211,21 +212,21 @@ class BoltzmannGeneratorLitModule(LightningModule):
     def on_eval_epoch_end(self, metrics, prefix: str = "val") -> None:
         self.log_dict(metrics.compute())
         metrics.reset()
-        try:
-            if self.hparams.ema_decay > 0:
-                if self.hparams.eval_ema:
-                    self.net.backup()
-                    self.net.copy_to_model()
-                    self.evaluate(prefix)
-                    self.net.restore_to_model()
-                if self.hparams.eval_non_ema:
-                    self.evaluate(prefix + "/non_ema")
-            else:
+        #try:
+        if self.hparams.ema_decay > 0:
+            if self.hparams.eval_ema:
+                self.net.backup()
+                self.net.copy_to_model()
                 self.evaluate(prefix)
-            plt.close("all")
-        except Exception as e:
-            logger.warning("Skipping evaluation due to exception")
-            logger.warning(e)
+                self.net.restore_to_model()
+            if self.hparams.eval_non_ema:
+                self.evaluate(prefix + "/non_ema")
+        else:
+            self.evaluate(prefix)
+        plt.close("all")
+        #except Exception as e:
+        #    logger.warning("Skipping evaluation due to exception")
+        #    logger.warning(e)
 
     def evaluate(self, prefix: str = "val", generator=None, output_dir=None) -> None:
         logging.info("Eval epoch end")
@@ -238,7 +239,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
             num_proposal_samples = self.hparams.sampling_config.num_test_proposal_samples
             true_data = self.datamodule.data_test
 
-        if True:
+        if False:
         
             samples, log_p, prior_samples = generator(num_proposal_samples)
 
@@ -265,12 +266,15 @@ class BoltzmannGeneratorLitModule(LightningModule):
         # compute energy
         sample_target_energy = self.datamodule.energy(samples)
 
-        # filter_array = sample_target_energy < 100
+        filter_array = sample_target_energy < 20
 
-        # samples = samples[filter_array]
-        # log_p = log_p[filter_array]
-        # sample_target_energy = sample_target_energy[filter_array]
-        # self.log(prefix + "filtered_samples", torch.sum(~filter_array))
+        samples = samples[filter_array]
+        log_p = log_p[filter_array]
+        sample_target_energy = sample_target_energy[filter_array]
+        print(torch.sum(~filter_array))
+        self.log(prefix + "filtered_samples", torch.sum(~filter_array))
+
+        # breakpoint()
 
         # compute energy
         self.log(f"{prefix}/mean_energy", sample_target_energy.mean(), sync_dist=True)
@@ -316,19 +320,21 @@ class BoltzmannGeneratorLitModule(LightningModule):
         jarzynski_samples, jarzynski_weights, jarzynski_energy_metrics = None, None, None
         if self.jarzynski_sampler is not None and self.jarzynski_sampler.enabled:
 
+            self.jarzynski_sampler.wandb_logger = self.datamodule.get_wandb_logger(self.loggers)
+
             if self.hparams.sampling_config.jarzynski_prefilter_cutoff is not None:
                 prefilter_array = sample_target_energy < self.hparams.sampling_config.jarzynski_prefilter_cutoff
+                jarzynski_input_samples = samples[prefilter_array]
+                self.log(f"{prefix}/prefiltered_samples", torch.sum(~prefilter_array))
             else:
-                prefilter_array = torch.ones_like(sample_target_energy).int()
-
-            prefiltered_samples = samples[prefilter_array]
-            self.log(f"{prefix}/prefiltered_samples", torch.sum(~prefilter_array))
+                jarzynski_input_samples = samples
+                self.log(f"{prefix}/prefiltered_samples", 0.0)
 
             num_jarzynski_samples = min(
-                self.hparams.sampling_config.num_jarzynski_samples, len(prefiltered_samples)
+                self.hparams.sampling_config.num_jarzynski_samples, len(jarzynski_input_samples)
             )
             jarzynski_samples, jarzynski_weights = self.jarzynski_sampler.sample(
-                prefiltered_samples[:num_jarzynski_samples]
+                jarzynski_input_samples[:num_jarzynski_samples]
             )
 
             num_eval_samples = min(
