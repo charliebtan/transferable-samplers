@@ -199,7 +199,7 @@ class MetaBlock(torch.nn.Module):
             xa = torch.zeros_like(x)
 
         scale = (-xa.float()).exp().type(xa.dtype)
-        return self.permutation((x_in - xb) * scale, inverse=True), -xa.mean(dim=[1, 2])
+        return self.permutation((x_in - xb) * scale, inverse=True), -xa.sum(dim=[1, 2])
 
     def reverse_step(
         self,

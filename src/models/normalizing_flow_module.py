@@ -48,7 +48,7 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
 
     def proposal_energy(self, x: torch.Tensor) -> torch.Tensor:
         x_pred, dlogp = self.net.forward(x)
-        return -(-self.prior.energy(x).view(-1) - dlogp.view(-1))
+        return -(-self.prior.energy(x).view(-1) + dlogp.view(-1))
 
     def energy_kl(self, x: torch.Tensor, model_log_p: torch.Tensor) -> torch.Tensor:
         sample_target_energy = self.datamodule.energy(x)
@@ -71,32 +71,58 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
         :return: A tuple containing the generated samples, the prior samples, and the log
             probability.
         """
+
+        self.prior = NormalDistribution(self.datamodule.dim)
+
+        # dist = torch.distributions.multivariate_normal.MultivariateNormal(torch.zeros(self.datamodule.dim), torch.eye(self.datamodule.dim))
+
         prior_samples = self.prior.sample(batch_size).to(self.device)
         prior_log_p = -self.prior.energy(prior_samples)
+        # prior_log_p = - 0.5 * prior_samples.pow(2).sum(dim=-1, keepdim=True)
+
+        # prior_p = torch.exp(prior_log_p)
+        # print(prior_p)
+        # print(torch.max(prior_p))
+
+        # print()
+
+        # print(torch.exp(dist.log_prob(prior_samples.cpu())))
+    
+        # breakpoint()
+
         # This is a bit slow... but probably fine 2x calls
         with torch.no_grad():
+
             x_pred = self.net.reverse(prior_samples)
             x_recon, logdets = self.net(x_pred)
+
             self.log("invert/mse", torch.mean((prior_samples - x_recon) ** 2))
             self.log('invert/max_abs', torch.max(abs(prior_samples - x_recon)))
             self.log('invert/mean_abs', torch.mean(abs(prior_samples - x_recon)))
             self.log('invert/median_abs', torch.median(abs(prior_samples - x_recon)))
             cutoff = 0.01
             self.log(f'invert/fail_count_{cutoff}',
-                torch.sum(abs(prior_samples - x_recon) > cutoff).sum()
+                torch.sum(abs(prior_samples - x_recon) > cutoff).sum().float()
             )
             self.log(f'invert/fail_count_sample_{cutoff}',
-                (torch.sum(abs(prior_samples - x_recon) > cutoff, dim=1) > 0).sum()
+                (torch.sum(abs(prior_samples - x_recon) > cutoff, dim=1) > 0).sum().float()
             )
             cutoff = 0.001
             self.log(f'invert/fail_count_{cutoff}',
-                torch.sum(abs(prior_samples - x_recon) > cutoff).sum()
+                torch.sum(abs(prior_samples - x_recon) > cutoff).sum().float()
             )
             self.log(f'invert/fail_count_sample_{cutoff}',
-                (torch.sum(abs(prior_samples - x_recon) > cutoff, dim=1) > 0).sum()
+                (torch.sum(abs(prior_samples - x_recon) > cutoff, dim=1) > 0).sum().float()
             )
-
+        
         log_p = prior_log_p.flatten() + logdets.flatten()
+
+        # print(prior_log_p.view(-1, 1))
+        # print(logdets.view(-1, 1))
+        # print(log_p.view(-1, 1))
+
+        # print(self.datamodule.energy(x_pred).view(-1, 1))
+
         return x_pred, log_p, torch.empty(0)
 
 
