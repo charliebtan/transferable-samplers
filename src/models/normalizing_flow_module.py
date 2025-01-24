@@ -73,7 +73,6 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
             probability.
         """
 
-        self.prior = NormalDistribution(self.datamodule.dim)
 
         prior_samples = self.prior.sample(batch_size).to(self.device)
         prior_log_p = -self.prior.energy(prior_samples)
