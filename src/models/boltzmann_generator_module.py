@@ -255,17 +255,16 @@ class BoltzmannGeneratorLitModule(LightningModule):
         # compute energy
         sample_target_energy = self.datamodule.energy(samples)
 
-        filter_array = sample_target_energy < 20
+        if self.hparams.sampling_config.energy_cutoff is not None:
+            filter_array = sample_target_energy < self.hparams.sampling_config.energy_cutoff
+            samples = samples[filter_array]
+            log_p = log_p[filter_array]
+            sample_target_energy = sample_target_energy[filter_array]
+            self.log(f"{prefix}/filtered_samples", torch.sum(~filter_array).float())
+        else:
+            samples = samples
+            self.log(f"{prefix}/filtered_samples", 0.0)
 
-        samples = samples[filter_array]
-        log_p = log_p[filter_array]
-        sample_target_energy = sample_target_energy[filter_array]
-        print(torch.sum(~filter_array))
-        self.log(prefix + "filtered_samples", torch.sum(~filter_array).float())
-
-        # breakpoint()
-
-        # compute energy
         self.log(f"{prefix}/mean_energy", sample_target_energy.mean(), sync_dist=True)
         target_target_energy = self.datamodule.energy(true_data)
 
@@ -311,19 +310,11 @@ class BoltzmannGeneratorLitModule(LightningModule):
 
             self.jarzynski_sampler.wandb_logger = self.datamodule.get_wandb_logger(self.loggers)
 
-            if self.hparams.sampling_config.jarzynski_prefilter_cutoff is not None:
-                prefilter_array = sample_target_energy < self.hparams.sampling_config.jarzynski_prefilter_cutoff
-                jarzynski_input_samples = samples[prefilter_array]
-                self.log(f"{prefix}/prefiltered_samples", torch.sum(~prefilter_array))
-            else:
-                jarzynski_input_samples = samples
-                self.log(f"{prefix}/prefiltered_samples", 0.0)
-
             num_jarzynski_samples = min(
-                self.hparams.sampling_config.num_jarzynski_samples, len(jarzynski_input_samples)
+                self.hparams.sampling_config.num_jarzynski_samples, len(samples)
             )
             jarzynski_samples, jarzynski_logits = self.jarzynski_sampler.sample(
-                jarzynski_input_samples[:num_jarzynski_samples]
+                samples[:num_jarzynski_samples]
             )
 
             num_eval_samples = min(
@@ -435,8 +426,6 @@ class BoltzmannGeneratorLitModule(LightningModule):
     def proposal_energy(self, x: torch.Tensor) -> torch.Tensor:
         # x is considered to be a sample from the proposal distribution
         raise NotImplementedError
-        x0, dlogp = self.flow(x, reverse=True)
-        return -(-self.prior.energy(x0).view(-1) - dlogp.view(-1))
 
     # https://github.com/Lightning-AI/pytorch-lightning/issues/1462
     def on_before_optimizer_step(self, optimizer, *args, **kwargs) -> None:

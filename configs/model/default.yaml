@@ -39,6 +39,7 @@ sampling_config:
   num_jarzynski_samples: 100
   num_eval_samples: 5_000
   batch_size: 10_000
+  energy_cutoff: null
   # Currently unused
   sampling_freq: 1
   jarzynski_freq: 1

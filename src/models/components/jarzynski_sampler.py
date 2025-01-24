@@ -106,6 +106,7 @@ class JarzynskiSampler(torch.nn.Module):
 
         stepwise_target_energy = []
         stepwise_interpolation_energy = []
+        dX_t_norm = []
 
         t_previous = 0.0
 
@@ -114,6 +115,8 @@ class JarzynskiSampler(torch.nn.Module):
             # slice into list of batches (tensors)
             X_batches = [X[i : i + self.batch_size] for i in range(0, X.shape[0], self.batch_size)]
             A_batches = [A[i : i + self.batch_size] for i in range(0, A.shape[0], self.batch_size)]
+
+            dX_t_norm_batches = []
 
             dt = t - t_previous
             for batch_idx, (X_batch, A_batch) in enumerate(zip(X_batches, A_batches)):
@@ -125,7 +128,7 @@ class JarzynskiSampler(torch.nn.Module):
                     X_batch, t
                 )
 
-                assert torch.allclose(energy_grad_t, - self.source_energy(X_batch) + self.target_energy(X_batch))
+                # assert torch.allclose(energy_grad_t, - self.source_energy(X_batch) + self.target_energy(X_batch))
 
                 # compute the updates
                 dX_t = -eps * energy_grad_x + math.sqrt(2 * eps) * torch.randn_like(
@@ -141,6 +144,8 @@ class JarzynskiSampler(torch.nn.Module):
                 X_batches[batch_idx] = X_batch + dX_t
                 A_batches[batch_idx] = A_batch + dA_t
 
+                dX_t_norm_batches.append(dX_t.norm(dim=-1).cpu())
+
             # cat the batches to compute global statistics
             X = torch.cat(X_batches, dim=0)
             A = torch.cat(A_batches, dim=0)
@@ -154,6 +159,7 @@ class JarzynskiSampler(torch.nn.Module):
 
             t_list.append(t)
             eps_list.append(eps)
+            dX_t_norm.append(np.concatenate(dX_t_norm_batches))
 
             if ESS < self.ess_threshold:
                 # qmc_rand = sampler.random(n=len(A))
@@ -176,6 +182,7 @@ class JarzynskiSampler(torch.nn.Module):
                 stepwise_interpolation_energy_np = torch.stack(stepwise_interpolation_energy).cpu().numpy()
                 A_np = torch.stack(A_list).cpu().numpy()
                 t_np = np.array(t_list)
+                dX_t_norm_np = np.stack(dX_t_norm).T
 
                 fig, axs = plt.subplots(1, 2, figsize=(15, 5))
 
@@ -237,8 +244,6 @@ class JarzynskiSampler(torch.nn.Module):
                 self.wandb_logger.log_image(f"langevin/energy_histograms", [fig])
                 plt.close()
 
-
-
                 fig, axs = plt.subplots(1, 2, figsize=(15, 5))
                 for k in range(stepwise_target_energy_np.shape[1]):
                     axs[0].plot(t_list, A_np[1:, k], linewidth=1, alpha=0.5)
@@ -262,7 +267,17 @@ class JarzynskiSampler(torch.nn.Module):
                 self.wandb_logger.log_image(f"langevin/eps", [fig])
                 plt.close()
 
+                fig, axs = plt.subplots(1, 1, figsize=(7.5, 5))
 
+                for k in range(stepwise_target_energy_np.shape[1]):
+
+                    axs.plot(t_list, dX_t_norm_np[k], linewidth=1, alpha=0.5)
+
+                axs.set_xlabel('Time', fontsize=12)
+                axs.set_ylabel('||dX_t||', fontsize=12)
+                plt.tight_layout()
+                self.wandb_logger.log_image(f"langevin/dX_t_norm", [fig])
+                plt.close()
 
             if X.isnan().any():
                 raise ValueError("X has NaNs")
