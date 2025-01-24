@@ -128,7 +128,7 @@ class JarzynskiSampler(torch.nn.Module):
                 assert torch.allclose(energy_grad_t, - self.source_energy(X_batch) + self.target_energy(X_batch))
 
                 # compute the updates
-                dX_t = -eps * energy_grad_x * dt + math.sqrt(2 * eps * dt) * torch.randn_like(
+                dX_t = -eps * energy_grad_x + math.sqrt(2 * eps) * torch.randn_like(
                     X_batch
                 )
 

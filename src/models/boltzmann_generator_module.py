@@ -239,19 +239,8 @@ class BoltzmannGeneratorLitModule(LightningModule):
             num_proposal_samples = self.hparams.sampling_config.num_test_proposal_samples
             true_data = self.datamodule.data_test
 
-        if False:
-        
-            samples, log_p, prior_samples = generator(num_proposal_samples)
+        samples, log_p, prior_samples = generator(num_proposal_samples)
 
-            torch.save(samples, "samples.pth")
-            torch.save(log_p, "log_p.pth")
-            torch.save(prior_samples, "prior_samples.pth")
-        
-        else:
-
-            samples = torch.load("samples.pth")
-            log_p = torch.load("log_p.pth")
-            prior_samples = torch.load("prior_samples.pth")
 
         samples_dict = {
             "samples": samples,
@@ -272,7 +261,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         log_p = log_p[filter_array]
         sample_target_energy = sample_target_energy[filter_array]
         print(torch.sum(~filter_array))
-        self.log(prefix + "filtered_samples", torch.sum(~filter_array))
+        self.log(prefix + "filtered_samples", torch.sum(~filter_array).float())
 
         # breakpoint()
 
@@ -355,15 +344,6 @@ class BoltzmannGeneratorLitModule(LightningModule):
             jarzynski_dist_metrics[f"{prefix}/jarzynski/num_eval_samples"] = num_eval_samples
             self.log_dict(jarzynski_dist_metrics)
 
-            # compute resampled jarzynski dist metrics
-            resampled_jarzynski_samples = resample(jarzynski_samples, jarzynski_logits)
-            resampled_jarzynski_dist_metrics = compute_distribution_distances_with_prefix(
-                self.datamodule.unnormalize(resampled_jarzynski_samples[:num_eval_samples]).cpu(),
-                self.datamodule.unnormalize(true_data[:num_eval_samples]).cpu(),
-                prefix=prefix + "/jarzynski/resampled",
-            )
-            self.log_dict(resampled_jarzynski_dist_metrics)
-
             # compute jarzynski energy metrics
             sample_target_jarzynski_energy = self.datamodule.energy(jarzynski_samples)
             self.log(f"{prefix}/jarzynski/mean_energy", sample_target_jarzynski_energy.mean())
@@ -371,14 +351,6 @@ class BoltzmannGeneratorLitModule(LightningModule):
                 sample_target_jarzynski_energy, target_target_energy, prefix + "/jarzynski"
             )
             self.log_dict(jarzynski_energy_metrics)
-            
-            # compute resampled jarzynski energy metrics
-            resampled_sample_target_jarzynski_energy = self.datamodule.energy(resampled_jarzynski_samples)
-            self.log(f"{prefix}/jarzynski/resampled/mean_energy", resampled_sample_target_jarzynski_energy.mean())
-            resampled_jarzynski_energy_metrics = energy_distances(
-                resampled_sample_target_jarzynski_energy, target_target_energy, prefix + "/jarzynski/resampled"
-            )
-            self.log_dict(resampled_jarzynski_energy_metrics)
 
         # log dataset metrics
         dataset_metrics = self.datamodule.log_on_epoch_end(
