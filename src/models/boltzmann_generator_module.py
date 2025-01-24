@@ -317,7 +317,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         resampled_energy_metrics = energy_distances(resampled_sample_target_energy, target_target_energy, prefix + "/resampled")
         self.log_dict(resampled_energy_metrics)
 
-        jarzynski_samples, jarzynski_weights, jarzynski_energy_metrics = None, None, None
+        jarzynski_samples, jarzynski_logits, jarzynski_energy_metrics = None, None, None
         if self.jarzynski_sampler is not None and self.jarzynski_sampler.enabled:
 
             self.jarzynski_sampler.wandb_logger = self.datamodule.get_wandb_logger(self.loggers)
@@ -333,7 +333,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
             num_jarzynski_samples = min(
                 self.hparams.sampling_config.num_jarzynski_samples, len(jarzynski_input_samples)
             )
-            jarzynski_samples, jarzynski_weights = self.jarzynski_sampler.sample(
+            jarzynski_samples, jarzynski_logits = self.jarzynski_sampler.sample(
                 jarzynski_input_samples[:num_jarzynski_samples]
             )
 
@@ -343,7 +343,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
                 len(true_data),
             )
 
-            jarzynski_ess = sampling_efficiency(jarzynski_weights)
+            jarzynski_ess = sampling_efficiency(jarzynski_logits)
             self.log(f"{prefix}/jarzynski/effective_sample_size", jarzynski_ess, sync_dist=True)
 
             # compute jarzynski dist metrics
@@ -356,7 +356,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
             self.log_dict(jarzynski_dist_metrics)
 
             # compute resampled jarzynski dist metrics
-            resampled_jarzynski_samples = resample(jarzynski_samples, jarzynski_weights)
+            resampled_jarzynski_samples = resample(jarzynski_samples, jarzynski_logits)
             resampled_jarzynski_dist_metrics = compute_distribution_distances_with_prefix(
                 self.datamodule.unnormalize(resampled_jarzynski_samples[:num_eval_samples]).cpu(),
                 self.datamodule.unnormalize(true_data[:num_eval_samples]).cpu(),
@@ -385,7 +385,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
             samples,
             log_p,
             jarzynski_samples,
-            jarzynski_weights,
+            jarzynski_logits,
             samples_test=true_data,
             loggers=self.loggers,
             prefix=prefix,

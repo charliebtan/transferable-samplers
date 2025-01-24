@@ -288,6 +288,9 @@ class BaseDataModule(LightningDataModule):
         energy_samples = energy_samples.detach().cpu()
         energy_test = self.energy(test_data_smaller).detach().cpu()
 
+        # proposal_energy_samples = energy_samples[energy_samples < 100]
+        filtered_energy_samples = energy_samples
+
         axs[1].hist(
             energy_test.cpu(),
             bins=100,
@@ -301,7 +304,7 @@ class BaseDataModule(LightningDataModule):
         )
         try:
             axs[1].hist(
-                energy_samples.cpu(),
+                filtered_energy_samples.cpu(),
                 bins=100,
                 density=True,
                 alpha=0.4,
@@ -330,7 +333,8 @@ class BaseDataModule(LightningDataModule):
             pass
         if samples_jarzynski is not None:
             energies_jarzynski = self.energy(samples_jarzynski)
-            jarzynski_logits = -energies_jarzynski.flatten() - jarzynski_log_p.flatten()
+            #jarzynski_logits = -energies_jarzynski.flatten() - jarzynski_log_p.flatten()
+            jarzynski_logits = jarzynski_log_p
             jarzynski_weights = torch.nn.functional.softmax(jarzynski_logits, dim=0).detach().cpu()
             energies_jarzynski = energies_jarzynski.detach().cpu().numpy()
 

@@ -1,4 +1,5 @@
 import math
+import logging
 
 import torch
 from tqdm import tqdm
@@ -73,30 +74,56 @@ class JarzynskiSampler(torch.nn.Module):
             return None, None
 
         num_timesteps = self.num_timesteps
-        eps = self.langevin_eps
+        timesteps = torch.linspace(0, 1, num_timesteps + 1)
+
+        def eps_fn(t, warmup=0.1):
+            if t < warmup:
+                return self.langevin_eps * t / warmup
+            else:
+                return self.langevin_eps
 
         X = samples_proposal
         A = torch.zeros(X.shape[0], device=X.device)  # the jarzynski weights
 
-        timesteps = torch.linspace(0.0, 1, num_timesteps + 1)
-        dt = 1 / num_timesteps
+        # num_timesteps = 250
+        # num_warmup_steps = 100
+        # warmup_period = 0.2
+
+        # warmup_timesteps = torch.linspace(0, warmup_period, num_warmup_steps + 1)
+        # timesteps = torch.linspace(warmup_period, 1, num_timesteps - num_warmup_steps + 1)
+
+        # eps_schedule = torch.logspace(math.log10(0.001), math.log10(0.01), num_timesteps)
+
+        # timesteps = torch.cat([warmup_timesteps, timesteps[1:]])
+
 
         A_list = [A]
         ESS_list = []
-
-        # slice into list of batches (tensors)
-        X_batches = [X[i : i + self.batch_size] for i in range(0, X.shape[0], self.batch_size)]
-        A_batches = [A[i : i + self.batch_size] for i in range(0, A.shape[0], self.batch_size)]
+        t_list = []
+        eps_list = []
 
         stepwise_target_energy = []
         stepwise_interpolation_energy = []
 
+        t_previous = 0.0
+
         for j, t in tqdm(enumerate(timesteps[:-1])):
+
+            # slice into list of batches (tensors)
+            X_batches = [X[i : i + self.batch_size] for i in range(0, X.shape[0], self.batch_size)]
+            A_batches = [A[i : i + self.batch_size] for i in range(0, A.shape[0], self.batch_size)]
+
+            dt = t - t_previous
             for batch_idx, (X_batch, A_batch) in enumerate(zip(X_batches, A_batches)):
+
+                eps = eps_fn(t)
+
                 # get the energy gradients
                 energy_grad_x, energy_grad_t = self.linear_energy_interpolation_gradients(
                     X_batch, t
                 )
+
+                assert torch.allclose(energy_grad_t, - self.source_energy(X_batch) + self.target_energy(X_batch))
 
                 # compute the updates
                 dX_t = -eps * energy_grad_x * dt + math.sqrt(2 * eps * dt) * torch.randn_like(
@@ -118,12 +145,13 @@ class JarzynskiSampler(torch.nn.Module):
 
             assert A.dim() == 1, "A should be a flat vector"
             jarzynski_weights = torch.softmax(A, dim=-1)
-            if j % 100 == 0:
-                print("energy", j, self.target_energy(X).mean())
 
             A_list.append(A)
             ESS = sampling_efficiency(A)
             ESS_list.append(ESS.cpu())
+
+            t_list.append(t)
+            eps_list.append(eps)
 
             if ESS < self.ess_threshold:
                 # qmc_rand = sampler.random(n=len(A))
@@ -132,6 +160,7 @@ class JarzynskiSampler(torch.nn.Module):
                 indexes = torch.multinomial(jarzynski_weights, len(A), replacement=True)
                 X = X[indexes]
                 A = torch.zeros_like(A)
+                logging.info(f"resampling @ step {j}")
             if j % 1000 == 0:
                 pass
                 # print("energy", j, target_energy(X))
@@ -139,42 +168,63 @@ class JarzynskiSampler(torch.nn.Module):
             stepwise_target_energy.append(self.target_energy(X))
             stepwise_interpolation_energy.append(self.linear_energy_interpolation(X, t))
 
-            if X.isnan().any() or A.isnan().any() or not (j + 1) % 10:
+            if X.isnan().any() or A.isnan().any() or not (j + 1) % 100 or j + 1 == num_timesteps:
 
                 stepwise_target_energy_np = torch.stack(stepwise_target_energy).cpu().numpy()
                 stepwise_interpolation_energy_np = torch.stack(stepwise_interpolation_energy).cpu().numpy()
+                A_np = torch.stack(A_list).cpu().numpy()
 
-                fig, axs = plt.subplots(1, 3, figsize=(15, 5))
+                fig, axs = plt.subplots(1, 2, figsize=(15, 5))
 
                 for k in range(stepwise_target_energy_np.shape[1]):
 
-                    axs[0].plot(stepwise_target_energy_np[:, k], linewidth=1, alpha=0.5)
-                    axs[1].plot(stepwise_interpolation_energy_np[:, k], linewidth=1, alpha=0.5)
+                    axs[0].plot(t_list, stepwise_target_energy_np[:, k], linewidth=1, alpha=0.5)
+                    axs[1].plot(t_list, stepwise_interpolation_energy_np[:, k], linewidth=1, alpha=0.5)
 
-                axs[2].plot(ESS_list, linewidth=1, alpha=0.3)
-
-                axs[2].set_yscale('log')
-
-                axs[0].set_xlabel('Steps', fontsize=12)
+                axs[0].set_xlabel('Time', fontsize=12)
                 axs[0].set_ylabel('Target energy', fontsize=12)
 
-                axs[1].set_xlabel('Steps', fontsize=12)
+                axs[1].set_xlabel('Time', fontsize=12)
                 axs[1].set_ylabel('Interpolation energy', fontsize=12)
 
-                axs[2].set_xlabel('Steps', fontsize=12)
-                axs[2].set_ylabel('ESS', fontsize=12)
+                plt.tight_layout()
+                self.wandb_logger.log_image(f"langevin/energies", [fig])
+                plt.close()
+
+                fig, axs = plt.subplots(1, 2, figsize=(15, 5))
+                for k in range(stepwise_target_energy_np.shape[1]):
+                    axs[0].plot(t_list, A_np[1:, k], linewidth=1, alpha=0.5)
+                axs[0].set_xlabel('Time', fontsize=12)
+                axs[0].set_ylabel('A', fontsize=12)
+
+                axs[1].plot(t_list, ESS_list, linewidth=1, alpha=0.3)
+                axs[1].set_xlabel('Time', fontsize=12)
+                axs[1].set_ylabel('ESS', fontsize=12)
+                axs[1].set_yscale('log')
 
                 plt.tight_layout()
-                self.wandb_logger.log_image(f"langevin/langevin_fig_{j}", [fig])
+                self.wandb_logger.log_image(f"langevin/weights", [fig])
                 plt.close()
+
+                fig, ax = plt.subplots(1, 1, figsize=(7.5, 5))
+                ax.plot(t_list, eps_list, linewidth=1, alpha=0.5)
+                ax.set_xlabel('Time', fontsize=12)
+                ax.set_ylabel('Eps', fontsize=12)
+                plt.tight_layout()
+                self.wandb_logger.log_image(f"langevin/eps", [fig])
+                plt.close()
+
+
 
             if X.isnan().any():
                 raise ValueError("X has NaNs")
             elif A.isnan().any():
                 raise ValueError("A has NaNs")
 
+            t_previous = t
+
         jarzynski_samples = X
-        jarzynski_weights = torch.softmax(A, dim=-1)
+        jarzynski_logits = A
         assert jarzynski_samples.shape == samples_proposal.shape, "shape mismatch"
         assert jarzynski_weights.dim() == 1, "jarzynski_weights should be a flat vector"
-        return jarzynski_samples, jarzynski_weights
+        return jarzynski_samples, jarzynski_logits
