@@ -1,5 +1,5 @@
 #!/bin/bash
-python src/train.py -m launcher=mila_a100l_short \
+python src/train.py -m launcher=mila_l40 \
 experiment=jarz_tarflow_aldp \
 trainer=gpu \
 tags=[jarz,jarz_sweep] \

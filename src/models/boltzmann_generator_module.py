@@ -191,7 +191,6 @@ class BoltzmannGeneratorLitModule(LightningModule):
         batch_idx: int,
         prefix: str = "val",
     ) -> None:
-        return
         loss = self.model_step(batch)
         if prefix == "val":
             self.val_metrics.update(loss)
