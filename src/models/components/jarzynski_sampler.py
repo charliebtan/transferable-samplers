@@ -5,6 +5,8 @@ import torch
 from tqdm import tqdm
 
 import matplotlib.pyplot as plt
+from matplotlib.colors import LogNorm
+import numpy as np
 
 from src.utils.tbg_utils import sampling_efficiency
 
@@ -173,6 +175,7 @@ class JarzynskiSampler(torch.nn.Module):
                 stepwise_target_energy_np = torch.stack(stepwise_target_energy).cpu().numpy()
                 stepwise_interpolation_energy_np = torch.stack(stepwise_interpolation_energy).cpu().numpy()
                 A_np = torch.stack(A_list).cpu().numpy()
+                t_np = np.array(t_list)
 
                 fig, axs = plt.subplots(1, 2, figsize=(15, 5))
 
@@ -190,6 +193,51 @@ class JarzynskiSampler(torch.nn.Module):
                 plt.tight_layout()
                 self.wandb_logger.log_image(f"langevin/energies", [fig])
                 plt.close()
+
+                fig, axs = plt.subplots(1, 2, figsize=(15, 5))
+
+                data = stepwise_target_energy_np
+                bins = np.linspace(data.min(), data.max(), 100)
+                histograms = np.array([np.histogram(row, bins=bins)[0] for row in data])
+                histograms_normalized = histograms / histograms.sum(axis=1, keepdims=True)
+                extent = [t_np.min(), t_np.max(), bins[0], bins[-1]]
+                im = axs[0].imshow(
+                    histograms_normalized.T,
+                    origin='lower',
+                    extent=extent,
+                    aspect='auto',
+                    norm=LogNorm(vmin=histograms_normalized[histograms_normalized > 0].min(), vmax=histograms_normalized.max()),
+                    cmap='inferno',
+
+                )
+
+                axs[0].set_xlabel('Time', fontsize=12)
+                axs[0].set_ylabel('Target energy', fontsize=12)
+                fig.colorbar(im, ax=axs[0], label='Log Marginal Density')
+
+                data = stepwise_interpolation_energy_np
+                bins = np.linspace(data.min(), data.max(), 100)
+                histograms = np.array([np.histogram(row, bins=bins)[0] for row in data])
+                histograms_normalized = histograms / histograms.sum(axis=1, keepdims=True)
+                extent = [t_np.min(), t_np.max(), bins[0], bins[-1]]
+                im = axs[1].imshow(
+                    histograms_normalized.T,
+                    origin='lower',
+                    extent=extent,
+                    aspect='auto',
+                    norm=LogNorm(vmin=histograms_normalized[histograms_normalized > 0].min(), vmax=histograms_normalized.max()),
+                    cmap='inferno',
+                )
+
+                axs[1].set_xlabel('Time', fontsize=12)
+                axs[1].set_ylabel('Interpolation energy', fontsize=12)
+                fig.colorbar(im, ax=axs[1], label='Log Marginal Density')
+
+                plt.tight_layout()
+                self.wandb_logger.log_image(f"langevin/energy_histograms", [fig])
+                plt.close()
+
+
 
                 fig, axs = plt.subplots(1, 2, figsize=(15, 5))
                 for k in range(stepwise_target_energy_np.shape[1]):
