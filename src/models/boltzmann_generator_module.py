@@ -1,6 +1,7 @@
 import logging
 import math
 from typing import Any, Dict, Optional, Tuple
+import time
 
 import hydra
 import matplotlib.pyplot as plt
@@ -239,8 +240,16 @@ class BoltzmannGeneratorLitModule(LightningModule):
             num_proposal_samples = self.hparams.sampling_config.num_test_proposal_samples
             true_data = self.datamodule.data_test
 
+        
+        torch.cuda.synchronize()
+        start_time = time.time()
+
         samples, log_p, prior_samples = generator(num_proposal_samples)
 
+        torch.cuda.synchronize()
+        time_duration = time.time() - start_time
+        self.log(f"{prefix}/samples_walltime", time_duration)
+        self.log(f"{prefix}/samples_per_second", len(samples) / time_duration)
 
         samples_dict = {
             "samples": samples,
@@ -313,9 +322,18 @@ class BoltzmannGeneratorLitModule(LightningModule):
             num_jarzynski_samples = min(
                 self.hparams.sampling_config.num_jarzynski_samples, len(samples)
             )
+
+            torch.cuda.synchronize()
+            start_time = time.time()
+
             jarzynski_samples, jarzynski_logits = self.jarzynski_sampler.sample(
                 samples[:num_jarzynski_samples]
             )
+
+            torch.cuda.synchronize()
+            time_duration = time.time() - start_time
+            self.log(f"{prefix}/jarzynski/samples_walltime", time_duration)
+            self.log(f"{prefix}/jarzynski/samples_per_second", len(jarzynski_samples) / time_duration)
 
             num_eval_samples = min(
                 num_jarzynski_samples,
