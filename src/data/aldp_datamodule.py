@@ -25,6 +25,7 @@ from src.models.components.utils import (
     check_symmetry_change,
     compute_chirality_sign,
     find_chirality_centers,
+    resample,
 )
 
 
@@ -155,19 +156,29 @@ class ALDPDataModule(BaseDataModule):
             loggers=loggers,
             prefix=prefix,
         )
+        metrics = {}
         samples_metrics = self.align_and_compute_metrics(
             samples, prefix=prefix + "/rama", wandb_logger=wandb_logger
         )
+        metrics.update(samples_metrics)
+
+        resampled_samples = resample(samples, log_p_samples)
+        resampled_metrics = self.align_and_compute_metrics(
+            resampled_samples, prefix=prefix + "/resampled/rama", wandb_logger=wandb_logger
+        )
+        metrics.update(resampled_metrics)
+
         if samples_jarzynski is not None:
             samples_jarzynski_metrics = self.align_and_compute_metrics(
                 samples_jarzynski, prefix=prefix + "/jarzynski/rama", wandb_logger=wandb_logger
             )
-            samples_metrics.update(samples_jarzynski_metrics)
+            metrics.update(samples_jarzynski_metrics)
         if samples_test is not None:
             self.plot_ramachandran(
                 samples_test, prefix=prefix + "/test/rama", wandb_logger=wandb_logger
             )
-        return samples_metrics
+
+        return metrics
 
     def align_and_compute_metrics(
         self, samples, prefix: str = "", wandb_logger: WandbLogger = None

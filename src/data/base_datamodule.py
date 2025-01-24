@@ -348,17 +348,6 @@ class BaseDataModule(LightningDataModule):
                 linewidth=4,
                 color="orange",
                 label="Jarzynski",
-            )
-            axs[1].hist(
-                energies_jarzynski,
-                bins=100,
-                density=True,
-                range=(min_energy, max_energy),
-                alpha=0.4,
-                histtype="step",
-                linewidth=4,
-                color="grey",
-                label="Jarzynski (reweighted)",
                 weights=jarzynski_weights,
             )
         axs[1].set_xlabel("u(x)")
