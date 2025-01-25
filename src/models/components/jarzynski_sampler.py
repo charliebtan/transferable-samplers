@@ -110,6 +110,8 @@ class JarzynskiSampler(torch.nn.Module):
             A_batches = [A[i : i + self.batch_size] for i in range(0, A.shape[0], self.batch_size)]
 
             dX_t_norm_batches = []
+            target_energy_batches = []
+            interpolation_energy_batches = []
 
             dt = t - t_previous
             for batch_idx, (X_batch, A_batch) in enumerate(zip(X_batches, A_batches)):
@@ -138,8 +140,8 @@ class JarzynskiSampler(torch.nn.Module):
                 A_batches[batch_idx] = A_batch + dA_t
 
                 dX_t_norm_batches.append(dX_t.norm(dim=-1).cpu())
-                target_energy_batch = [self.target_energy(X_batch).cpu()]
-                interpolation_energy_batch = [self.linear_energy_interpolation(X_batch, timesteps[0]).cpu()]
+                target_energy_batches.append(self.target_energy(X_batch).cpu())
+                interpolation_energy_batches.append(self.linear_energy_interpolation(X_batch, timesteps[0]).cpu())
 
             # cat the batches to compute global statistics
             X = torch.cat(X_batches, dim=0)
@@ -264,8 +266,8 @@ class JarzynskiSampler(torch.nn.Module):
             eps_list.append(eps)
             dX_t_norm.append(np.concatenate(dX_t_norm_batches))
 
-            target_energy_list.append(np.concatenate(target_energy_batch))
-            interpolation_energy_list.append(np.concatenate(interpolation_energy_batch))
+            target_energy_list.append(np.concatenate(target_energy_batches))
+            interpolation_energy_list.append(np.concatenate(interpolation_energy_batches))
 
             if ESS < self.ess_threshold:
                 # qmc_rand = sampler.random(n=len(A))
