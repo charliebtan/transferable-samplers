@@ -90,7 +90,7 @@ class JarzynskiSampler(torch.nn.Module):
 
         A_list = [A]
         ESS_list = [1.0]
-        t_list = [0.0]
+        t_list = [timesteps[0]]
         eps_list = [eps_fn(0.0)]
 
         target_energy_list = [self.target_energy(X)]
