@@ -1,6 +1,7 @@
 import logging
 import math
 from typing import Any, Dict, Optional, Tuple
+import numpy as np
 import time
 
 import hydra
@@ -285,11 +286,12 @@ class BoltzmannGeneratorLitModule(LightningModule):
         num_eval_samples = min(
             self.hparams.sampling_config.num_eval_samples, len(samples), len(true_data)
         )
+        eval_samples = true_data[torch.randperm(len(true_data))[:num_eval_samples]]
 
         # compute dist metrics
         dist_metrics = compute_distribution_distances_with_prefix(
             self.datamodule.unnormalize(samples[:num_eval_samples]).cpu(),
-            self.datamodule.unnormalize(true_data[:num_eval_samples]).cpu(),
+            self.datamodule.unnormalize(eval_samples).cpu(),
             prefix=prefix,
         )
         dist_metrics[f"{prefix}/num_eval_samples"] = num_eval_samples
@@ -298,7 +300,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         # compute resampled dist metrics
         resampled_dist_metrics = compute_distribution_distances_with_prefix(
             self.datamodule.unnormalize(resampled_samples[:num_eval_samples]).cpu(),
-            self.datamodule.unnormalize(true_data[:num_eval_samples]).cpu(),
+            self.datamodule.unnormalize(eval_samples).cpu(),
             prefix=prefix + "/resampled",
         )
         self.log_dict(resampled_dist_metrics)
@@ -339,6 +341,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
                 self.hparams.sampling_config.num_eval_samples,
                 len(true_data),
             )
+            eval_samples = true_data[torch.randperm(len(true_data))[:num_eval_samples]]
 
             jarzynski_ess = sampling_efficiency(jarzynski_logits)
             self.log(f"{prefix}/jarzynski/effective_sample_size", jarzynski_ess, sync_dist=True)
@@ -346,7 +349,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
             # compute jarzynski dist metrics
             jarzynski_dist_metrics = compute_distribution_distances_with_prefix(
                 self.datamodule.unnormalize(jarzynski_samples[:num_eval_samples]),
-                self.datamodule.unnormalize(true_data[:num_eval_samples]),
+                self.datamodule.unnormalize(eval_samples),
                 prefix=prefix + "/jarzynski",
             )
             jarzynski_dist_metrics[f"{prefix}/jarzynski/num_eval_samples"] = num_eval_samples

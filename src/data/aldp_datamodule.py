@@ -114,8 +114,8 @@ class ALDPDataModule(BaseDataModule):
 
         # split the data
         self.data_train = TransformDataset(train_data, transform=self.transforms)
-        self.data_val = test_data[:100000]  # TODO hardcode
-        self.data_test = test_data[100000:200000]
+        self.data_val = test_data[5::10]
+        self.data_test = test_data[::10]
 
     def get_dataset_fig(
         self,
@@ -143,7 +143,7 @@ class ALDPDataModule(BaseDataModule):
         log_p_samples: torch.Tensor,
         samples_jarzynski: torch.Tensor = None,
         jarzynski_log_p: torch.Tensor = None,
-        samples_test: torch.Tensor = None, # TODO does nothing
+        samples_test: torch.Tensor = None,
         loggers=None,
         prefix: str = "",
     ) -> None:
@@ -162,7 +162,7 @@ class ALDPDataModule(BaseDataModule):
         )
         metrics.update(samples_metrics)
 
-        resampled_samples = resample(samples, log_p_samples)
+        resampled_samples = resample(samples, -self.energy(samples) - log_p_samples)
         resampled_metrics = self.align_and_compute_metrics(
             resampled_samples, prefix=prefix + "/resampled/rama", wandb_logger=wandb_logger
         )
@@ -175,7 +175,7 @@ class ALDPDataModule(BaseDataModule):
             metrics.update(samples_jarzynski_metrics)
         if samples_test is not None:
             self.plot_ramachandran(
-                samples_test, prefix=prefix + "/test/rama", wandb_logger=wandb_logger
+                samples_test, prefix=prefix + "/ground_truth/rama", wandb_logger=wandb_logger
             )
 
         return metrics
@@ -188,8 +188,8 @@ class ALDPDataModule(BaseDataModule):
         correct_config_rate = len(aligned_samples) / len(samples)
         if len(aligned_samples) == 0:
             return {
-                "correct_config_rate": 0,
-                "correct_symmetry_rate": 0,
+                f"{prefix}/correct_config_rate": 0,
+                f"{prefix}/correct_symmetry_rate": 0,
             }
         symmetry_change = self.get_symmetry_change(aligned_samples)
         correct_symmetry_rate = 1 - symmetry_change.sum() / len(symmetry_change)
@@ -203,8 +203,8 @@ class ALDPDataModule(BaseDataModule):
             )
             metrics.update(
                 {
-                    "correct_config_rate": correct_config_rate,
-                    "correct_symmetry_rate": correct_symmetry_rate,
+                    f"{prefix}/correct_config_rate": correct_config_rate,
+                    f"{prefix}/correct_symmetry_rate": correct_symmetry_rate,
                 }
             )
             return metrics
@@ -217,8 +217,8 @@ class ALDPDataModule(BaseDataModule):
             )
             logging.warning(e)
             return {
-                "correct_config_rate": -1.0,
-                "correct_symmetry_rate": -1.0,
+                f"{prefix}/correct_config_rate": -1.0,
+                f"{prefix}/correct_symmetry_rate": -1.0,
             }
 
     def get_symmetry_change(self, aligned_samples):
@@ -240,7 +240,8 @@ class ALDPDataModule(BaseDataModule):
 
     def get_ramachandran_metrics(self, samples, prefix: str = ""):
         x_pred = self.get_phi_psi_vectors(samples)
-        x_true = self.get_phi_psi_vectors(self.unnormalize(self.data_test)[: x_pred.shape[0]])
+        eval_samples = self.data_test[torch.randperm(x_pred.shape[0])]
+        x_true = self.get_phi_psi_vectors(self.unnormalize(eval_samples))
 
         metrics = compute_distribution_distances_with_prefix(x_true, x_pred, prefix=prefix)
         metrics[prefix + "/torus_wasserstein"] = torus_wasserstein(x_true, x_pred)
