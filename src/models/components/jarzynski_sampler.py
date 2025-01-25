@@ -281,10 +281,6 @@ class JarzynskiSampler(torch.nn.Module):
                 target_energy_list.append(self.target_energy(X))
                 interpolation_energy_list.append(self.linear_energy_interpolation(X, t))
 
-            if j % 1000 == 0:
-                pass
-                # print("energy", j, target_energy(X))
-
             t_previous = t
 
         jarzynski_samples = X
