@@ -213,7 +213,6 @@ class BoltzmannGeneratorLitModule(LightningModule):
     def on_eval_epoch_end(self, metrics, prefix: str = "val") -> None:
         self.log_dict(metrics.compute())
         metrics.reset()
-        # try:
         if self.hparams.ema_decay > 0:
             if self.hparams.eval_ema:
                 self.net.backup()
@@ -225,9 +224,6 @@ class BoltzmannGeneratorLitModule(LightningModule):
         else:
             self.evaluate(prefix)
         plt.close("all")
-        # except Exception as e:
-        #    logger.warning("Skipping evaluation due to exception")
-        #    logger.warning(e)
 
     @torch.no_grad()
     def evaluate(self, prefix: str = "val", generator=None, output_dir=None) -> None:

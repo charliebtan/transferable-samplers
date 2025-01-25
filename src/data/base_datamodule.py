@@ -283,9 +283,6 @@ class BaseDataModule(LightningDataModule):
         energy_samples = energy_samples.detach().cpu()
         energy_test = self.energy(test_data_smaller).detach().cpu()
 
-        # proposal_energy_samples = energy_samples[energy_samples < 100]
-        filtered_energy_samples = energy_samples
-
         axs[1].hist(
             energy_test.cpu(),
             bins=100,
@@ -299,7 +296,7 @@ class BaseDataModule(LightningDataModule):
         )
         try:
             axs[1].hist(
-                filtered_energy_samples.cpu(),
+                energy_samples.cpu(),
                 bins=100,
                 density=True,
                 alpha=0.4,
