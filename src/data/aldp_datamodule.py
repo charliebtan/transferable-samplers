@@ -25,6 +25,7 @@ from src.models.components.utils import (
     check_symmetry_change,
     compute_chirality_sign,
     find_chirality_centers,
+    resample,
 )
 
 
@@ -113,15 +114,20 @@ class ALDPDataModule(BaseDataModule):
 
         # split the data
         self.data_train = TransformDataset(train_data, transform=self.transforms)
-        self.data_val = test_data[:100000]  # TODO hardcode
-        self.data_test = test_data[100000:200000]
+
+        self.data_val = test_data[5::10]
+        val_rng = np.random.default_rng(0)
+        self.data_val = torch.tensor(val_rng.permutation(self.data_val))
+
+        self.data_test = test_data[::10]
+        test_rng = np.random.default_rng(1)
+        self.data_test = torch.tensor(test_rng.permutation(self.data_test))
 
     def get_dataset_fig(
         self,
         samples,
         log_p_samples: torch.Tensor,
         samples_jarzynski: torch.Tensor = None,
-        jarzynski_log_p: torch.Tensor = None,
         min_energy=-50,
         max_energy=100,
         ylim=(0, 0.2),
@@ -130,7 +136,6 @@ class ALDPDataModule(BaseDataModule):
             samples,
             log_p_samples,
             samples_jarzynski,
-            jarzynski_log_p,
             min_energy,
             max_energy,
             ylim=ylim,
@@ -141,7 +146,7 @@ class ALDPDataModule(BaseDataModule):
         samples,
         log_p_samples: torch.Tensor,
         samples_jarzynski: torch.Tensor = None,
-        jarzynski_log_p: torch.Tensor = None,
+        num_eval_samples: int = 5000,
         loggers=None,
         prefix: str = "",
     ) -> None:
@@ -150,30 +155,58 @@ class ALDPDataModule(BaseDataModule):
             samples,
             log_p_samples,
             samples_jarzynski,
-            jarzynski_log_p,
             loggers=loggers,
             prefix=prefix,
         )
+        metrics = {}
         samples_metrics = self.align_and_compute_metrics(
             samples, prefix=prefix + "/rama", wandb_logger=wandb_logger
         )
+        metrics.update(samples_metrics)
+
+        resampled_samples = resample(samples, -self.energy(samples) - log_p_samples)
+        resampled_metrics = self.align_and_compute_metrics(
+            resampled_samples,
+            prefix=prefix + "/resampled/rama",
+            wandb_logger=wandb_logger,
+            num_eval_samples=num_eval_samples,
+        )
+        metrics.update(resampled_metrics)
+
         if samples_jarzynski is not None:
             samples_jarzynski_metrics = self.align_and_compute_metrics(
-                samples_jarzynski, prefix=prefix + "/rama_jarzynski", wandb_logger=wandb_logger
+                samples_jarzynski,
+                prefix=prefix + "/jarzynski/rama",
+                wandb_logger=wandb_logger,
+                num_eval_samples=num_eval_samples,
             )
-            samples_metrics.update(samples_jarzynski_metrics)
-        return samples_metrics
+            metrics.update(samples_jarzynski_metrics)
+
+        if "val" in prefix:
+            self.plot_ramachandran(
+                self.data_val, prefix=prefix + "/ground_truth/rama", wandb_logger=wandb_logger
+            )
+        elif "test" in prefix:
+            self.plot_ramachandran(
+                self.data_test, prefix=prefix + "/ground_truth/rama", wandb_logger=wandb_logger
+            )
+
+        return metrics
 
     def align_and_compute_metrics(
-        self, samples, prefix: str = "", wandb_logger: WandbLogger = None
+        self,
+        samples,
+        prefix: str = "",
+        wandb_logger: WandbLogger = None,
+        num_eval_samples=5000,
     ):
         samples = self.unnormalize(samples).cpu()
         aligned_samples, aligned_idxs = self.align_samples(samples)
         correct_config_rate = len(aligned_samples) / len(samples)
         if len(aligned_samples) == 0:
             return {
-                "correct_config_rate": 0,
-                "correct_symmetry_rate": 0,
+                f"{prefix}/correct_config_rate": 0,
+                f"{prefix}/correct_symmetry_rate": 0,
             }
         symmetry_change = self.get_symmetry_change(aligned_samples)
         correct_symmetry_rate = 1 - symmetry_change.sum() / len(symmetry_change)
@@ -183,12 +216,12 @@ class ALDPDataModule(BaseDataModule):
                 aligned_symmetric_samples, prefix=prefix, wandb_logger=wandb_logger
             )
             metrics = self.get_ramachandran_metrics(
-                aligned_symmetric_samples[:5000], prefix=prefix
+                aligned_symmetric_samples[:num_eval_samples], prefix=prefix
             )
             metrics.update(
                 {
-                    "correct_config_rate": correct_config_rate,
-                    "correct_symmetry_rate": correct_symmetry_rate,
+                    f"{prefix}/correct_config_rate": correct_config_rate,
+                    f"{prefix}/correct_symmetry_rate": correct_symmetry_rate,
                 }
             )
             return metrics
@@ -201,8 +234,8 @@ class ALDPDataModule(BaseDataModule):
             )
             logging.warning(e)
             return {
-                "correct_config_rate": -1.0,
-                "correct_symmetry_rate": -1.0,
+                f"{prefix}/correct_config_rate": -1.0,
+                f"{prefix}/correct_symmetry_rate": -1.0,
             }
 
     def get_symmetry_change(self, aligned_samples):
@@ -224,7 +257,13 @@ class ALDPDataModule(BaseDataModule):
 
     def get_ramachandran_metrics(self, samples, prefix: str = ""):
         x_pred = self.get_phi_psi_vectors(samples)
-        x_true = self.get_phi_psi_vectors(self.unnormalize(self.data_test)[: x_pred.shape[0]])
+
+        if "val" in prefix:
+            eval_samples = self.data_val[: x_pred.shape[0]]
+        elif "test" in prefix:
+            eval_samples = self.data_test[: x_pred.shape[0]]
+
+        x_true = self.get_phi_psi_vectors(self.unnormalize(eval_samples))
 
         metrics = compute_distribution_distances_with_prefix(x_true, x_pred, prefix=prefix)
         metrics[prefix + "/torus_wasserstein"] = torus_wasserstein(x_true, x_pred)

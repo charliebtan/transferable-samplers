@@ -5,6 +5,9 @@ from bgflow import NormalDistribution
 
 from src.models.boltzmann_generator_module import BoltzmannGeneratorLitModule
 
+torch.backends.cuda.matmul.allow_tf32 = False
+torch.backends.cudnn.allow_tf32 = False
+
 
 class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
     def __init__(
@@ -47,8 +50,9 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
         return loss
 
     def proposal_energy(self, x: torch.Tensor) -> torch.Tensor:
-        x_pred, dlogp = self.net.forward(x)
-        return -(-self.prior.energy(x).view(-1) - dlogp.view(-1))
+        x_pred, fwd_logdets = self.net(x)
+        fwd_logdets = fwd_logdets * self.datamodule.dim  # rescale from mean to sum
+        return -(-self.prior.energy(x_pred).view(-1) + fwd_logdets.view(-1))
 
     def energy_kl(self, x: torch.Tensor, model_log_p: torch.Tensor) -> torch.Tensor:
         sample_target_energy = self.datamodule.energy(x)
@@ -71,15 +75,42 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
         :return: A tuple containing the generated samples, the prior samples, and the log
             probability.
         """
-        prior_samples = self.prior.sample(batch_size).to(self.device)
-        prior_log_p = -self.prior.energy(prior_samples)
-        # This is a bit slow... but probably fine 2x calls
-        with torch.no_grad():
-            x_pred = self.net.reverse(prior_samples)
-            x_recon, logdets = self.net(x_pred)
-            self.log("invert_mse", torch.mean((prior_samples - x_recon) ** 2))
 
-        log_p = prior_log_p.flatten() + logdets.flatten()
+        prior_samples = self.prior.sample(batch_size).to(self.device)
+        # for MF this is actually not log_p as missing - log(Z) - doesn't matter for bias
+        prior_log_p = -self.prior.energy(prior_samples)
+
+        with torch.no_grad():
+
+            x_pred = self.net.reverse(prior_samples)
+            x_recon, fwd_logdets = self.net(x_pred)
+            fwd_logdets = fwd_logdets * self.datamodule.dim  # rescale from mean to sum
+
+            self.log("invert/mse", torch.mean((prior_samples - x_recon) ** 2))
+            self.log("invert/max_abs", torch.max(abs(prior_samples - x_recon)))
+            self.log("invert/mean_abs", torch.mean(abs(prior_samples - x_recon)))
+            self.log("invert/median_abs", torch.median(abs(prior_samples - x_recon)))
+            cutoff = 0.01
+            self.log(
+                f"invert/fail_count_{cutoff}",
+                torch.sum(abs(prior_samples - x_recon) > cutoff).sum().float(),
+            )
+            self.log(
+                f"invert/fail_count_sample_{cutoff}",
+                (torch.sum(abs(prior_samples - x_recon) > cutoff, dim=1) > 0).sum().float(),
+            )
+            cutoff = 0.001
+            self.log(
+                f"invert/fail_count_{cutoff}",
+                torch.sum(abs(prior_samples - x_recon) > cutoff).sum().float(),
+            )
+            self.log(
+                f"invert/fail_count_sample_{cutoff}",
+                (torch.sum(abs(prior_samples - x_recon) > cutoff, dim=1) > 0).sum().float(),
+            )
+
+        log_p = prior_log_p.flatten() + fwd_logdets.flatten()
+
         return x_pred, log_p, torch.empty(0)
 
 

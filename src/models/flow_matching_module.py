@@ -154,6 +154,7 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
         self.num_integrations = 0
         return results
 
+    @torch.no_grad()
     def generate_samples(
         self,
         batch_size: int,
@@ -169,6 +170,7 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
         """
 
         prior_samples = self.prior.sample(batch_size).to(self.device)
+        # for MF this is actually not log_p as missing - log(Z) - doesn't matter for bias
         prior_log_p = -self.prior.energy(prior_samples)
 
         with torch.no_grad():

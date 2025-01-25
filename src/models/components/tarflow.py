@@ -386,7 +386,6 @@ class TarFlow(torch.nn.Module):
             x = block.reverse(x, y, guidance, guide_what, attn_temp, annealed_guidance)
             seq.append(self.unpatchify(x))
         x = self.unpatchify(x)
-        x = x.squeeze()
         if not return_sequence:
             return x
         else:
@@ -407,5 +406,24 @@ if __name__ == "__main__":
     x_recon = model.reverse(x_pred)
 
     print(torch.abs(x - x_recon).mean())
+    print(torch.mean((x - x_recon) ** 2))
+    print(torch.max(abs(x - x_recon)))
+
     assert torch.allclose(x, x_recon), "Invertibility test failed"
     print("Invertibility test passed")
+
+    for i in range(16):
+
+        x_i = x[i : i + 1]
+
+        with torch.no_grad():
+            x_pred = model.reverse(x_i)
+            x_recon, fwd_logdets = model(x_pred)
+            fwd_logdets = fwd_logdets * img_size  # rescale from mean to sum
+
+        rev_jac_true = torch.autograd.functional.jacobian(model.reverse, x_i, vectorize=True)
+
+        rev_logdets_true = torch.logdet(rev_jac_true.squeeze())
+
+        assert torch.allclose(-fwd_logdets, rev_logdets_true)
+    print("logdet test passed")

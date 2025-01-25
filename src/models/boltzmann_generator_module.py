@@ -1,9 +1,11 @@
 import logging
 import math
+import time
 from typing import Any, Dict, Optional, Tuple
 
 import hydra
 import matplotlib.pyplot as plt
+import numpy as np
 import ot as pot
 import torch
 import torchmetrics
@@ -211,22 +213,19 @@ class BoltzmannGeneratorLitModule(LightningModule):
     def on_eval_epoch_end(self, metrics, prefix: str = "val") -> None:
         self.log_dict(metrics.compute())
         metrics.reset()
-        try:
-            if self.hparams.ema_decay > 0:
-                if self.hparams.eval_ema:
-                    self.net.backup()
-                    self.net.copy_to_model()
-                    self.evaluate(prefix)
-                    self.net.restore_to_model()
-                if self.hparams.eval_non_ema:
-                    self.evaluate(prefix + "/non_ema")
-            else:
+        if self.hparams.ema_decay > 0:
+            if self.hparams.eval_ema:
+                self.net.backup()
+                self.net.copy_to_model()
                 self.evaluate(prefix)
-            plt.close("all")
-        except Exception as e:
-            logger.warning("Skipping evaluation due to exception")
-            logger.warning(e)
+                self.net.restore_to_model()
+            if self.hparams.eval_non_ema:
+                self.evaluate(prefix + "/non_ema")
+        else:
+            self.evaluate(prefix)
+        plt.close("all")
 
+    @torch.no_grad()
     def evaluate(self, prefix: str = "val", generator=None, output_dir=None) -> None:
         logging.info("Eval epoch end")
         if generator is None:
@@ -237,7 +236,21 @@ class BoltzmannGeneratorLitModule(LightningModule):
         elif prefix.startswith("test"):
             num_proposal_samples = self.hparams.sampling_config.num_test_proposal_samples
             true_data = self.datamodule.data_test
+
+        # generate samples and record time
+
+        torch.cuda.synchronize()
+        start_time = time.time()
+
         samples, log_p, prior_samples = generator(num_proposal_samples)
+
+        torch.cuda.synchronize()
+        time_duration = time.time() - start_time
+        self.log(f"{prefix}/samples_walltime", time_duration)
+        self.log(f"{prefix}/samples_per_second", len(samples) / time_duration)
+
+        # save samples to dist
+
         samples_dict = {
             "samples": samples,
             "log_p": log_p,
@@ -248,10 +261,10 @@ class BoltzmannGeneratorLitModule(LightningModule):
         logging.info(f"Saving {len(samples)} samples to {output_dir}/{prefix}_samples.pt")
         torch.save(samples_dict, f"{output_dir}/{prefix}_samples.pt")
 
-        # compute energy
+        # compute energy
         sample_target_energy = self.datamodule.energy(samples)
-        self.log(f"{prefix}/mean_energy", sample_target_energy.mean(), sync_dist=True)
         target_target_energy = self.datamodule.energy(true_data)
+        self.log(f"{prefix}/mean_energy", sample_target_energy.mean(), sync_dist=True)
 
         # compute weights + resample
         assert log_p.shape == sample_target_energy.shape
@@ -263,19 +276,21 @@ class BoltzmannGeneratorLitModule(LightningModule):
             self.hparams.sampling_config.num_eval_samples, len(samples), len(true_data)
         )
 
+        eval_samples = true_data[:num_eval_samples]
+
         # compute dist metrics
         dist_metrics = compute_distribution_distances_with_prefix(
             self.datamodule.unnormalize(samples[:num_eval_samples]).cpu(),
-            self.datamodule.unnormalize(true_data[:num_eval_samples]).cpu(),
+            self.datamodule.unnormalize(eval_samples).cpu(),
             prefix=prefix,
         )
         dist_metrics[f"{prefix}/num_eval_samples"] = num_eval_samples
         self.log_dict(dist_metrics)
-            
+
         # compute resampled dist metrics
         resampled_dist_metrics = compute_distribution_distances_with_prefix(
             self.datamodule.unnormalize(resampled_samples[:num_eval_samples]).cpu(),
-            self.datamodule.unnormalize(true_data[:num_eval_samples]).cpu(),
+            self.datamodule.unnormalize(eval_samples).cpu(),
             prefix=prefix + "/resampled",
         )
         self.log_dict(resampled_dist_metrics)
@@ -286,45 +301,71 @@ class BoltzmannGeneratorLitModule(LightningModule):
 
         # compute resampled energy metrics
         resampled_sample_target_energy = self.datamodule.energy(resampled_samples)
-        self.log(f"{prefix}/resampled/mean_energy", resampled_sample_target_energy.mean(), sync_dist=True)
-        resampled_energy_metrics = energy_distances(resampled_sample_target_energy, target_target_energy, prefix + "/resampled")
+        self.log(
+            f"{prefix}/resampled/mean_energy",
+            resampled_sample_target_energy.mean(),
+            sync_dist=True,
+        )
+        resampled_energy_metrics = energy_distances(
+            resampled_sample_target_energy, target_target_energy, prefix + "/resampled"
+        )
         self.log_dict(resampled_energy_metrics)
 
-        jarzynski_samples, jarzynski_weights, jarzynski_energy_metrics = None, None, None
+        jarzynski_samples, jarzynski_logits = None, None
         if self.jarzynski_sampler is not None and self.jarzynski_sampler.enabled:
+
+            self.jarzynski_sampler.wandb_logger = self.datamodule.get_wandb_logger(self.loggers)
+
+            if self.hparams.sampling_config.energy_cutoff is not None:
+                filter_array = sample_target_energy < self.hparams.sampling_config.energy_cutoff
+                filtered_samples = samples[filter_array]
+                self.log(f"{prefix}/filtered_samples", torch.sum(~filter_array).float())
+            else:
+                filtered_samples = samples
+                self.log(f"{prefix}/filtered_samples", 0.0)
+
             num_jarzynski_samples = min(
-                self.hparams.sampling_config.num_jarzynski_samples, len(samples)
+                self.hparams.sampling_config.num_jarzynski_samples, len(filtered_samples)
             )
-            jarzynski_samples, jarzynski_weights = self.jarzynski_sampler.sample(
-                samples[:num_jarzynski_samples]
+
+            # generate jarzynski samples and record time
+
+            torch.cuda.synchronize()
+            start_time = time.time()
+
+            jarzynski_samples, jarzynski_logits = self.jarzynski_sampler.sample(
+                filtered_samples[:num_jarzynski_samples]
             )
+
+            torch.cuda.synchronize()
+            time_duration = time.time() - start_time
+            self.log(f"{prefix}/jarzynski/samples_walltime", time_duration)
+            self.log(
+                f"{prefix}/jarzynski/samples_per_second", len(jarzynski_samples) / time_duration
+            )
+
+            # jarzynski samples should always be resampled
+            # after this point the logits are only used for ESS computation
+            jarzynski_samples = resample(jarzynski_samples, jarzynski_logits)
+
+            jarzynski_ess = sampling_efficiency(jarzynski_logits)
+            self.log(f"{prefix}/jarzynski/effective_sample_size", jarzynski_ess, sync_dist=True)
 
             num_eval_samples = min(
                 num_jarzynski_samples,
                 self.hparams.sampling_config.num_eval_samples,
                 len(true_data),
             )
+            eval_samples = true_data[:num_eval_samples]
 
-            jarzynski_ess = sampling_efficiency(jarzynski_weights)
-            self.log(f"{prefix}/jarzynski/effective_sample_size", jarzynski_ess, sync_dist=True)
-
-            # compute jarzynski dist metrics
+            # compute jarzynski dist metrics
             jarzynski_dist_metrics = compute_distribution_distances_with_prefix(
                 self.datamodule.unnormalize(jarzynski_samples[:num_eval_samples]),
-                self.datamodule.unnormalize(true_data[:num_eval_samples]),
+                self.datamodule.unnormalize(eval_samples),
                 prefix=prefix + "/jarzynski",
             )
             jarzynski_dist_metrics[f"{prefix}/jarzynski/num_eval_samples"] = num_eval_samples
             self.log_dict(jarzynski_dist_metrics)
-
-            # compute resampled jarzynski dist metrics
-            resampled_jarzynski_samples = resample(jarzynski_samples, jarzynski_weights)
-            resampled_jarzynski_dist_metrics = compute_distribution_distances_with_prefix(
-                self.datamodule.unnormalize(resampled_jarzynski_samples[:num_eval_samples]).cpu(),
-                self.datamodule.unnormalize(true_data[:num_eval_samples]).cpu(),
-                prefix=prefix + "/jarzynski/resampled",
-            )
-            self.log_dict(resampled_jarzynski_dist_metrics)
 
             # compute jarzynski energy metrics
             sample_target_jarzynski_energy = self.datamodule.energy(jarzynski_samples)
@@ -333,21 +374,13 @@ class BoltzmannGeneratorLitModule(LightningModule):
                 sample_target_jarzynski_energy, target_target_energy, prefix + "/jarzynski"
             )
             self.log_dict(jarzynski_energy_metrics)
-            
-            # compute resampled jarzynski energy metrics
-            resampled_sample_target_jarzynski_energy = self.datamodule(resampled_jarzynski_samples)
-            self.log(f"{prefix}/jarzynski/resampled/mean_energy", resampled_sample_target_jarzynski_energy.mean())
-            resampled_jarzynski_energy_metrics = energy_distances(
-                resampled_sample_target_jarzynski_energy, target_target_energy, prefix + "/jarzynski/resampled"
-            )
-            self.log_dict(resampled_jarzynski_energy_metrics)
 
         # log dataset metrics
         dataset_metrics = self.datamodule.log_on_epoch_end(
             samples,
             log_p,
             jarzynski_samples,
-            jarzynski_weights,
+            num_eval_samples=self.hparams.sampling_config.num_eval_samples,
             loggers=self.loggers,
             prefix=prefix,
         )
@@ -424,8 +457,6 @@ class BoltzmannGeneratorLitModule(LightningModule):
     def proposal_energy(self, x: torch.Tensor) -> torch.Tensor:
         # x is considered to be a sample from the proposal distribution
         raise NotImplementedError
-        x0, dlogp = self.flow(x, reverse=True)
-        return -(-self.prior.energy(x0).view(-1) - dlogp.view(-1))
 
     # https://github.com/Lightning-AI/pytorch-lightning/issues/1462
     def on_before_optimizer_step(self, optimizer, *args, **kwargs) -> None:
