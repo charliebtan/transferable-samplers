@@ -1,5 +1,6 @@
 defaults:
   - model_checkpoint
+  - model_checkpoint_cropped
   - early_stopping
   - model_summary
   - lr_monitor
@@ -7,8 +8,17 @@ defaults:
 
 model_checkpoint:
   dirpath: ${paths.output_dir}/checkpoints
-  filename: "best"
+  filename: "epoch_{epoch:03d}"
   monitor: "val/energy_w1"
+  mode: "min"
+  save_last: True
+  save_top_k: 3
+  auto_insert_metric_name: False
+
+model_checkpoint_cropped:
+  dirpath: ${paths.output_dir}/checkpoints
+  filename: "epoch_{epoch:03d}_cropped"
+  monitor: "val/cropped_energy_w1"
   mode: "min"
   save_last: False
   save_top_k: 3
@@ -17,7 +27,7 @@ model_checkpoint:
 model_checkpoint_time:
   _target_: lightning.pytorch.callbacks.ModelCheckpoint
   dirpath: ${paths.output_dir}/checkpoints
-  filename: "epoch_{epoch:03d}"
+  filename: "epoch_{epoch:03d}_time"
   monitor: null # name of the logged metric which determines when model is improving
   verbose: False # verbosity mode
   save_last: True # additionally always save an exact copy of the last checkpoint to a file last.ckpt
