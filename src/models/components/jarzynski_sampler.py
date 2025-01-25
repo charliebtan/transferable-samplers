@@ -94,7 +94,7 @@ class JarzynskiSampler(torch.nn.Module):
         eps_list = [eps_fn(0.0)]
 
         target_energy_list = [self.target_energy(X)]
-        interpolation_energy_list = [self.linear_energy_interpolation(X, 0.0)]
+        interpolation_energy_list = [self.linear_energy_interpolation(X, timesteps[0])]
         dX_t_norm = [torch.zeros(X.shape[0])]
 
         t_previous = 0.0
