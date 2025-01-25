@@ -88,17 +88,6 @@ class JarzynskiSampler(torch.nn.Module):
         X = samples_proposal
         A = torch.zeros(X.shape[0], device=X.device)  # the jarzynski weights
 
-        # num_timesteps = 250
-        # num_warmup_steps = 100
-        # warmup_period = 0.2
-
-        # warmup_timesteps = torch.linspace(0, warmup_period, num_warmup_steps + 1)
-        # timesteps = torch.linspace(warmup_period, 1, num_timesteps - num_warmup_steps + 1)
-
-        # eps_schedule = torch.logspace(math.log10(0.001), math.log10(0.01), num_timesteps)
-
-        # timesteps = torch.cat([warmup_timesteps, timesteps[1:]])
-
         A_list = [A]
         ESS_list = [1.0]
         t_list = [0.0]
@@ -291,7 +280,6 @@ class JarzynskiSampler(torch.nn.Module):
 
                 target_energy_list.append(self.target_energy(X))
                 interpolation_energy_list.append(self.linear_energy_interpolation(X, t))
-
 
             if j % 1000 == 0:
                 pass
