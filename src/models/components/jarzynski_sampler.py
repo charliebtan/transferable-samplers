@@ -34,9 +34,7 @@ class JarzynskiSampler(torch.nn.Module):
     def linear_energy_interpolation(self, x, t):
         source_energy = self.source_energy(x)
         target_energy = self.target_energy(x)
-        logging.info("x", x.shape)
-        logging.info("source energy", source_energy.shape)
-        logging.info("target energy", target_energy.shape)
+        target_energy = target_energy.reshape(-1)
         assert source_energy.shape == (
             x.shape[0],
         ), f"Source energy should be a flat vector not {source_energy.shape}"
@@ -101,14 +99,13 @@ class JarzynskiSampler(torch.nn.Module):
 
         # timesteps = torch.cat([warmup_timesteps, timesteps[1:]])
 
-
         A_list = [A]
         ESS_list = [1.0]
         t_list = [0.0]
         eps_list = [eps_fn(0.0)]
 
-        stepwise_target_energy = [self.target_energy(X)]
-        stepwise_interpolation_energy = [self.linear_energy_interpolation(X, 0.0)]
+        target_energy_list = [self.target_energy(X)]
+        interpolation_energy_list = [self.linear_energy_interpolation(X, 0.0)]
         dX_t_norm = [torch.zeros(X.shape[0])]
 
         t_previous = 0.0
@@ -158,8 +155,8 @@ class JarzynskiSampler(torch.nn.Module):
 
             if X.isnan().any() or A.isnan().any() or not (j + 1) % 100 or j + 1 == num_timesteps:
 
-                stepwise_target_energy_np = torch.stack(stepwise_target_energy).cpu().numpy()
-                stepwise_interpolation_energy_np = torch.stack(stepwise_interpolation_energy).cpu().numpy()
+                stepwise_target_energy_np = torch.stack(target_energy_list).cpu().numpy()
+                stepwise_interpolation_energy_np = torch.stack(interpolation_energy_list).cpu().numpy()
                 A_np = torch.stack(A_list).cpu().numpy()
                 t_np = np.array(t_list)
                 dX_t_norm_np = np.stack(dX_t_norm).T
@@ -272,8 +269,8 @@ class JarzynskiSampler(torch.nn.Module):
             eps_list.append(eps)
             dX_t_norm.append(np.concatenate(dX_t_norm_batches))
 
-            stepwise_target_energy.append(self.target_energy(X))
-            stepwise_interpolation_energy.append(self.linear_energy_interpolation(X, t))
+            target_energy_list.append(self.target_energy(X))
+            interpolation_energy_list.append(self.linear_energy_interpolation(X, t))
 
             if ESS < self.ess_threshold:
                 # qmc_rand = sampler.random(n=len(A))
@@ -292,8 +289,8 @@ class JarzynskiSampler(torch.nn.Module):
                 eps_list.append(eps)
                 dX_t_norm.append(np.concatenate(dX_t_norm_batches))
 
-                stepwise_target_energy.append(self.target_energy(X))
-                stepwise_interpolation_energy.append(self.linear_energy_interpolation(X, t))
+                target_energy_list.append(self.target_energy(X))
+                interpolation_energy_list.append(self.linear_energy_interpolation(X, t))
 
 
             if j % 1000 == 0:
