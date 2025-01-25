@@ -20,10 +20,10 @@ model:
     layers_per_block: 6
   jarzynski_sampler:
     langevin_eps: 0.1
-    num_timesteps: 
+    num_timesteps:
     enabled: True
 
   data:
-   - batch_size: 4096
+    - batch_size: 4096
 
 tags: [jarz]

@@ -24,6 +24,6 @@ model:
     enabled: True
 
   data:
-   - batch_size: 2048
+    - batch_size: 2048
 
 tags: [jarz]

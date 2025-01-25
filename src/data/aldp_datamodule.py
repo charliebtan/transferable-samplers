@@ -166,31 +166,39 @@ class ALDPDataModule(BaseDataModule):
 
         resampled_samples = resample(samples, -self.energy(samples) - log_p_samples)
         resampled_metrics = self.align_and_compute_metrics(
-            resampled_samples, prefix=prefix + "/resampled/rama", wandb_logger=wandb_logger,
-            num_eval_samples = num_eval_samples
+            resampled_samples,
+            prefix=prefix + "/resampled/rama",
+            wandb_logger=wandb_logger,
+            num_eval_samples=num_eval_samples,
         )
         metrics.update(resampled_metrics)
 
         if samples_jarzynski is not None:
             samples_jarzynski_metrics = self.align_and_compute_metrics(
-                samples_jarzynski, prefix=prefix + "/jarzynski/rama", wandb_logger=wandb_logger,
-                num_eval_samples = num_eval_samples
+                samples_jarzynski,
+                prefix=prefix + "/jarzynski/rama",
+                wandb_logger=wandb_logger,
+                num_eval_samples=num_eval_samples,
             )
             metrics.update(samples_jarzynski_metrics)
 
         if "val" in prefix:
             self.plot_ramachandran(
-                        self.data_val, prefix=prefix + "/ground_truth/rama", wandb_logger=wandb_logger
-                    )
+                self.data_val, prefix=prefix + "/ground_truth/rama", wandb_logger=wandb_logger
+            )
         elif "test" in prefix:
             self.plot_ramachandran(
-                        self.data_test, prefix=prefix + "/ground_truth/rama", wandb_logger=wandb_logger
-                    )
+                self.data_test, prefix=prefix + "/ground_truth/rama", wandb_logger=wandb_logger
+            )
 
         return metrics
 
     def align_and_compute_metrics(
-        self, samples, prefix: str = "", wandb_logger: WandbLogger = None, num_eval_samples = 5000,
+        self,
+        samples,
+        prefix: str = "",
+        wandb_logger: WandbLogger = None,
+        num_eval_samples=5000,
     ):
         samples = self.unnormalize(samples).cpu()
         aligned_samples, aligned_idxs = self.align_samples(samples)
@@ -251,9 +259,9 @@ class ALDPDataModule(BaseDataModule):
         x_pred = self.get_phi_psi_vectors(samples)
 
         if "val" in prefix:
-            eval_samples = self.data_val[:x_pred.shape[0]]
+            eval_samples = self.data_val[: x_pred.shape[0]]
         elif "test" in prefix:
-            eval_samples = self.data_test[:x_pred.shape[0]]
+            eval_samples = self.data_test[: x_pred.shape[0]]
 
         x_true = self.get_phi_psi_vectors(self.unnormalize(eval_samples))
 

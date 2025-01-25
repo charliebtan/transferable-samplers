@@ -414,17 +414,16 @@ if __name__ == "__main__":
 
     for i in range(16):
 
-        x_i = x[i:i+1]
+        x_i = x[i : i + 1]
 
         with torch.no_grad():
             x_pred = model.reverse(x_i)
             x_recon, fwd_logdets = model(x_pred)
-            fwd_logdets = fwd_logdets * img_size # rescale from mean to sum
+            fwd_logdets = fwd_logdets * img_size  # rescale from mean to sum
 
         rev_jac_true = torch.autograd.functional.jacobian(model.reverse, x_i, vectorize=True)
 
         rev_logdets_true = torch.logdet(rev_jac_true.squeeze())
 
-        assert torch.allclose(- fwd_logdets, rev_logdets_true) 
+        assert torch.allclose(-fwd_logdets, rev_logdets_true)
     print("logdet test passed")
-

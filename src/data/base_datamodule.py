@@ -193,9 +193,7 @@ class BaseDataModule(LightningDataModule):
         if len(prefix) > 0 and prefix[-1] != "/":
             prefix += "/"
 
-        samples_fig = self.get_dataset_fig(
-            samples, log_p_samples, samples_jarzynski
-        )
+        samples_fig = self.get_dataset_fig(samples, log_p_samples, samples_jarzynski)
         wandb_logger.log_image(f"{prefix}generated_samples", [samples_fig])
         self.current_epoch += 1
 
@@ -285,7 +283,7 @@ class BaseDataModule(LightningDataModule):
         energy_samples = energy_samples.detach().cpu()
         energy_test = self.energy(test_data_smaller).detach().cpu()
 
-        # proposal_energy_samples = energy_samples[energy_samples < 100]
+        # proposal_energy_samples = energy_samples[energy_samples < 100]
         filtered_energy_samples = energy_samples
 
         axs[1].hist(
