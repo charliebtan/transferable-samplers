@@ -307,4 +307,3 @@ class JarzynskiSampler(torch.nn.Module):
         assert jarzynski_samples.shape == samples_proposal.shape, "shape mismatch"
         assert jarzynski_weights.dim() == 1, "jarzynski_weights should be a flat vector"
         return jarzynski_samples, jarzynski_logits
-

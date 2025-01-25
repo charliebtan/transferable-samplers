@@ -286,7 +286,8 @@ class BoltzmannGeneratorLitModule(LightningModule):
         num_eval_samples = min(
             self.hparams.sampling_config.num_eval_samples, len(samples), len(true_data)
         )
-        eval_samples = true_data[torch.randperm(len(true_data))[:num_eval_samples]]
+
+        eval_samples = true_data[:num_eval_samples]
 
         # compute dist metrics
         dist_metrics = compute_distribution_distances_with_prefix(
@@ -341,7 +342,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
                 self.hparams.sampling_config.num_eval_samples,
                 len(true_data),
             )
-            eval_samples = true_data[torch.randperm(len(true_data))[:num_eval_samples]]
+            eval_samples = true_data[:num_eval_samples]
 
             jarzynski_ess = sampling_efficiency(jarzynski_logits)
             self.log(f"{prefix}/jarzynski/effective_sample_size", jarzynski_ess, sync_dist=True)
@@ -369,7 +370,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
             log_p,
             jarzynski_samples,
             jarzynski_logits,
-            samples_test=true_data,
+            num_eval_samples = self.sampling_config.num_eval_samples,
             loggers=self.loggers,
             prefix=prefix,
         )

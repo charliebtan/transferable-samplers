@@ -114,8 +114,14 @@ class ALDPDataModule(BaseDataModule):
 
         # split the data
         self.data_train = TransformDataset(train_data, transform=self.transforms)
+
         self.data_val = test_data[5::10]
+        val_rng = np.random.default_rng(0)
+        self.data_val = val_rng.permutation(self.data_val)
+
         self.data_test = test_data[::10]
+        test_rng = np.random.default_rng(1)
+        self.data_test = test_rng.permutation(self.data_test)
 
     def get_dataset_fig(
         self,
@@ -143,7 +149,7 @@ class ALDPDataModule(BaseDataModule):
         log_p_samples: torch.Tensor,
         samples_jarzynski: torch.Tensor = None,
         jarzynski_log_p: torch.Tensor = None,
-        samples_test: torch.Tensor = None,
+        num_eval_samples: int = 5000,
         loggers=None,
         prefix: str = "",
     ) -> None:
@@ -164,19 +170,26 @@ class ALDPDataModule(BaseDataModule):
 
         resampled_samples = resample(samples, -self.energy(samples) - log_p_samples)
         resampled_metrics = self.align_and_compute_metrics(
-            resampled_samples, prefix=prefix + "/resampled/rama", wandb_logger=wandb_logger
+            resampled_samples, prefix=prefix + "/resampled/rama", wandb_logger=wandb_logger,
+            num_eval_samples = num_eval_samples
         )
         metrics.update(resampled_metrics)
 
         if samples_jarzynski is not None:
             samples_jarzynski_metrics = self.align_and_compute_metrics(
-                samples_jarzynski, prefix=prefix + "/jarzynski/rama", wandb_logger=wandb_logger
+                samples_jarzynski, prefix=prefix + "/jarzynski/rama", wandb_logger=wandb_logger,
+                num_eval_samples = num_eval_samples
             )
             metrics.update(samples_jarzynski_metrics)
-        if samples_test is not None:
+
+        if "val" in prefix:
             self.plot_ramachandran(
-                samples_test, prefix=prefix + "/ground_truth/rama", wandb_logger=wandb_logger
-            )
+                        self.data_val, prefix=prefix + "/ground_truth/rama", wandb_logger=wandb_logger
+                    )
+        elif "test" in prefix:
+            self.plot_ramachandran(
+                        self.data_test, prefix=prefix + "/ground_truth/rama", wandb_logger=wandb_logger
+                    )
 
         return metrics
 
@@ -199,7 +212,7 @@ class ALDPDataModule(BaseDataModule):
                 aligned_symmetric_samples, prefix=prefix, wandb_logger=wandb_logger
             )
             metrics = self.get_ramachandran_metrics(
-                aligned_symmetric_samples[:5000], prefix=prefix
+                aligned_symmetric_samples[:num_eval_samples], prefix=prefix
             )
             metrics.update(
                 {
@@ -240,7 +253,12 @@ class ALDPDataModule(BaseDataModule):
 
     def get_ramachandran_metrics(self, samples, prefix: str = ""):
         x_pred = self.get_phi_psi_vectors(samples)
-        eval_samples = self.data_test[torch.randperm(x_pred.shape[0])]
+
+        if "val" in prefix:
+            eval_samples = self.data_val[x_pred.shape[0]]
+        elif "test" in prefix:
+            eval_samples = self.data_test[x_pred.shape[0]]
+
         x_true = self.get_phi_psi_vectors(self.unnormalize(eval_samples))
 
         metrics = compute_distribution_distances_with_prefix(x_true, x_pred, prefix=prefix)
