@@ -10,9 +10,9 @@ train: False
 model:
   sampling_config:
     batch_size: 40000
-    num_test_proposal_samples: 20480
-    num_jarzynski_samples: 20480
-    jarzynski_prefilter_cutoff: null
+    num_test_proposal_samples: 100_000
+    num_jarzynski_samples: 100_000
+    num_eval_samples: 10_000
   net:
     in_channels: 1
     num_blocks: 4
