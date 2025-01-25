@@ -264,15 +264,6 @@ class BoltzmannGeneratorLitModule(LightningModule):
         # compute energy
         sample_target_energy = self.datamodule.energy(samples)
 
-        if self.hparams.sampling_config.energy_cutoff is not None:
-            filter_array = sample_target_energy < self.hparams.sampling_config.energy_cutoff
-            samples = samples[filter_array]
-            log_p = log_p[filter_array]
-            sample_target_energy = sample_target_energy[filter_array]
-            self.log(f"{prefix}/filtered_samples", torch.sum(~filter_array).float())
-        else:
-            samples = samples
-            self.log(f"{prefix}/filtered_samples", 0.0)
 
         self.log(f"{prefix}/mean_energy", sample_target_energy.mean(), sync_dist=True)
         target_target_energy = self.datamodule.energy(true_data)
@@ -321,15 +312,23 @@ class BoltzmannGeneratorLitModule(LightningModule):
 
             self.jarzynski_sampler.wandb_logger = self.datamodule.get_wandb_logger(self.loggers)
 
+            if self.hparams.sampling_config.energy_cutoff is not None:
+                filter_array = sample_target_energy < self.hparams.sampling_config.energy_cutoff
+                filtered_samples = samples[filter_array]
+                self.log(f"{prefix}/filtered_samples", torch.sum(~filter_array).float())
+            else:
+                filtered_samples = samples
+                self.log(f"{prefix}/filtered_samples", 0.0)
+
             num_jarzynski_samples = min(
-                self.hparams.sampling_config.num_jarzynski_samples, len(samples)
+                self.hparams.sampling_config.num_jarzynski_samples, len(filtered_samples)
             )
 
             torch.cuda.synchronize()
             start_time = time.time()
 
             jarzynski_samples, jarzynski_logits = self.jarzynski_sampler.sample(
-                samples[:num_jarzynski_samples]
+                filtered_samples[:num_jarzynski_samples]
             )
 
             torch.cuda.synchronize()
