@@ -117,18 +117,17 @@ class ALDPDataModule(BaseDataModule):
 
         self.data_val = test_data[5::10]
         val_rng = np.random.default_rng(0)
-        self.data_val = val_rng.permutation(self.data_val)
+        self.data_val = torch.tensor(val_rng.permutation(self.data_val))
 
         self.data_test = test_data[::10]
         test_rng = np.random.default_rng(1)
-        self.data_test = test_rng.permutation(self.data_test)
+        self.data_test = torch.tensor(test_rng.permutation(self.data_test))
 
     def get_dataset_fig(
         self,
         samples,
         log_p_samples: torch.Tensor,
         samples_jarzynski: torch.Tensor = None,
-        jarzynski_log_p: torch.Tensor = None,
         min_energy=-50,
         max_energy=100,
         ylim=(0, 0.2),
@@ -137,7 +136,6 @@ class ALDPDataModule(BaseDataModule):
             samples,
             log_p_samples,
             samples_jarzynski,
-            jarzynski_log_p,
             min_energy,
             max_energy,
             ylim=ylim,
@@ -148,7 +146,6 @@ class ALDPDataModule(BaseDataModule):
         samples,
         log_p_samples: torch.Tensor,
         samples_jarzynski: torch.Tensor = None,
-        jarzynski_log_p: torch.Tensor = None,
         num_eval_samples: int = 5000,
         loggers=None,
         prefix: str = "",
@@ -158,7 +155,6 @@ class ALDPDataModule(BaseDataModule):
             samples,
             log_p_samples,
             samples_jarzynski,
-            jarzynski_log_p,
             loggers=loggers,
             prefix=prefix,
         )
@@ -194,7 +190,7 @@ class ALDPDataModule(BaseDataModule):
         return metrics
 
     def align_and_compute_metrics(
-        self, samples, prefix: str = "", wandb_logger: WandbLogger = None
+        self, samples, prefix: str = "", wandb_logger: WandbLogger = None, num_eval_samples = 5000,
     ):
         samples = self.unnormalize(samples).cpu()
         aligned_samples, aligned_idxs = self.align_samples(samples)
@@ -255,9 +251,9 @@ class ALDPDataModule(BaseDataModule):
         x_pred = self.get_phi_psi_vectors(samples)
 
         if "val" in prefix:
-            eval_samples = self.data_val[x_pred.shape[0]]
+            eval_samples = self.data_val[:x_pred.shape[0]]
         elif "test" in prefix:
-            eval_samples = self.data_test[x_pred.shape[0]]
+            eval_samples = self.data_test[:x_pred.shape[0]]
 
         x_true = self.get_phi_psi_vectors(self.unnormalize(eval_samples))
 

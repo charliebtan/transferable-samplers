@@ -229,6 +229,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         #    logger.warning("Skipping evaluation due to exception")
         #    logger.warning(e)
 
+    @torch.no_grad()
     def evaluate(self, prefix: str = "val", generator=None, output_dir=None) -> None:
         logging.info("Eval epoch end")
         if generator is None:
@@ -240,6 +241,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
             num_proposal_samples = self.hparams.sampling_config.num_test_proposal_samples
             true_data = self.datamodule.data_test
 
+        # generate samples and record time
         
         torch.cuda.synchronize()
         start_time = time.time()
@@ -250,6 +252,8 @@ class BoltzmannGeneratorLitModule(LightningModule):
         time_duration = time.time() - start_time
         self.log(f"{prefix}/samples_walltime", time_duration)
         self.log(f"{prefix}/samples_per_second", len(samples) / time_duration)
+
+        # save samples to dist
 
         samples_dict = {
             "samples": samples,
@@ -263,10 +267,8 @@ class BoltzmannGeneratorLitModule(LightningModule):
 
         # compute energy
         sample_target_energy = self.datamodule.energy(samples)
-
-
-        self.log(f"{prefix}/mean_energy", sample_target_energy.mean(), sync_dist=True)
         target_target_energy = self.datamodule.energy(true_data)
+        self.log(f"{prefix}/mean_energy", sample_target_energy.mean(), sync_dist=True)
 
         # compute weights + resample
         assert log_p.shape == sample_target_energy.shape
@@ -307,7 +309,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         resampled_energy_metrics = energy_distances(resampled_sample_target_energy, target_target_energy, prefix + "/resampled")
         self.log_dict(resampled_energy_metrics)
 
-        jarzynski_samples, jarzynski_logits, jarzynski_energy_metrics = None, None, None
+        jarzynski_samples, jarzynski_logits = None, None
         if self.jarzynski_sampler is not None and self.jarzynski_sampler.enabled:
 
             self.jarzynski_sampler.wandb_logger = self.datamodule.get_wandb_logger(self.loggers)
@@ -324,6 +326,8 @@ class BoltzmannGeneratorLitModule(LightningModule):
                 self.hparams.sampling_config.num_jarzynski_samples, len(filtered_samples)
             )
 
+            # generate jarzynski samples and record time
+
             torch.cuda.synchronize()
             start_time = time.time()
 
@@ -336,15 +340,19 @@ class BoltzmannGeneratorLitModule(LightningModule):
             self.log(f"{prefix}/jarzynski/samples_walltime", time_duration)
             self.log(f"{prefix}/jarzynski/samples_per_second", len(jarzynski_samples) / time_duration)
 
+            # jarzynski samples should always be resampled
+            # after this point the logits are only used for ESS computation
+            jarzynski_samples = resample(jarzynski_samples, jarzynski_logits)
+
+            jarzynski_ess = sampling_efficiency(jarzynski_logits)
+            self.log(f"{prefix}/jarzynski/effective_sample_size", jarzynski_ess, sync_dist=True)
+
             num_eval_samples = min(
                 num_jarzynski_samples,
                 self.hparams.sampling_config.num_eval_samples,
                 len(true_data),
             )
             eval_samples = true_data[:num_eval_samples]
-
-            jarzynski_ess = sampling_efficiency(jarzynski_logits)
-            self.log(f"{prefix}/jarzynski/effective_sample_size", jarzynski_ess, sync_dist=True)
 
             # compute jarzynski dist metrics
             jarzynski_dist_metrics = compute_distribution_distances_with_prefix(
@@ -368,8 +376,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
             samples,
             log_p,
             jarzynski_samples,
-            jarzynski_logits,
-            num_eval_samples = self.sampling_config.num_eval_samples,
+            num_eval_samples = self.hparams.sampling_config.num_eval_samples,
             loggers=self.loggers,
             prefix=prefix,
         )

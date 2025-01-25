@@ -179,8 +179,6 @@ class BaseDataModule(LightningDataModule):
         samples,
         log_p_samples: torch.Tensor,
         samples_jarzynski: torch.Tensor = None,
-        jarzynski_log_p: torch.Tensor = None,
-        samples_test: torch.Tensor = None, # TODO does nothing
         loggers: List[Any] = None,
         prefix: str = "",
     ) -> None:
@@ -196,7 +194,7 @@ class BaseDataModule(LightningDataModule):
             prefix += "/"
 
         samples_fig = self.get_dataset_fig(
-            samples, log_p_samples, samples_jarzynski, jarzynski_log_p
+            samples, log_p_samples, samples_jarzynski
         )
         wandb_logger.log_image(f"{prefix}generated_samples", [samples_fig])
         self.current_epoch += 1
@@ -230,7 +228,6 @@ class BaseDataModule(LightningDataModule):
         samples,
         log_p_samples: torch.Tensor,
         samples_jarzynski: torch.Tensor = None,
-        jarzynski_log_p: torch.Tensor = None,
         min_energy=-26,
         max_energy=0,
         ylim=(0, 0.2),
@@ -333,9 +330,6 @@ class BaseDataModule(LightningDataModule):
             pass
         if samples_jarzynski is not None:
             energies_jarzynski = self.energy(samples_jarzynski)
-            #jarzynski_logits = -energies_jarzynski.flatten() - jarzynski_log_p.flatten()
-            jarzynski_logits = jarzynski_log_p
-            jarzynski_weights = torch.nn.functional.softmax(jarzynski_logits, dim=0).detach().cpu()
             energies_jarzynski = energies_jarzynski.detach().cpu().numpy()
 
             axs[1].hist(
@@ -348,7 +342,6 @@ class BaseDataModule(LightningDataModule):
                 linewidth=4,
                 color="orange",
                 label="Jarzynski",
-                weights=jarzynski_weights,
             )
         axs[1].set_xlabel("u(x)")
         axs[1].legend()
