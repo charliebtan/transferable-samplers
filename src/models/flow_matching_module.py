@@ -132,7 +132,6 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
             x = torch.cat([x, dlog_p], dim=-1)
         x = node.trajectory(x, t_span=t_span)[-1]
         self.nfe += wrapped_net.nfe
-        print(self.nfe)
         self.num_integrations += 1
         wrapped_net.nfe = 0
         if not dummy_ll:
