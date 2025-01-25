@@ -84,12 +84,8 @@ class TorchdynWrapper(torch.nn.Module):
     def div_fn_exact_no_functional(self, y, x):
         sum_diag = 0.0
         for i in range(y.shape[1]):
-            sum_diag += (
-                torch.autograd.grad(y[:, i].sum(), x, create_graph=True)[0]
-                .contiguous()[:, i]
-                .contiguous()
-            )
-        return sum_diag.contiguous()
+            sum_diag += torch.autograd.grad(y[:, i].sum(), x, create_graph=True)[0][:, i]
+        return sum_diag
 
     def forward(self, t, x, *args, **kwargs):
         x = x[..., :-1]  # remove the divergence estimate
@@ -98,7 +94,7 @@ class TorchdynWrapper(torch.nn.Module):
             with torch.enable_grad():
                 x = x.requires_grad_(True)
                 dx = self.model(t, x, d_base=self.d_base)
-            dlog_p = -self.div_fn(dx, x)
+                dlog_p = -self.div_fn(dx, x)
         else:
             if self.d_base is not None:
                 d_base_vec = torch.ones(x.shape[0], device=x.device) * self.d_base

@@ -19,6 +19,10 @@ from src.data.components.center_of_mass import CenterOfMassTransform
 from src.data.components.rotation import Random3DRotationTransform
 from src.data.components.transform_dataset import TransformDataset
 from src.data.components.utils import align_topology
+from src.models.components.distribution_distances import (
+    compute_distribution_distances_with_prefix,
+)
+from src.models.components.optimal_transport import torus_wasserstein
 from src.models.components.utils import (
     check_symmetry_change,
     compute_chirality_sign,
@@ -65,11 +69,13 @@ class ALPDataModule(BaseDataModule):
         self.atom_types = None
         assert dim == n_particles * n_dimensions
 
-        pdb = app.PDBFile(f"{self.hparams.data_dir}/{pdb_filename}")
+        self.pdb_path = f"{self.hparams.data_dir}/{pdb_filename}"
+        self.topology = md.load_topology(self.pdb_path)
+        self.pdb = app.PDBFile(self.pdb_path)
         forcefield = app.ForceField("amber14-all.xml", "implicit/obc1.xml")
 
         system = forcefield.createSystem(
-            pdb.topology,
+            self.pdb.topology,
             nonbondedMethod=app.CutoffNonPeriodic,
             nonbondedCutoff=2.0 * openmm.unit.nanometer,
             constraints=None,

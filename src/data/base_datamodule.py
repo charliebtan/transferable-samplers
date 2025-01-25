@@ -258,8 +258,8 @@ class BaseDataModule(LightningDataModule):
                 label="Proposal",
                 color="r",
             )
-        except:
-            pass
+        except Exception as e:
+            print(e)
         if samples_jarzynski is not None:
             dist_samples_jarzynski = (
                 self.interatomic_dist(self.unnormalize(samples_jarzynski)).detach().cpu()
@@ -306,8 +306,8 @@ class BaseDataModule(LightningDataModule):
                 linewidth=4,
                 label="Proposal",
             )
-        except:
-            pass
+        except Exception as e:
+            print(e)
         try:
             axs[1].hist(
                 energy_samples,
@@ -321,8 +321,8 @@ class BaseDataModule(LightningDataModule):
                 label="Proposal (reweighted)",
                 weights=importance_weights,
             )
-        except:
-            pass
+        except Exception as e:
+            print(e)
         if samples_jarzynski is not None:
             energies_jarzynski = self.energy(samples_jarzynski)
             energies_jarzynski = energies_jarzynski.detach().cpu().numpy()

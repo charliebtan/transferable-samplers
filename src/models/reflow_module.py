@@ -35,7 +35,6 @@ class ReflowModule(FlowMatchLitModule):
         # strip the file from output_dir
         output_dir = output_dir[: output_dir.rfind("/")]
         if self.samples is None:
-<<<<<<< HEAD
             if os.path.exists(f"{output_dir}/samples.pt"):
                 self.samples, _, self.prior_samples = torch.load(f"{output_dir}/samples.pt")
             else:
@@ -49,13 +48,6 @@ class ReflowModule(FlowMatchLitModule):
                     generator=self.base_flow.batched_generate_samples_no_ll,
                     output_dir=output_dir,
                 )
-=======
-            self.samples, self.prior_samples = self.base_flow.batched_generate_samples_no_ll(
-                self.hparams.num_reflow_samples, batch_size=self.hparams.reflow_batch_size
-            )
-            if hasattr(self.hparams, "eval_base_flow") and self.hparams.eval_base_flow:
-                self.evaluate(prefix="base_flow", generator=self.base_flow.batched_generate_samples)
->>>>>>> main
         # Sample random indices from length of samples
         idx = torch.randint(0, self.samples.shape[0], (batch.shape[0],), device=self.device)
         batch_prior = self.prior_samples[idx]

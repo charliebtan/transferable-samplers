@@ -3,13 +3,16 @@ import typing
 import warnings
 
 import flash_attn
-import flash_attn.layers.rotary
+
+# from flash_attn.layers import rotary
 import huggingface_hub
 import omegaconf
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange
+
+from src.models.components import rotary
 
 # Flags required to enable jit fusion kernels
 torch._C._jit_set_profiling_mode(False)
@@ -115,7 +118,7 @@ def rotate_half(x):
 def apply_rotary_pos_emb(qkv, cos, sin):
     cos = cos[0, :, 0, 0, : cos.shape[-1] // 2]
     sin = sin[0, :, 0, 0, : sin.shape[-1] // 2]
-    return flash_attn.layers.rotary.apply_rotary_emb_qkv_(qkv, cos, sin)
+    return rotary.apply_rotary_emb_qkv_(qkv, cos, sin)
 
 
 #################################################################################
