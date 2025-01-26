@@ -13,28 +13,26 @@
 #SBATCH --requeue                     # Requeue upon pre-emption
 #SBATCH --signal=SIGUSR1@90
 
-RUN_NAME="big_al4_tarflow_v6"
+RUN_NAME="chignolin_tarflow"
 
-#python -u src/train.py \
-srun python -u src/train.py \
+python -u src/train.py \
+# srun python -u src/train.py \
 model=normalizing_flow logger=wandb \
-data=al4 \
-trainer=ddp trainer.max_epochs=1000 \
+data=chignolin \
+trainer=ddp trainer.max_epochs=2000 \
 model.optimizer._target_=torch.optim.AdamW \
-model.optimizer.weight_decay=0.0001 \
-model.optimizer.lr=0.0001 \
+model.optimizer.weight_decay=4e-4 \
+model.optimizer.lr=1e=4 \
 model.sampling_config.batch_size=2000 \
-model.sampling_config.num_proposal_samples=10000 \
-tags=[tarflow,mle,aldp,big,v2] \
-model.net.num_blocks=6 \
-model.net.layers_per_block=6 \
+model.sampling_config.num_proposal_samples=100000 \
+tags=[tarflow,mle,chignolin] \
+model.net.num_blocks=8 \
+model.net.layers_per_block=8 \
 model.net.channels=1024 \
 trainer.check_val_every_n_epoch=50 \
 hydra.run.dir='${paths.log_dir}/${task_name}/runs/'${RUN_NAME} \
 ckpt_path='${paths.log_dir}/${task_name}/runs/'${RUN_NAME}/checkpoints/last.ckpt \
 logger.wandb.id=${RUN_NAME} \
-+model.force_gaussian_loss=1 \
-model.mean_free_prior=1 \
 +data.com_augmentation=1 \
 +trainer.num_sanity_val_steps=0 \
 callbacks.model_checkpoint.monitor=null \
@@ -43,4 +41,4 @@ callbacks.model_checkpoint.every_n_epochs=10 \
 callbacks.model_checkpoint.save_on_train_epoch_end=True \
 callbacks.model_checkpoint.verbose=True \
 data.batch_size=2048
-#+trainer.limit_train_batches=10.0 \
++trainer.limit_train_batches=10.0 \

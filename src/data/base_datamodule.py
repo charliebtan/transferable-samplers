@@ -179,6 +179,7 @@ class BaseDataModule(LightningDataModule):
         samples,
         log_p_samples: torch.Tensor,
         samples_jarzynski: torch.Tensor = None,
+        num_eval_samples: int = 5000, # for compatability
         loggers: List[Any] = None,
         prefix: str = "",
     ) -> None:
