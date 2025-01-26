@@ -105,13 +105,13 @@ class ALDPDataModule(BaseDataModule):
         # split the data
         self.data_train = TransformDataset(train_data, transform=self.transforms)
 
-        self.data_val = test_data[5::10]
+        self.data_val, self.data_test = test_data[:20_000], test_data[20_000:]
+
         val_rng = np.random.default_rng(0)
         self.data_val = torch.tensor(val_rng.permutation(self.data_val))
 
-        self.data_test = test_data[::10]
         test_rng = np.random.default_rng(1)
-        self.data_test = torch.tensor(test_rng.permutation(self.data_test))
+        self.data_test = torch.tensor(test_rng.permutation(self.data_test))[:100_000]
 
     def get_dataset_fig(
         self,
