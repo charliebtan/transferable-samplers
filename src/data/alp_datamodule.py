@@ -75,8 +75,8 @@ class ALPDataModule(BaseDataModule):
             constraints=None,
         )
         temperature = 310
-        # if n_particles == 42:
-        #     temperature = 300
+        if n_particles == 42:
+            temperature = 300
         integrator = openmm.LangevinMiddleIntegrator(
             temperature * openmm.unit.kelvin,
             0.3 / openmm.unit.picosecond,
