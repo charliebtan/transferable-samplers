@@ -95,13 +95,8 @@ class JarzynskiSampler(torch.nn.Module):
         # slice into list of batches (tensors)
         X_batches = [X[i : i + self.batch_size] for i in range(0, X.shape[0], self.batch_size)]
 
-        target_energy_list = [
-            np.concatenate([self.target_energy(X_batch).cpu() for X_batch in X_batches])
-        ]
-        interpolation_energy_list = [
-            np.concatenate([self.target_energy(X_batch).cpu() for X_batch in X_batches])
-        ]
-
+        target_energy_list = [np.concatenate([self.target_energy(X_batch).cpu() for X_batch in X_batches])]
+        interpolation_energy_list = [np.concatenate([self.linear_energy_interpolation(X_batch, timesteps[0]).cpu() for X_batch in X_batches])]
         dX_t_norm = [torch.zeros(X.shape[0])]
 
         t_previous = 0.0
@@ -142,9 +137,7 @@ class JarzynskiSampler(torch.nn.Module):
 
                 dX_t_norm_batches.append(dX_t.norm(dim=-1).cpu())
                 target_energy_batches.append(self.target_energy(X_batch).cpu())
-                interpolation_energy_batches.append(
-                    self.linear_energy_interpolation(X_batch, timesteps[0]).cpu()
-                )
+                interpolation_energy_batches.append(self.linear_energy_interpolation(X_batch, t).cpu())
 
             # cat the batches to compute global statistics
             X = torch.cat(X_batches, dim=0)
@@ -296,12 +289,11 @@ class JarzynskiSampler(torch.nn.Module):
                 eps_list.append(eps)
                 dX_t_norm.append(np.concatenate(dX_t_norm_batches))
 
-                target_energy_list.append(
-                    np.concatenate([self.target_energy(X_batch).cpu() for X_batch in X_batches])
-                )
-                interpolation_energy_list.append(
-                    np.concatenate([self.target_energy(X_batch).cpu() for X_batch in X_batches])
-                )
+                # slice into list of batches (tensors)
+                X_batches = [X[i : i + self.batch_size] for i in range(0, X.shape[0], self.batch_size)]
+
+                target_energy_list.append(np.concatenate([self.target_energy(X_batch).cpu() for X_batch in X_batches]))
+                interpolation_energy_list.append(np.concatenate([self.linear_energy_interpolation(X_batch, t+1e-9).cpu() for X_batch in X_batches]))
 
             t_previous = t
 

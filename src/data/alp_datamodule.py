@@ -75,8 +75,8 @@ class ALPDataModule(BaseDataModule):
             constraints=None,
         )
         temperature = 310
-        if n_particles == 42:
-            temperature = 300
+        # if n_particles == 42:
+        #     temperature = 300
         integrator = openmm.LangevinMiddleIntegrator(
             temperature * openmm.unit.kelvin,
             0.3 / openmm.unit.picosecond,
@@ -189,12 +189,16 @@ class ALPDataModule(BaseDataModule):
         resampled_samples = resample(samples, -self.energy(samples) - log_p_samples)
         samples = self.unnormalize(samples).cpu()
         samples_metrics = self.get_ramachandran_metrics(
-            samples[:num_eval_samples], prefix=prefix + "/rama"
+            samples[:num_eval_samples],
+            prefix=prefix + "/rama"
+            )
+        self.plot_ramachandran(
+            samples, prefix=prefix + "/rama", wandb_logger=wandb_logger
         )
         self.plot_ramachandran(samples, prefix=prefix + "/rama", wandb_logger=wandb_logger)
         metrics.update(samples_metrics)
 
-        resampled_samples = self.unnormalize(resampled_samples).cpu()
+        resampled_samples = self.unnormalize(resampled_samples.cpu())
         resampled_metrics = self.get_ramachandran_metrics(
             resampled_samples[:num_eval_samples], prefix=prefix + "/resampled/rama"
         )
@@ -204,11 +208,13 @@ class ALPDataModule(BaseDataModule):
         metrics.update(resampled_metrics)
 
         if samples_jarzynski is not None:
+            samples_jarzynski = self.unnormalize(samples_jarzynski).cpu()
             samples_jarzynski_metrics = self.get_ramachandran_metrics(
-                samples_jarzynski[:num_eval_samples].cpu(), prefix=prefix + "/jarzynski/rama"
+                samples_jarzynski[:num_eval_samples],
+                prefix=prefix + "/jarzynski/rama"
             )
             self.plot_ramachandran(
-                samples_jarzynski.cpu(),
+                samples_jarzynski,
                 prefix=prefix + "/jarzynski/rama",
                 wandb_logger=wandb_logger,
             )
