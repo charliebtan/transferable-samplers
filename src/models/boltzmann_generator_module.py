@@ -367,7 +367,9 @@ class BoltzmannGeneratorLitModule(LightningModule):
                 "samples": jarzynski_samples,
                 "logits": jarzynski_logits,
             }
-            logging.info(f"Saving {len(jarzynski_samples)} samples to {output_dir}/{prefix}_jarzynski_samples.pt")
+            logging.info(
+                f"Saving {len(jarzynski_samples)} samples to {output_dir}/{prefix}_jarzynski_samples.pt"
+            )
             torch.save(jarzynski_samples_dict, f"{output_dir}/{prefix}_jarzynski_samples.pt")
 
             # jarzynski samples should always be resampled

@@ -22,6 +22,7 @@ class BaseDataModule(LightningDataModule):
         n_particles: int,
         n_dimensions: int,
         dim: int,
+        repeat_factor: int = 1,
         batch_size: int = 64,
         num_workers: int = 0,
         pin_memory: bool = False,
@@ -43,6 +44,7 @@ class BaseDataModule(LightningDataModule):
         self.n_particles = n_particles
         self.n_dimensions = n_dimensions
         self.dim = dim
+        self.repeat_factor = repeat_factor
 
         self.data_train: Optional[Dataset] = None
         self.data_val: Optional[Dataset] = None
@@ -94,6 +96,7 @@ class BaseDataModule(LightningDataModule):
             num_workers=self.hparams.num_workers,
             pin_memory=self.hparams.pin_memory,
             shuffle=True,
+            persistent_workers=True,
         )
 
     def val_dataloader(self) -> DataLoader[Any]:
@@ -107,6 +110,7 @@ class BaseDataModule(LightningDataModule):
             num_workers=self.hparams.num_workers,
             pin_memory=self.hparams.pin_memory,
             shuffle=False,
+            persistent_workers=True,
         )
 
     def test_dataloader(self) -> DataLoader[Any]:
@@ -120,6 +124,7 @@ class BaseDataModule(LightningDataModule):
             num_workers=self.hparams.num_workers,
             pin_memory=self.hparams.pin_memory,
             shuffle=False,
+            persistent_workers=True,
         )
 
     def teardown(self, stage: Optional[str] = None) -> None:

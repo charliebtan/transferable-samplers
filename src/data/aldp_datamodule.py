@@ -42,6 +42,7 @@ class ALDPDataModule(BaseDataModule):
         num_workers: int = 0,
         pin_memory: bool = False,
         scaling: float = 10.0,
+        repeat_factor: int = 1,
     ) -> None:
         super().__init__(
             data_dir=data_dir,
@@ -50,6 +51,7 @@ class ALDPDataModule(BaseDataModule):
             n_particles=n_particles,
             n_dimensions=n_dimensions,
             dim=dim,
+            repeat_factor=repeat_factor,
         )
         assert dim == n_particles * n_dimensions
 
@@ -103,7 +105,9 @@ class ALDPDataModule(BaseDataModule):
         test_data = self.normalize(test_data)
 
         # split the data
-        self.data_train = TransformDataset(train_data, transform=self.transforms)
+        self.data_train = TransformDataset(
+            train_data.repeat(self.repeat_factor, 1), transform=self.transforms
+        )
 
         self.data_val, self.data_test = test_data[:20_000], test_data[20_000:]
 

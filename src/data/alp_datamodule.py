@@ -40,6 +40,7 @@ class ALPDataModule(BaseDataModule):
         pin_memory: bool = False,
         scaling: float = 1.0,
         make_iid: bool = False,
+        repeat_factor: int = 1,
     ):
         super().__init__(
             data_dir=data_dir,
@@ -48,6 +49,7 @@ class ALPDataModule(BaseDataModule):
             n_particles=n_particles,
             n_dimensions=n_dimensions,
             dim=dim,
+            repeat_factor=repeat_factor,
         )
         assert dim == n_particles * n_dimensions
 
@@ -128,7 +130,9 @@ class ALPDataModule(BaseDataModule):
         test_data = self.normalize(test_data)
 
         # split the data
-        self.data_train = TransformDataset(train_data, transform=self.transforms)
+        self.data_train = TransformDataset(
+            train_data.repeat(self.repeat_factor, 1), transform=self.transforms
+        )
 
         self.data_val, self.data_test = test_data[:20_000], test_data[20_000:]
 
