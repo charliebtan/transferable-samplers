@@ -231,7 +231,8 @@ class BaseDataModule(LightningDataModule):
         max_energy=0,
         ylim=(0, 0.2),
     ):
-        test_data_smaller = self.sample_test_set(5000)
+        # TODO this is broken on other branches, doesn't handle switch to test
+        test_data_smaller = self.data_val[:10000]
 
         fig, axs = plt.subplots(1, 2, figsize=(12, 4))
 

@@ -13,18 +13,19 @@
 #SBATCH --requeue                     # Requeue upon pre-emption
 #SBATCH --signal=SIGUSR1@90
 
-RUN_NAME="chignolin_tarflow"
+RUN_NAME="chignolin_tarflow_v1"
 
-python -u src/train.py \
-# srun python -u src/train.py \
+# python -u src/train.py \
+srun python -u src/train.py \
 model=normalizing_flow logger=wandb \
 data=chignolin \
-trainer=ddp trainer.max_epochs=2000 \
+trainer=ddp trainer.max_epochs=1000 \
+trainer.strategy=ddp_find_unused_parameters_true \
 model.optimizer._target_=torch.optim.AdamW \
 model.optimizer.weight_decay=4e-4 \
-model.optimizer.lr=1e=4 \
-model.sampling_config.batch_size=2000 \
-model.sampling_config.num_proposal_samples=100000 \
+model.optimizer.lr=1e-4 \
+model.sampling_config.batch_size=2048 \
+model.sampling_config.num_proposal_samples=20_000 \
 tags=[tarflow,mle,chignolin] \
 model.net.num_blocks=8 \
 model.net.layers_per_block=8 \
@@ -40,5 +41,5 @@ callbacks.model_checkpoint.save_top_k=-1 \
 callbacks.model_checkpoint.every_n_epochs=10 \
 callbacks.model_checkpoint.save_on_train_epoch_end=True \
 callbacks.model_checkpoint.verbose=True \
-data.batch_size=2048
-+trainer.limit_train_batches=10.0 \
+data.batch_size=256
+# +trainer.limit_train_batches=10.0 \

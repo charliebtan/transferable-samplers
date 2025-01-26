@@ -1,7 +1,7 @@
 _target_: src.data.chignolin_datamodule.ChignolinDataModule
 data_dir: ${paths.data_dir}/chignolin/
 filename: "chignolin-0_all.h5"
-batch_size: 512 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
+batch_size: 256 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
 num_workers: 2
 pin_memory: False
 n_particles: 166

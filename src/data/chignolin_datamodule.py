@@ -115,7 +115,7 @@ class ChignolinDataModule(BaseDataModule):
             self.transforms = torchvision.transforms.Compose(
                 [
                     self.transforms,
-                    CenterOfMassTransform(self.n_particles, self.n_dimensions, self.std),
+                    CenterOfMassTransform(self.n_particles, self.n_dimensions, 0.2),
                 ]
             )
 
@@ -134,28 +134,20 @@ class ChignolinDataModule(BaseDataModule):
         test_rng = np.random.default_rng(1)
         self.data_test = torch.tensor(test_rng.permutation(self.data_test))[:100_000]
 
-    # def get_dataset_fig(
-    #     self,
-    #     samples,
-    #     log_p_samples: torch.Tensor,
-    #     samples_jarzynski: torch.Tensor = None,
-    #     min_energy=-20,
-    #     max_energy=80,
-    #     ylim=(0, 0.1),
-    # ):
-    #     if self.n_particles == 42:
-    #         min_energy = -20
-    #         max_energy = 80
-    #         ylim = (0, 0.1)
-    #     if self.n_particles == 33:
-    #         min_energy = -200
-    #         max_energy = -100
-    #         ylim = (0, 0.1)
-    #     return super().get_dataset_fig(
-    #         samples,
-    #         log_p_samples,
-    #         samples_jarzynski,
-    #         min_energy,
-    #         max_energy,
-    #         ylim=ylim,
-    #     )
+    def get_dataset_fig(
+        self,
+        samples,
+        log_p_samples: torch.Tensor,
+        samples_jarzynski: torch.Tensor = None,
+        min_energy=-500,
+        max_energy=-250,
+        ylim=(0, 0.04),
+    ):
+        return super().get_dataset_fig(
+            samples,
+            log_p_samples,
+            samples_jarzynski,
+            min_energy,
+            max_energy,
+            ylim=ylim,
+        )
