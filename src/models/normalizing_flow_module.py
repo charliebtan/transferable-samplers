@@ -38,8 +38,6 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
         x1 = batch
         x0, dlogp = self.net(x1)
 
-        logging.info(str(batch.shape))
-
         if self.hparams.force_gaussian_loss:
             loss = (0.5 * x0.pow(2)).mean() - dlogp.mean()
         else:
