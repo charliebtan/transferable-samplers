@@ -4,26 +4,27 @@ defaults:
   - override /model: normalizing_flow
   - override /data: al3
 
-ckpt_path: "/home/mila/b/bosejoey/scratch/fast-tbg/logs/train/multiruns/2025-01-20_17-23-26/16/checkpoints/last.ckpt"
+ckpt_path: "/home/mila/b/bosejoey/scratch/fast-tbg/logs/train/multiruns/2025-01-21_19-57-11/2/checkpoints/epoch_899_cropped.ckpt"
 train: False
 
 model:
   sampling_config:
-    batch_size: 10000
-    num_test_proposal_samples: 4096
-    num_jarzynski_samples: 20000
-    jarzynski_prefilter_cutoff: null
+    batch_size: 10_000
+    num_test_proposal_samples: 100_000
+    num_jarzynski_samples: 100_000
+    num_eval_samples: 10_000
+    energy_cutoff: 50.0
   net:
     in_channels: 3
     channels: 256
-    num_blocks: 8
+    num_blocks: 6
     layers_per_block: 6
   jarzynski_sampler:
-    langevin_eps: 0.1
-    num_timesteps:
+    langevin_eps: 2e-7
+    num_timesteps: 100
     enabled: True
 
   data:
-    - batch_size: 4096
+    - batch_size: 1024
 
 tags: [jarz]
