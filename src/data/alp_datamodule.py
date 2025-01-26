@@ -9,7 +9,6 @@ import openmm
 import torch
 import torchvision
 from bgflow import OpenMMBridge, OpenMMEnergy
-from bgmol.datasets import AImplicitUnconstrained
 from lightning.pytorch.loggers import WandbLogger
 from matplotlib.colors import LogNorm
 from openmm import app
@@ -18,15 +17,11 @@ from src.data.base_datamodule import BaseDataModule
 from src.data.components.center_of_mass import CenterOfMassTransform
 from src.data.components.rotation import Random3DRotationTransform
 from src.data.components.transform_dataset import TransformDataset
-from src.data.components.utils import align_topology
 from src.models.components.distribution_distances import (
     compute_distribution_distances_with_prefix,
 )
 from src.models.components.optimal_transport import torus_wasserstein
 from src.models.components.utils import (
-    check_symmetry_change,
-    compute_chirality_sign,
-    find_chirality_centers,
     resample,
 )
 
@@ -56,6 +51,7 @@ class ALPDataModule(BaseDataModule):
             n_dimensions=n_dimensions,
             dim=dim,
         )
+        assert dim == n_particles * n_dimensions
 
         # com is added once std known
         self.transforms = Random3DRotationTransform(self.n_particles, self.n_dimensions)
@@ -63,11 +59,9 @@ class ALPDataModule(BaseDataModule):
         self.scaling = scaling
 
         self.batch_size_per_device = batch_size
-        # yes a hack but only way without changing bgmol
 
         self.adj_list = None
         self.atom_types = None
-        assert dim == n_particles * n_dimensions
 
         self.pdb_path = f"{self.hparams.data_dir}/{pdb_filename}"
         self.topology = md.load_topology(self.pdb_path)
@@ -80,9 +74,9 @@ class ALPDataModule(BaseDataModule):
             nonbondedCutoff=2.0 * openmm.unit.nanometer,
             constraints=None,
         )
-        temperature = 300
+        temperature = 310
         if n_particles == 42:
-            temperature = 310
+            temperature = 300
         integrator = openmm.LangevinMiddleIntegrator(
             temperature * openmm.unit.kelvin,
             0.3 / openmm.unit.picosecond,
@@ -109,11 +103,16 @@ class ALPDataModule(BaseDataModule):
         if self.hparams.make_iid:
             rand_idx = torch.randperm(data.shape[0])
             data = data[rand_idx]
-        data = data[:300000]
+
+        if self.n_particles == 42:
+            data = data[:700000]
+        else:
+            data = data[:300000]
+
         data = self.zero_center_of_mass(data)
 
-        test_data = data[-100000:]
-        train_data = data[:-100000]
+        train_data = data[:100000]
+        test_data = data[100000:]
 
         # compute std on only train data
         self.std = train_data.std()
@@ -128,13 +127,49 @@ class ALPDataModule(BaseDataModule):
 
         # standardize the data
         train_data = self.normalize(train_data)
-        print("train_data shape", train_data.shape)
         test_data = self.normalize(test_data)
 
         # split the data
-        self.data_train = TransformDataset(train_data[:-100000], transform=self.transforms)
-        self.data_val = train_data[-100000:]
-        self.data_test = test_data
+        self.data_train = TransformDataset(train_data, transform=self.transforms)
+
+        if self.n_particles == 42:
+            slice_stride = 6
+        else:
+            slice_stride = 2
+
+        self.data_val = test_data[slice_stride // 2::slice_stride]
+        val_rng = np.random.default_rng(0)
+        self.data_val = torch.tensor(val_rng.permutation(self.data_val))
+
+        self.data_test = test_data[::slice_stride]
+        test_rng = np.random.default_rng(1)
+        self.data_test = torch.tensor(test_rng.permutation(self.data_test))
+
+    def get_dataset_fig(
+        self,
+        samples,
+        log_p_samples: torch.Tensor,
+        samples_jarzynski: torch.Tensor = None,
+        min_energy=-20,
+        max_energy=80,
+        ylim=(0, 0.1),
+    ):
+        if self.n_particles == 42:
+            min_energy = -20
+            max_energy = 80
+            ylim = (0, 0.1)
+        if self.n_particles == 33:
+            min_energy = -200
+            max_energy = -100
+            ylim = (0, 0.1)
+        return super().get_dataset_fig(
+            samples,
+            log_p_samples,
+            samples_jarzynski,
+            min_energy,
+            max_energy,
+            ylim=ylim,
+        )
 
     def log_on_epoch_end(
         self,
@@ -153,33 +188,58 @@ class ALPDataModule(BaseDataModule):
             loggers=loggers,
             prefix=prefix,
         )
+        metrics = {}
         resampled_samples = resample(samples, -self.energy(samples) - log_p_samples)
         samples = self.unnormalize(samples).cpu()
-        sample_metrics = self.get_ramachandran_metrics(samples[:num_eval_samples], prefix=prefix + "/rama")
+        samples_metrics = self.get_ramachandran_metrics(samples[:num_eval_samples], prefix=prefix + "/rama")
         self.plot_ramachandran(
             samples, prefix=prefix + "/rama", wandb_logger=wandb_logger
         )
+        metrics.update(samples_metrics)
+
         resampled_samples = self.unnormalize(resampled_samples).cpu()
-        resampled_sample_metrics = self.get_ramachandran_metrics(
-            resampled_samples[:num_eval_samples], prefix=prefix + "/resampled/rama"
+        resampled_metrics = self.get_ramachandran_metrics(
+            resampled_samples[:num_eval_samples],
+            prefix=prefix + "/resampled/rama"
         )
         self.plot_ramachandran(
             resampled_samples, prefix=prefix + "/resampled/rama", wandb_logger=wandb_logger
         )
-        sample_metrics.update(resampled_sample_metrics)
+        metrics.update(resampled_metrics)
+
         if samples_jarzynski is not None:
-            sample_jarzynski_metrics = self.get_ramachandran_metrics(
-                samples_jarzynski[:num_eval_samples], prefix=prefix + "/jarzynski/rama"
+            samples_jarzynski_metrics = self.get_ramachandran_metrics(
+                samples_jarzynski[:num_eval_samples].cpu(),
+                prefix=prefix + "/jarzynski/rama"
             )
             self.plot_ramachandran(
-                samples_jarzynski, prefix=prefix + "/jarzynski/rama", wandb_logger=wandb_logger
+                samples_jarzynski.cpu(),
+                prefix=prefix + "/jarzynski/rama",
+                wandb_logger=wandb_logger,
             )
-            sample_metrics.update(sample_jarzynski_metrics)
-        return sample_metrics
+            metrics.update(samples_jarzynski_metrics)
+
+        if "val" in prefix:
+            self.plot_ramachandran(
+                self.data_val, prefix=prefix + "/ground_truth/rama", wandb_logger=wandb_logger
+            )
+        elif "test" in prefix:
+            self.plot_ramachandran(
+                self.data_test, prefix=prefix + "/ground_truth/rama", wandb_logger=wandb_logger
+            )
+
+        return metrics
+
 
     def get_ramachandran_metrics(self, samples, prefix: str = ""):
         x_pred = self.get_phi_psi_vectors(samples)
-        x_true = self.get_phi_psi_vectors(self.unnormalize(self.data_test)[: x_pred.shape[0]])
+
+        if "val" in prefix:
+            eval_samples = self.data_val[: x_pred.shape[0]]
+        elif "test" in prefix:
+            eval_samples = self.data_test[: x_pred.shape[0]]
+
+        x_true = self.get_phi_psi_vectors(self.unnormalize(eval_samples))
 
         metrics = compute_distribution_distances_with_prefix(x_true, x_pred, prefix=prefix)
         metrics[prefix + "/torus_wasserstein"] = torus_wasserstein(x_true, x_pred)
@@ -227,28 +287,3 @@ class ALPDataModule(BaseDataModule):
 
         return fig
 
-    def get_dataset_fig(
-        self,
-        samples,
-        log_p_samples: torch.Tensor,
-        samples_jarzynski: torch.Tensor = None,
-        min_energy=-20,
-        max_energy=80,
-        ylim=(0, 0.1),
-    ):
-        if self.n_particles == 42:
-            min_energy = -20
-            max_energy = 80
-            ylim = (0, 0.1)
-        if self.n_particles == 33:
-            min_energy = -200
-            max_energy = -100
-            ylim = (0, 0.1)
-        return super().get_dataset_fig(
-            samples,
-            log_p_samples,
-            samples_jarzynski,
-            min_energy,
-            max_energy,
-            ylim=ylim,
-        )
