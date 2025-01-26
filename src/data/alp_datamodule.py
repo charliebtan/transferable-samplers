@@ -132,18 +132,13 @@ class ALPDataModule(BaseDataModule):
         # split the data
         self.data_train = TransformDataset(train_data, transform=self.transforms)
 
-        if self.n_particles == 42:
-            slice_stride = 6
-        else:
-            slice_stride = 2
+        self.data_val, self.data_test = test_data[:20_000], test_data[20_000:]
 
-        self.data_val = test_data[slice_stride // 2::slice_stride]
         val_rng = np.random.default_rng(0)
         self.data_val = torch.tensor(val_rng.permutation(self.data_val))
 
-        self.data_test = test_data[::slice_stride]
         test_rng = np.random.default_rng(1)
-        self.data_test = torch.tensor(test_rng.permutation(self.data_test))
+        self.data_test = torch.tensor(test_rng.permutation(self.data_test))[:100_000]
 
     def get_dataset_fig(
         self,
