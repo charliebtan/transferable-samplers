@@ -1,12 +1,11 @@
-import math
 import logging
-
-import torch
-from tqdm import tqdm
+import math
 
 import matplotlib.pyplot as plt
-from matplotlib.colors import LogNorm
 import numpy as np
+import torch
+from matplotlib.colors import LogNorm
+from tqdm import tqdm
 
 from src.utils.tbg_utils import sampling_efficiency
 
@@ -96,8 +95,12 @@ class JarzynskiSampler(torch.nn.Module):
         # slice into list of batches (tensors)
         X_batches = [X[i : i + self.batch_size] for i in range(0, X.shape[0], self.batch_size)]
 
-        target_energy_list = [np.concatenate([self.target_energy(X_batch).cpu() for X_batch in X_batches])]
-        interpolation_energy_list = [np.concatenate([self.target_energy(X_batch).cpu() for X_batch in X_batches])]
+        target_energy_list = [
+            np.concatenate([self.target_energy(X_batch).cpu() for X_batch in X_batches])
+        ]
+        interpolation_energy_list = [
+            np.concatenate([self.target_energy(X_batch).cpu() for X_batch in X_batches])
+        ]
 
         dX_t_norm = [torch.zeros(X.shape[0])]
 
@@ -123,12 +126,10 @@ class JarzynskiSampler(torch.nn.Module):
                     X_batch, t
                 )
 
-                # assert torch.allclose(energy_grad_t, - self.source_energy(X_batch) + self.target_energy(X_batch))
+                # assert torch.allclose(energy_grad_t, - self.source_energy(X_batch) + self.target_energy(X_batch))
 
                 # compute the updates
-                dX_t = -eps * energy_grad_x + math.sqrt(2 * eps) * torch.randn_like(
-                    X_batch
-                )
+                dX_t = -eps * energy_grad_x + math.sqrt(2 * eps) * torch.randn_like(X_batch)
 
                 dA_t = -energy_grad_t * dt
 
@@ -141,7 +142,9 @@ class JarzynskiSampler(torch.nn.Module):
 
                 dX_t_norm_batches.append(dX_t.norm(dim=-1).cpu())
                 target_energy_batches.append(self.target_energy(X_batch).cpu())
-                interpolation_energy_batches.append(self.linear_energy_interpolation(X_batch, timesteps[0]).cpu())
+                interpolation_energy_batches.append(
+                    self.linear_energy_interpolation(X_batch, timesteps[0]).cpu()
+                )
 
             # cat the batches to compute global statistics
             X = torch.cat(X_batches, dim=0)
@@ -163,13 +166,15 @@ class JarzynskiSampler(torch.nn.Module):
                 for k in range(stepwise_target_energy_np.shape[1]):
 
                     axs[0].plot(t_list, stepwise_target_energy_np[:, k], linewidth=1, alpha=0.5)
-                    axs[1].plot(t_list, stepwise_interpolation_energy_np[:, k], linewidth=1, alpha=0.5)
+                    axs[1].plot(
+                        t_list, stepwise_interpolation_energy_np[:, k], linewidth=1, alpha=0.5
+                    )
 
-                axs[0].set_xlabel('Time', fontsize=12)
-                axs[0].set_ylabel('Target energy', fontsize=12)
+                axs[0].set_xlabel("Time", fontsize=12)
+                axs[0].set_ylabel("Target energy", fontsize=12)
 
-                axs[1].set_xlabel('Time', fontsize=12)
-                axs[1].set_ylabel('Interpolation energy', fontsize=12)
+                axs[1].set_xlabel("Time", fontsize=12)
+                axs[1].set_ylabel("Interpolation energy", fontsize=12)
 
                 plt.tight_layout()
                 self.wandb_logger.log_image(f"langevin/energies", [fig])
@@ -184,17 +189,19 @@ class JarzynskiSampler(torch.nn.Module):
                 extent = [t_np.min(), t_np.max(), bins[0], bins[-1]]
                 im = axs[0].imshow(
                     histograms_normalized.T,
-                    origin='lower',
+                    origin="lower",
                     extent=extent,
-                    aspect='auto',
-                    norm=LogNorm(vmin=histograms_normalized[histograms_normalized > 0].min(), vmax=histograms_normalized.max()),
-                    cmap='inferno',
-
+                    aspect="auto",
+                    norm=LogNorm(
+                        vmin=histograms_normalized[histograms_normalized > 0].min(),
+                        vmax=histograms_normalized.max(),
+                    ),
+                    cmap="inferno",
                 )
 
-                axs[0].set_xlabel('Time', fontsize=12)
-                axs[0].set_ylabel('Target energy', fontsize=12)
-                fig.colorbar(im, ax=axs[0], label='Log Marginal Density')
+                axs[0].set_xlabel("Time", fontsize=12)
+                axs[0].set_ylabel("Target energy", fontsize=12)
+                fig.colorbar(im, ax=axs[0], label="Log Marginal Density")
 
                 data = stepwise_interpolation_energy_np
                 bins = np.linspace(data.min(), data.max(), 100)
@@ -203,16 +210,19 @@ class JarzynskiSampler(torch.nn.Module):
                 extent = [t_np.min(), t_np.max(), bins[0], bins[-1]]
                 im = axs[1].imshow(
                     histograms_normalized.T,
-                    origin='lower',
+                    origin="lower",
                     extent=extent,
-                    aspect='auto',
-                    norm=LogNorm(vmin=histograms_normalized[histograms_normalized > 0].min(), vmax=histograms_normalized.max()),
-                    cmap='inferno',
+                    aspect="auto",
+                    norm=LogNorm(
+                        vmin=histograms_normalized[histograms_normalized > 0].min(),
+                        vmax=histograms_normalized.max(),
+                    ),
+                    cmap="inferno",
                 )
 
-                axs[1].set_xlabel('Time', fontsize=12)
-                axs[1].set_ylabel('Interpolation energy', fontsize=12)
-                fig.colorbar(im, ax=axs[1], label='Log Marginal Density')
+                axs[1].set_xlabel("Time", fontsize=12)
+                axs[1].set_ylabel("Interpolation energy", fontsize=12)
+                fig.colorbar(im, ax=axs[1], label="Log Marginal Density")
 
                 plt.tight_layout()
                 self.wandb_logger.log_image(f"langevin/energy_histograms", [fig])
@@ -221,13 +231,13 @@ class JarzynskiSampler(torch.nn.Module):
                 fig, axs = plt.subplots(1, 2, figsize=(15, 5))
                 for k in range(stepwise_target_energy_np.shape[1]):
                     axs[0].plot(t_list, A_np[:, k], linewidth=1, alpha=0.5)
-                axs[0].set_xlabel('Time', fontsize=12)
-                axs[0].set_ylabel('A', fontsize=12)
+                axs[0].set_xlabel("Time", fontsize=12)
+                axs[0].set_ylabel("A", fontsize=12)
 
                 axs[1].plot(t_list, ESS_list, linewidth=1, alpha=0.3)
-                axs[1].set_xlabel('Time', fontsize=12)
-                axs[1].set_ylabel('ESS', fontsize=12)
-                axs[1].set_yscale('log')
+                axs[1].set_xlabel("Time", fontsize=12)
+                axs[1].set_ylabel("ESS", fontsize=12)
+                axs[1].set_yscale("log")
 
                 plt.tight_layout()
                 self.wandb_logger.log_image(f"langevin/weights", [fig])
@@ -235,8 +245,8 @@ class JarzynskiSampler(torch.nn.Module):
 
                 fig, ax = plt.subplots(1, 1, figsize=(7.5, 5))
                 ax.plot(t_list, eps_list, linewidth=1, alpha=0.5)
-                ax.set_xlabel('Time', fontsize=12)
-                ax.set_ylabel('Eps', fontsize=12)
+                ax.set_xlabel("Time", fontsize=12)
+                ax.set_ylabel("Eps", fontsize=12)
                 plt.tight_layout()
                 self.wandb_logger.log_image(f"langevin/eps", [fig])
                 plt.close()
@@ -247,8 +257,8 @@ class JarzynskiSampler(torch.nn.Module):
 
                     axs.plot(t_list, dX_t_norm_np[k], linewidth=1, alpha=0.5)
 
-                axs.set_xlabel('Time', fontsize=12)
-                axs.set_ylabel('||dX_t||', fontsize=12)
+                axs.set_xlabel("Time", fontsize=12)
+                axs.set_ylabel("||dX_t||", fontsize=12)
                 plt.tight_layout()
                 self.wandb_logger.log_image(f"langevin/dX_t_norm", [fig])
                 plt.close()
@@ -282,12 +292,16 @@ class JarzynskiSampler(torch.nn.Module):
                 ESS = sampling_efficiency(A)
                 ESS_list.append(ESS.cpu())
 
-                t_list.append(t+1e-9)
+                t_list.append(t + 1e-9)
                 eps_list.append(eps)
                 dX_t_norm.append(np.concatenate(dX_t_norm_batches))
 
-                target_energy_list.append(np.concatenate([self.target_energy(X_batch).cpu() for X_batch in X_batches]))
-                interpolation_energy_list.append(np.concatenate([self.target_energy(X_batch).cpu() for X_batch in X_batches]))
+                target_energy_list.append(
+                    np.concatenate([self.target_energy(X_batch).cpu() for X_batch in X_batches])
+                )
+                interpolation_energy_list.append(
+                    np.concatenate([self.target_energy(X_batch).cpu() for X_batch in X_batches])
+                )
 
             t_previous = t
 
