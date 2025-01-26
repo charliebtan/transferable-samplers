@@ -265,6 +265,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         sample_target_energy = self.datamodule.energy(samples)
         target_target_energy = self.datamodule.energy(true_data)
         self.log(f"{prefix}/mean_energy", sample_target_energy.mean(), sync_dist=True)
+        logging.info("Energies computed")
 
         # compute weights + resample
         assert log_p.shape == sample_target_energy.shape
@@ -312,6 +313,8 @@ class BoltzmannGeneratorLitModule(LightningModule):
         )
         self.log_dict(resampled_dist_metrics)
 
+        logging.info("Distance metrics computed")
+
         # compute energy metrics
         energy_metrics = energy_distances(sample_target_energy, target_target_energy, prefix)
         self.log_dict(energy_metrics)
@@ -328,8 +331,12 @@ class BoltzmannGeneratorLitModule(LightningModule):
         )
         self.log_dict(resampled_energy_metrics)
 
+        logging.info("Energy metrics computed")
+
         jarzynski_samples, jarzynski_logits = None, None
         if self.jarzynski_sampler is not None and self.jarzynski_sampler.enabled:
+
+            logging.info("Jarzynski sampling enabled")
 
             self.jarzynski_sampler.wandb_logger = self.datamodule.get_wandb_logger(self.loggers)
 
@@ -395,6 +402,8 @@ class BoltzmannGeneratorLitModule(LightningModule):
             jarzynski_dist_metrics[f"{prefix}/jarzynski/num_eval_samples"] = num_eval_samples
             self.log_dict(jarzynski_dist_metrics)
 
+            logging.info("Distance metrics computed (jarzynski)")
+
             # compute jarzynski energy metrics
             sample_target_jarzynski_energy = self.datamodule.energy(jarzynski_samples)
             self.log(f"{prefix}/jarzynski/mean_energy", sample_target_jarzynski_energy.mean())
@@ -402,6 +411,8 @@ class BoltzmannGeneratorLitModule(LightningModule):
                 sample_target_jarzynski_energy, target_target_energy, prefix + "/jarzynski"
             )
             self.log_dict(jarzynski_energy_metrics)
+
+            logging.info("Energy metrics computed (jarzynski)")
 
         # log dataset metrics
         dataset_metrics = self.datamodule.log_on_epoch_end(

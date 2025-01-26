@@ -152,11 +152,15 @@ class ALDPDataModule(BaseDataModule):
             loggers=loggers,
             prefix=prefix,
         )
+        logging.info("Base plots done")
         metrics = {}
         samples_metrics = self.align_and_compute_metrics(
             samples, prefix=prefix + "/rama", wandb_logger=wandb_logger
         )
         metrics.update(samples_metrics)
+
+        logging.info("Align and compute metrics done")
+        
 
         resampled_samples = resample(samples, -self.energy(samples) - log_p_samples)
         resampled_metrics = self.align_and_compute_metrics(
@@ -167,6 +171,8 @@ class ALDPDataModule(BaseDataModule):
         )
         metrics.update(resampled_metrics)
 
+        logging.info("Align and compute metrics done (resampled)")
+
         if samples_jarzynski is not None:
             samples_jarzynski_metrics = self.align_and_compute_metrics(
                 samples_jarzynski,
@@ -175,6 +181,8 @@ class ALDPDataModule(BaseDataModule):
                 num_eval_samples=num_eval_samples,
             )
             metrics.update(samples_jarzynski_metrics)
+            
+            logging.info("Align and compute metrics done (jarzynski)")
 
         if "val" in prefix:
             self.plot_ramachandran(
@@ -298,6 +306,8 @@ class ALDPDataModule(BaseDataModule):
         cbar.ax.set_ylabel(r"Free energy / $k_B T$", fontsize=35)
         if wandb_logger is not None:
             wandb_logger.log_image(f"{prefix}/ramachandran", [fig])
+
+        
 
         return fig
 

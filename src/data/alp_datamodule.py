@@ -185,6 +185,8 @@ class ALPDataModule(BaseDataModule):
             loggers=loggers,
             prefix=prefix,
         )
+        logging.info("Base plots done")
+
         metrics = {}
         resampled_samples = resample(samples, -self.energy(samples) - log_p_samples)
         samples = self.unnormalize(samples).cpu()
@@ -192,6 +194,9 @@ class ALPDataModule(BaseDataModule):
             samples[:num_eval_samples],
             prefix=prefix + "/rama"
             )
+
+        logging.info("Ramachandran metrics computed")
+
         self.plot_ramachandran(
             samples, prefix=prefix + "/rama", wandb_logger=wandb_logger
         )
@@ -202,6 +207,7 @@ class ALPDataModule(BaseDataModule):
         resampled_metrics = self.get_ramachandran_metrics(
             resampled_samples[:num_eval_samples], prefix=prefix + "/resampled/rama"
         )
+        logging.info("Ramachandran metrics computed (resampled)")
         self.plot_ramachandran(
             resampled_samples, prefix=prefix + "/resampled/rama", wandb_logger=wandb_logger
         )
@@ -213,6 +219,7 @@ class ALPDataModule(BaseDataModule):
                 samples_jarzynski[:num_eval_samples],
                 prefix=prefix + "/jarzynski/rama"
             )
+            logging.info("Ramachandran metrics computed (jarzynski)")
             self.plot_ramachandran(
                 samples_jarzynski,
                 prefix=prefix + "/jarzynski/rama",
@@ -289,5 +296,27 @@ class ALPDataModule(BaseDataModule):
             cbar.ax.set_ylabel(r"Free energy / $k_B T$", fontsize=35)
             if wandb_logger is not None:
                 wandb_logger.log_image(f"{prefix}/ramachandran/{i}", [fig])
+
+            phi_tmp = phis[:, i]
+            psi_tmp = psis[:, i]
+            fig, ax = plt.subplots()
+            plot_range = [-np.pi, np.pi]
+            h, x_bins, y_bins, im = ax.hist2d(
+                phi_tmp,
+                psi_tmp,
+                100,
+                norm=LogNorm(),
+                range=[plot_range, plot_range],
+                rasterized=True,
+            )
+            ax.set_xlabel(r"$\varphi$", fontsize=45)
+            ax.set_ylabel(r"$\psi$", fontsize=45)
+            ax.xaxis.set_tick_params(labelsize=25)
+            ax.yaxis.set_tick_params(labelsize=25)
+            ax.yaxis.set_ticks([])
+            cbar = fig.colorbar(im) #, ticks=ticks)
+            im.set_clim(vmax=samples.shape[0] // 10)
+            if wandb_logger is not None:
+                wandb_logger.log_image(f"{prefix}/ramachandran_simple/{i}", [fig])
 
         return fig
