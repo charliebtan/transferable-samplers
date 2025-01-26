@@ -219,9 +219,6 @@ class BaseDataModule(LightningDataModule):
         dist = torch.linalg.norm(distances, dim=-1)
         return dist
 
-    def sample_test_set(self, n):
-        return self.data_test[torch.randint(0, len(self.data_test), (n,))]
-
     def get_dataset_fig(
         self,
         samples,
@@ -231,8 +228,7 @@ class BaseDataModule(LightningDataModule):
         max_energy=0,
         ylim=(0, 0.2),
     ):
-        # TODO this is broken on other branches, doesn't handle switch to test
-        test_data_smaller = self.data_val[:10000]
+        test_data_smaller = self.data_test[:10000]
 
         fig, axs = plt.subplots(1, 2, figsize=(12, 4))
 

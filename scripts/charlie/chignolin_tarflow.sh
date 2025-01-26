@@ -41,5 +41,5 @@ callbacks.model_checkpoint.save_top_k=-1 \
 callbacks.model_checkpoint.every_n_epochs=10 \
 callbacks.model_checkpoint.save_on_train_epoch_end=True \
 callbacks.model_checkpoint.verbose=True \
-data.batch_size=128
+data.batch_size=512
 # +trainer.limit_train_batches=10.0 \
