@@ -1,0 +1,19 @@
+#!/bin/bash
+python src/train.py -m launcher=mila_48gb \
+model=normalizing_flow logger=wandb \
+data=al4 \
+trainer=gpu trainer.max_epochs=1000 \
+model.optimizer._target_=torch.optim.AdamW \
+tags=[tarflow,mle,al4_final,resume] \
+model.net.num_blocks=6 \
+model.net.layers_per_block=6 \
+model.optimizer.weight_decay=4e-4 \
+model.net.channels=384 \
+trainer.check_val_every_n_epoch=50 \
++data.com_augmentation=1 \
+model.net.in_channels=3 \
+model.sampling_config.num_proposal_samples=100_000 \
+data.batch_size=256 \
+model.optimizer.lr=1e-4 \
+seed=0 \
+ckpt_path="/home/mila/b/bosejoey/scratch/fast-tbg/logs/train/multiruns/2025-01-21_19-56-57/0/checkpoints/epoch_749_cropped.ckpt"
