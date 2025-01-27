@@ -270,8 +270,6 @@ class BoltzmannGeneratorLitModule(LightningModule):
         # compute weights + resample
         assert log_p.shape == sample_target_energy.shape
         logits = -sample_target_energy - log_p
-        ess = sampling_efficiency(logits)
-        self.log(f"{prefix}/effective_sample_size", ess, sync_dist=True)
         # clip the top 1% of the logits to avoid numerical issues
         for quantile in [0.1, 0.01, 0.002]:
             clipped_logits_mask = logits > torch.quantile(logits, 1 - quantile)
@@ -291,6 +289,9 @@ class BoltzmannGeneratorLitModule(LightningModule):
             logits = logits[~clipped_logits_mask]
             samples = samples[~clipped_logits_mask]
             sample_target_energy = sample_target_energy[~clipped_logits_mask]
+        
+        ess = sampling_efficiency(logits)
+        self.log(f"{prefix}/effective_sample_size", ess, sync_dist=True)
 
         resampled_samples = resample(samples, logits)
         num_eval_samples = min(
