@@ -75,6 +75,7 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
         :return: A tuple containing the generated samples, the prior samples, and the log
             probability.
         """
+        self.prior = NormalDistribution(self.datamodule.dim)
 
         prior_samples = self.prior.sample(batch_size).to(self.device)
         # for MF this is actually not log_p as missing - log(Z) - doesn't matter for bias

@@ -287,8 +287,11 @@ class BoltzmannGeneratorLitModule(LightningModule):
             clipped_logits_mask = logits > torch.quantile(
                 logits, 1 - float(self.hparams.clip_logits)
             )
+            log_p = log_p[~clipped_logits_mask]
             logits = logits[~clipped_logits_mask]
             samples = samples[~clipped_logits_mask]
+            sample_target_energy = sample_target_energy[~clipped_logits_mask]
+
         resampled_samples = resample(samples, logits)
         num_eval_samples = min(
             self.hparams.sampling_config.num_eval_samples, len(samples), len(true_data)
