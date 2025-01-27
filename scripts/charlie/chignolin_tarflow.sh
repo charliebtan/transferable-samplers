@@ -8,7 +8,7 @@
 #SBATCH --partition=short-unkillable               # Request partition
 #SBATCH --ntasks-per-node=4
 #SBATCH --gres=gpu:a100l:4                  # Type/number of GPUs needed
-#SBATCH -c 48
+#SBATCH -c 16
 #SBATCH --open-mode=append            # Do not overwrite logs
 #SBATCH --requeue                     # Requeue upon pre-emption
 #SBATCH --signal=SIGUSR1@90
