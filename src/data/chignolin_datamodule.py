@@ -62,8 +62,11 @@ class ChignolinDataModule(BaseDataModule):
         self.adj_list = None
         self.atom_types = None
 
-        traj_samples = md.load(f"{self.hparams.data_dir}/{self.hparams.filename}")
-        self.topology = traj_samples.topology
+        try:
+            traj_samples = md.load(f"{self.hparams.data_dir}/{self.hparams.filename}")
+            self.topology = traj_samples.topology
+        except:
+            pass
 
         forcefield = app.ForceField("amber14-all.xml", "implicit/obc1.xml")
 
@@ -133,6 +136,9 @@ class ChignolinDataModule(BaseDataModule):
 
         test_rng = np.random.default_rng(1)
         self.data_test = torch.tensor(test_rng.permutation(self.data_test))[:100_000]
+
+        if self.topology is None:
+            raise RuntimeError("Topology not set.")
 
     def get_dataset_fig(
         self,
