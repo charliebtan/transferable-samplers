@@ -194,11 +194,12 @@ class BoltzmannGeneratorLitModule(LightningModule):
         batch_idx: int,
         prefix: str = "val",
     ) -> None:
-        loss = self.model_step(batch)
-        if prefix == "val":
-            self.val_metrics.update(loss)
-        elif prefix == "test":
-            self.test_metrics.update(loss)
+        if "skip_eval_step" in self.hparams and not self.hparams.skip_eval_step:
+            loss = self.model_step(batch)
+            if prefix == "val":
+                self.val_metrics.update(loss)
+            elif prefix == "test":
+                self.test_metrics.update(loss)
 
     def validation_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
         """Perform a single validation step on a batch of data from the validation set.
