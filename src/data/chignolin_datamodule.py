@@ -65,30 +65,30 @@ class ChignolinDataModule(BaseDataModule):
         try:
             traj_samples = md.load(f"{self.hparams.data_dir}/{self.hparams.filename}")
             self.topology = traj_samples.topology
+            forcefield = app.ForceField("amber14-all.xml", "implicit/obc1.xml")
+
+            system = forcefield.createSystem(
+                self.topology.to_openmm(),
+                nonbondedMethod=app.CutoffNonPeriodic,
+                nonbondedCutoff=2.0*openmm.unit.nanometer,
+                constraints=None
+                )
+
+            temperature = 310
+            integrator = openmm.LangevinMiddleIntegrator(
+                 temperature * openmm.unit.kelvin,
+                 0.3/openmm.unit.picosecond,
+                 1.0*openmm.unit.femtosecond
+                 )
+
+            self.openmm_energy = OpenMMEnergy(
+                bridge=OpenMMBridge(system, integrator, platform_name="CUDA")
+                )
+
+            self.potential = self.openmm_energy
+
         except:
             pass
-
-        forcefield = app.ForceField("amber14-all.xml", "implicit/obc1.xml")
-
-        system = forcefield.createSystem(
-            self.topology.to_openmm(),
-            nonbondedMethod=app.CutoffNonPeriodic,
-            nonbondedCutoff=2.0*openmm.unit.nanometer,
-            constraints=None
-            )
-
-        temperature = 310
-        integrator = openmm.LangevinMiddleIntegrator(
-             temperature * openmm.unit.kelvin,
-             0.3/openmm.unit.picosecond,
-             1.0*openmm.unit.femtosecond
-             )
-
-        self.openmm_energy = OpenMMEnergy(
-            bridge=OpenMMBridge(system, integrator, platform_name="CUDA")
-            )
-
-        self.potential = self.openmm_energy
 
     def setup(self, stage: Optional[str] = None) -> None:
         # Divide batch size by the number of devices.
