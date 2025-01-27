@@ -52,3 +52,4 @@ eval_non_ema: false
 # compile model for faster training with pytorch 2.0
 compile: false
 mean_free_prior: true
+clip_logits: 0.002
