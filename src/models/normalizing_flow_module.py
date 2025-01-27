@@ -1,4 +1,5 @@
 from typing import Tuple
+import logging
 
 import torch
 from bgflow import NormalDistribution
@@ -46,7 +47,7 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
             samples, log_p, _ = self.generate_samples(x1.shape[0])
             energy_loss = self.energy_kl(samples, log_p).mean()
             loss = loss + self.energy_kl_weight * energy_loss
-            self.log("Energy Loss", energy_loss.item(), prog_bar=True)
+            self.log("Energy Loss", energy_loss.item(), prog_bar=True, sync_dist=True)
         return loss
 
     def proposal_energy(self, x: torch.Tensor) -> torch.Tensor:
@@ -77,7 +78,8 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
         """
         self.prior = NormalDistribution(self.datamodule.dim)
 
-        prior_samples = self.prior.sample(batch_size).to(self.device)
+        local_batch_size = batch_size // self.trainer.world_size
+        prior_samples = self.prior.sample(local_batch_size).to(self.device)
         # for MF this is actually not log_p as missing - log(Z) - doesn't matter for bias
         prior_log_p = -self.prior.energy(prior_samples)
 
@@ -87,28 +89,36 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
             x_recon, fwd_logdets = self.net(x_pred)
             fwd_logdets = fwd_logdets * self.datamodule.dim  # rescale from mean to sum
 
-            self.log("invert/mse", torch.mean((prior_samples - x_recon) ** 2))
-            self.log("invert/max_abs", torch.max(abs(prior_samples - x_recon)))
-            self.log("invert/mean_abs", torch.mean(abs(prior_samples - x_recon)))
-            self.log("invert/median_abs", torch.median(abs(prior_samples - x_recon)))
+            self.log("invert/mse", torch.mean((prior_samples - x_recon) ** 2), sync_dist=True)
+            self.log("invert/max_abs", torch.max(abs(prior_samples - x_recon)), sync_dist=True)
+            self.log("invert/mean_abs", torch.mean(abs(prior_samples - x_recon)), sync_dist=True)
+            self.log("invert/median_abs", torch.median(abs(prior_samples - x_recon)), sync_dist=True)
             cutoff = 0.01
             self.log(
                 f"invert/fail_count_{cutoff}",
                 torch.sum(abs(prior_samples - x_recon) > cutoff).sum().float(),
+                sync_dist=True
             )
             self.log(
                 f"invert/fail_count_sample_{cutoff}",
                 (torch.sum(abs(prior_samples - x_recon) > cutoff, dim=1) > 0).sum().float(),
+                sync_dist=True
             )
             cutoff = 0.001
             self.log(
                 f"invert/fail_count_{cutoff}",
                 torch.sum(abs(prior_samples - x_recon) > cutoff).sum().float(),
+                sync_dist=True
             )
             self.log(
                 f"invert/fail_count_sample_{cutoff}",
                 (torch.sum(abs(prior_samples - x_recon) > cutoff, dim=1) > 0).sum().float(),
+                sync_dist=True
             )
+            x_pred = self.all_gather(x_pred).reshape(-1, *x_pred.shape[1:])
+            fwd_logdets = self.all_gather(fwd_logdets).reshape(-1, *fwd_logdets.shape[1:])
+            prior_log_p = self.all_gather(prior_log_p).reshape(-1, *prior_log_p.shape[1:])
+            prior_samples = self.all_gather(prior_samples).reshape(-1, *prior_samples.shape[1:])
 
         log_p = prior_log_p.flatten() + fwd_logdets.flatten()
 

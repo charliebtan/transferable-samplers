@@ -86,7 +86,7 @@ class ALPDataModule(BaseDataModule):
             bridge=OpenMMBridge(system, integrator, platform_name="CUDA")
         )
         self.potential = self.openmm_energy
-
+    
     def setup(self, stage: Optional[str] = None) -> None:
         # Divide batch size by the number of devices.
         if self.trainer is not None:
@@ -106,7 +106,7 @@ class ALPDataModule(BaseDataModule):
 
         if self.n_particles == 42:
             data = data[:700000]
-        else:
+        elif self.n_particles == 33:
             data = data[:300000]
 
         data = self.zero_center_of_mass(data)
@@ -151,6 +151,14 @@ class ALPDataModule(BaseDataModule):
         max_energy=80,
         ylim=(0, 0.1),
     ):
+        if self.n_particles == 63:
+            min_energy = -130
+            max_energy = -30
+            ylim = (0, 0.1)
+        if self.n_particles == 53:
+            min_energy = -150
+            max_energy = -60
+            ylim = (0, 0.1)
         if self.n_particles == 42:
             min_energy = -20
             max_energy = 80

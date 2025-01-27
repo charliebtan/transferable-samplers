@@ -7,6 +7,66 @@ import torch.nn as nn
 from src.models.components.tbg.egnn import EGNN
 from src.models.components.tbg.utils import remove_mean
 
+def get_hidden(n_particles, filename="/home/mila/a/alexander.tong/tbg/data/atom_types_ecoding.npy")
+    # Load the hidden state from the file
+    atom_types_ecoding = np.load(filename, allow_pickle=True).item()
+    if n_particles == 53:
+        n_encodings = 78
+    amino_dict = {
+        "ALA": 0,
+        "ARG": 1,
+        "ASN": 2,
+        "ASP": 3,
+        "CYS": 4,
+        "GLN": 5,
+        "GLU": 6,
+        "GLY": 7,
+        "HIS": 8,
+        "ILE": 9,
+        "LEU": 10,
+        "LYS": 11,
+        "MET": 12,
+        "PHE": 13,
+        "PRO": 14,
+        "SER": 15,
+        "THR": 16,
+        "TRP": 17,
+        "TYR": 18,
+        "VAL": 19,
+    }
+    atom_types = []
+    amino_idx = []
+    amino_types = []
+    for i, amino in enumerate(topology.residues):
+
+        for atom_name in amino.atoms:
+            amino_idx.append(i)
+            amino_types.append(amino_dict[amino.name])
+            if atom_name.name[0] == "H" and atom_name.name[-1] in ("1", "2", "3"):
+                if amino_dict[amino.name] in (8, 13, 17, 18) and atom_name.name[:2] in (
+                    "HE",
+                    "HD",
+                    "HZ",
+                    "HH",
+                ):
+                    pass
+                else:
+                    atom_name.name = atom_name.name[:-1]
+            if atom_name.name[:2] == "OE" or atom_name.name[:2] == "OD":
+                atom_name.name = atom_name.name[:-1]
+            atom_types.append(atom_name.name)
+    atom_types_dict = np.array([atom_types_ecoding[atom_type] for atom_type in atom_types])
+    atom_onehot = torch.nn.functional.one_hot(
+        torch.tensor(atom_types_dict), num_classes=len(atom_types_ecoding)
+    )
+    amino_idx_onehot = torch.nn.functional.one_hot(torch.tensor(amino_idx), num_classes=5)
+    amino_types_onehot = torch.nn.functional.one_hot(
+        torch.tensor(amino_types), num_classes=20
+    )
+
+    h_initial = torch.cat([amino_idx_onehot, amino_types_onehot, atom_onehot], dim=1)
+    return h_initial
+
 
 class EGNN_dynamics_AD2_cat(nn.Module):
     def __init__(
