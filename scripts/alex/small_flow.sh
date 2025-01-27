@@ -25,7 +25,7 @@ python src/train.py \
   model.net.n_heads=6 \
   model.optimizer.weight_decay=0.0 \
   model.optimizer.lr=1e-4 \
-  ++data.com_augmentation=True data=al4 model.sampling_config.batch_size=40 \
+  ++data.com_augmentation=True data=aldp model.sampling_config.batch_size=40 \
   model.sampling_config.num_proposal_samples=40 model.mean_free_prior=false \
   +trainer.precision=bf16 \
   +trainer.num_sanity_val_steps=0 \
