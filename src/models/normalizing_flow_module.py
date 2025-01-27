@@ -30,6 +30,7 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
 
         self.energy_kl_loss = energy_kl_loss
         self.energy_kl_weight = energy_kl_weight
+        self.target_target_energy = None
 
     def model_step(
         self,
@@ -115,9 +116,10 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
                 (torch.sum(abs(prior_samples - x_recon) > cutoff, dim=1) > 0).sum().float(),
                 sync_dist=True
             )
+            x_pred = self.all_gather(x_pred).reshape(-1, *x_pred.shape[1:])
             fwd_logdets = self.all_gather(fwd_logdets).reshape(-1, *fwd_logdets.shape[1:])
-        prior_log_p = self.all_gather(prior_log_p).reshape(-1, *prior_log_p.shape[1:])
-        prior_samples = self.all_gather(prior_samples).reshape(-1, *prior_samples.shape[1:])
+            prior_log_p = self.all_gather(prior_log_p).reshape(-1, *prior_log_p.shape[1:])
+            prior_samples = self.all_gather(prior_samples).reshape(-1, *prior_samples.shape[1:])
 
         log_p = prior_log_p.flatten() + fwd_logdets.flatten()
 

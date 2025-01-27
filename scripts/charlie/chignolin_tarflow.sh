@@ -36,10 +36,7 @@ ckpt_path='${paths.log_dir}/${task_name}/runs/'${RUN_NAME}/checkpoints/last.ckpt
 logger.wandb.id=${RUN_NAME} \
 +data.com_augmentation=1 \
 +trainer.num_sanity_val_steps=0 \
-callbacks.model_checkpoint.monitor=null \
-callbacks.model_checkpoint.save_top_k=-1 \
-callbacks.model_checkpoint.every_n_epochs=10 \
-callbacks.model_checkpoint.save_on_train_epoch_end=True \
-callbacks.model_checkpoint.verbose=True \
-data.batch_size=512
+data.batch_size=512 \
+model_checkpoint_time.every_n_epochs=5
 # +trainer.limit_train_batches=10.0 \
+
