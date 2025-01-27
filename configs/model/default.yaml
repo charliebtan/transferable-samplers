@@ -35,9 +35,9 @@ jarzynski_sampler:
 
 sampling_config:
   num_proposal_samples: 10_000
-  num_test_proposal_samples: 100_000
-  num_jarzynski_samples: 100_000
-  num_eval_samples: 5_000
+  num_test_proposal_samples: 10_000
+  num_jarzynski_samples: 10_000
+  num_eval_samples: 10_000
   batch_size: 10_000
   energy_cutoff: null
   # Currently unused
