@@ -22,7 +22,7 @@ model:
   jarzynski_sampler:
     langevin_eps: 1e-7
     num_timesteps: 100
-    batch_size: 2048 # set for 48gb
+    batch_size: 1024 # set for 48gb
     enabled: True
 
   data:
