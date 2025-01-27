@@ -30,7 +30,6 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
 
         self.energy_kl_loss = energy_kl_loss
         self.energy_kl_weight = energy_kl_weight
-        self.target_target_energy = None
 
     def model_step(
         self,
