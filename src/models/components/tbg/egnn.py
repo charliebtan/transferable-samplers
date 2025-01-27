@@ -1,6 +1,7 @@
 import torch.nn as nn
 
 from src.models.components.tbg.gcl import E_GCL
+from src.models.components.tbg.timestep_embedder import TimestepEmbedder
 
 
 class EGNN(nn.Module):
@@ -54,6 +55,59 @@ class EGNN(nn.Module):
         # Edit Emiel: Remove velocity as input
         h = self.embedding(h)
         for i in range(0, self.n_layers):
+            h, x, _ = self._modules["gcl_%d" % i](
+                h, edges, x, edge_attr=edge_attr, node_mask=node_mask, edge_mask=edge_mask
+            )
+        h = self.embedding_out(h)
+
+        # Important, the bias of the last linear might be non-zero
+        if node_mask is not None:
+            h = h * node_mask
+        return h, x
+
+
+class TEGNN(EGNN):
+    def __init__(
+        self,
+        in_node_nf,
+        in_edge_nf,
+        hidden_nf,
+        act_fn=nn.SiLU(),
+        n_layers=4,
+        recurrent=True,
+        attention=False,
+        norm_diff=True,
+        out_node_nf=None,
+        tanh=False,
+        coords_range=15,
+        agg="sum",
+    ):
+        super().__init__(
+            in_node_nf,
+            in_edge_nf,
+            hidden_nf,
+            act_fn=act_fn,
+            n_layers=n_layers,
+            recurrent=recurrent,
+            attention=attention,
+            norm_diff=norm_diff,
+            out_node_nf=out_node_nf,
+            tanh=tanh,
+            coords_range=coords_range,
+            agg=agg,
+        )
+        self.t_embedder = TimestepEmbedder(hidden_size=self.hidden_nf)
+
+    def forward(self, h, x, t, edges, edge_attr=None, node_mask=None, edge_mask=None):
+        # h is shape (n_particles, n_features)
+        # t_emb is shape (n_batch * n_particle, n_hidden)
+        t_emb = (
+            self.t_embedder(t).unsqueeze(1).repeat(1, h.shape[0], 1).reshape(-1, self.hidden_nf)
+        )
+        # h is shape (1, n_particles, n_hidden)
+        h = self.embedding(h).unsqueeze(0).repeat(t.shape[0], 1, 1).reshape(-1, self.hidden_nf)
+        for i in range(0, self.n_layers):
+            h = h + t_emb
             h, x, _ = self._modules["gcl_%d" % i](
                 h, edges, x, edge_attr=edge_attr, node_mask=node_mask, edge_mask=edge_mask
             )

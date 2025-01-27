@@ -76,6 +76,7 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
         :return: A tuple containing the generated samples, the prior samples, and the log
             probability.
         """
+        self.prior = NormalDistribution(self.datamodule.dim)
 
         local_batch_size = batch_size // self.trainer.world_size
         prior_samples = self.prior.sample(local_batch_size).to(self.device)

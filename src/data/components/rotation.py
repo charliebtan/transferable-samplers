@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+from scipy.spatial.transform import Rotation as R
 
 
 def create_random_rotation_matrix(batch_size):
@@ -37,7 +38,8 @@ class Random3DRotationTransform(torch.nn.Module):
 
     def forward(self, data):
         data = data.reshape(-1, self.num_particles, self.dim)  # batch dimension needed for einsum
-        rot = create_random_rotation_matrix(len(data))
+        # rot = create_random_rotation_matrix(len(data))
+        rot = torch.tensor(R.random(len(data)).as_matrix()).to(data)
         data = torch.einsum("bij,bki->bkj", rot, data)
         data = data.reshape(self.num_particles * self.dim)  # don't want to return with batch dim
         return data

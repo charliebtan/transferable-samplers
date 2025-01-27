@@ -42,6 +42,7 @@ class ALDPDataModule(BaseDataModule):
         num_workers: int = 0,
         pin_memory: bool = False,
         scaling: float = 10.0,
+        repeat_factor: int = 1,
     ) -> None:
         super().__init__(
             data_dir=data_dir,
@@ -50,6 +51,7 @@ class ALDPDataModule(BaseDataModule):
             n_particles=n_particles,
             n_dimensions=n_dimensions,
             dim=dim,
+            repeat_factor=repeat_factor,
         )
         assert dim == n_particles * n_dimensions
 
@@ -103,7 +105,9 @@ class ALDPDataModule(BaseDataModule):
         test_data = self.normalize(test_data)
 
         # split the data
-        self.data_train = TransformDataset(train_data, transform=self.transforms)
+        self.data_train = TransformDataset(
+            train_data.repeat(self.repeat_factor, 1), transform=self.transforms
+        )
 
         self.data_val, self.data_test = test_data[:20_000], test_data[20_000:]
 
@@ -148,11 +152,15 @@ class ALDPDataModule(BaseDataModule):
             loggers=loggers,
             prefix=prefix,
         )
+        logging.info("Base plots done")
         metrics = {}
         samples_metrics = self.align_and_compute_metrics(
             samples, prefix=prefix + "/rama", wandb_logger=wandb_logger
         )
         metrics.update(samples_metrics)
+
+        logging.info("Align and compute metrics done")
+        
 
         resampled_samples = resample(samples, -self.energy(samples) - log_p_samples)
         resampled_metrics = self.align_and_compute_metrics(
@@ -163,6 +171,8 @@ class ALDPDataModule(BaseDataModule):
         )
         metrics.update(resampled_metrics)
 
+        logging.info("Align and compute metrics done (resampled)")
+
         if samples_jarzynski is not None:
             samples_jarzynski_metrics = self.align_and_compute_metrics(
                 samples_jarzynski,
@@ -171,6 +181,8 @@ class ALDPDataModule(BaseDataModule):
                 num_eval_samples=num_eval_samples,
             )
             metrics.update(samples_jarzynski_metrics)
+            
+            logging.info("Align and compute metrics done (jarzynski)")
 
         if "val" in prefix:
             self.plot_ramachandran(
@@ -294,6 +306,8 @@ class ALDPDataModule(BaseDataModule):
         cbar.ax.set_ylabel(r"Free energy / $k_B T$", fontsize=35)
         if wandb_logger is not None:
             wandb_logger.log_image(f"{prefix}/ramachandran", [fig])
+
+        
 
         return fig
 

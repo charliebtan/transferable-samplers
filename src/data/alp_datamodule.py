@@ -21,9 +21,7 @@ from src.models.components.distribution_distances import (
     compute_distribution_distances_with_prefix,
 )
 from src.models.components.optimal_transport import torus_wasserstein
-from src.models.components.utils import (
-    resample,
-)
+from src.models.components.utils import resample
 
 
 class ALPDataModule(BaseDataModule):
@@ -42,6 +40,7 @@ class ALPDataModule(BaseDataModule):
         pin_memory: bool = False,
         scaling: float = 1.0,
         make_iid: bool = False,
+        repeat_factor: int = 1,
     ):
         super().__init__(
             data_dir=data_dir,
@@ -50,6 +49,7 @@ class ALPDataModule(BaseDataModule):
             n_particles=n_particles,
             n_dimensions=n_dimensions,
             dim=dim,
+            repeat_factor=repeat_factor,
         )
         assert dim == n_particles * n_dimensions
 
@@ -130,7 +130,9 @@ class ALPDataModule(BaseDataModule):
         test_data = self.normalize(test_data)
 
         # split the data
-        self.data_train = TransformDataset(train_data, transform=self.transforms)
+        self.data_train = TransformDataset(
+            train_data.repeat(self.repeat_factor, 1), transform=self.transforms
+        )
 
         self.data_val, self.data_test = test_data[:20_000], test_data[20_000:]
 
@@ -183,32 +185,43 @@ class ALPDataModule(BaseDataModule):
             loggers=loggers,
             prefix=prefix,
         )
+        logging.info("Base plots done")
+
         metrics = {}
         resampled_samples = resample(samples, -self.energy(samples) - log_p_samples)
         samples = self.unnormalize(samples).cpu()
-        samples_metrics = self.get_ramachandran_metrics(samples[:num_eval_samples], prefix=prefix + "/rama")
+        samples_metrics = self.get_ramachandran_metrics(
+            samples[:num_eval_samples],
+            prefix=prefix + "/rama"
+            )
+
+        logging.info("Ramachandran metrics computed")
+
         self.plot_ramachandran(
             samples, prefix=prefix + "/rama", wandb_logger=wandb_logger
         )
+        self.plot_ramachandran(samples, prefix=prefix + "/rama", wandb_logger=wandb_logger)
         metrics.update(samples_metrics)
 
-        resampled_samples = self.unnormalize(resampled_samples).cpu()
+        resampled_samples = self.unnormalize(resampled_samples.cpu())
         resampled_metrics = self.get_ramachandran_metrics(
-            resampled_samples[:num_eval_samples],
-            prefix=prefix + "/resampled/rama"
+            resampled_samples[:num_eval_samples], prefix=prefix + "/resampled/rama"
         )
+        logging.info("Ramachandran metrics computed (resampled)")
         self.plot_ramachandran(
             resampled_samples, prefix=prefix + "/resampled/rama", wandb_logger=wandb_logger
         )
         metrics.update(resampled_metrics)
 
         if samples_jarzynski is not None:
+            samples_jarzynski = self.unnormalize(samples_jarzynski).cpu()
             samples_jarzynski_metrics = self.get_ramachandran_metrics(
-                samples_jarzynski[:num_eval_samples].cpu(),
+                samples_jarzynski[:num_eval_samples],
                 prefix=prefix + "/jarzynski/rama"
             )
+            logging.info("Ramachandran metrics computed (jarzynski)")
             self.plot_ramachandran(
-                samples_jarzynski.cpu(),
+                samples_jarzynski,
                 prefix=prefix + "/jarzynski/rama",
                 wandb_logger=wandb_logger,
             )
@@ -224,7 +237,6 @@ class ALPDataModule(BaseDataModule):
             )
 
         return metrics
-
 
     def get_ramachandran_metrics(self, samples, prefix: str = ""):
         x_pred = self.get_phi_psi_vectors(samples)
@@ -260,7 +272,12 @@ class ALPDataModule(BaseDataModule):
             fig, ax = plt.subplots()
             plot_range = [-np.pi, np.pi]
             h, x_bins, y_bins, im = ax.hist2d(
-                phi_tmp, psi_tmp, 100, norm=LogNorm(), range=[plot_range, plot_range], rasterized=True
+                phi_tmp,
+                psi_tmp,
+                100,
+                norm=LogNorm(),
+                range=[plot_range, plot_range],
+                rasterized=True,
             )
             ticks = np.array(
                 [np.exp(-6) * h.max(), np.exp(-4.0) * h.max(), np.exp(-2) * h.max(), h.max()]
@@ -280,5 +297,27 @@ class ALPDataModule(BaseDataModule):
             if wandb_logger is not None:
                 wandb_logger.log_image(f"{prefix}/ramachandran/{i}", [fig])
 
-        return fig
+            phi_tmp = phis[:, i]
+            psi_tmp = psis[:, i]
+            fig, ax = plt.subplots()
+            plot_range = [-np.pi, np.pi]
+            h, x_bins, y_bins, im = ax.hist2d(
+                phi_tmp,
+                psi_tmp,
+                100,
+                norm=LogNorm(),
+                range=[plot_range, plot_range],
+                rasterized=True,
+            )
+            ax.set_xlabel(r"$\varphi$", fontsize=45)
+            ax.set_ylabel(r"$\psi$", fontsize=45)
+            ax.xaxis.set_tick_params(labelsize=25)
+            ax.yaxis.set_tick_params(labelsize=25)
+            ax.yaxis.set_ticks([])
+            cbar = fig.colorbar(im) #, ticks=ticks)
+            im.set_clim(vmax=samples.shape[0] // 20)
+            cbar.ax.set_ylabel(f"Count, max = {int(h.max())}", fontsize=18)
+            if wandb_logger is not None:
+                wandb_logger.log_image(f"{prefix}/ramachandran_simple/{i}", [fig])
 
+        return fig
