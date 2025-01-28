@@ -31,6 +31,7 @@ class ALPDataModule(BaseDataModule):
         data_url: str = "https://osf.io/download/y7ntk/?view_only=1052300a21bd43c08f700016728aa96e",
         filename: str = "AlaAlaAla_310K.npy",
         pdb_filename: str = "AlaAlaAla_310K.pdb",
+        atom_encoding_filename: str = "atom_types_ecoding.npy",
         n_particles: int = 33,
         n_dimensions: int = 3,
         com_augmentation: bool = False,
@@ -62,6 +63,8 @@ class ALPDataModule(BaseDataModule):
 
         self.adj_list = None
         self.atom_types = None
+        self.atom_encoding_filename = atom_encoding_filename
+        self.atom_types_encoding = np.load(f"{self.hparams.data_dir}/{self.hparams.atom_encoding_filename}", allow_pickle=True).item()
 
         self.pdb_path = f"{self.hparams.data_dir}/{pdb_filename}"
         self.topology = md.load_topology(self.pdb_path)
@@ -108,6 +111,7 @@ class ALPDataModule(BaseDataModule):
             )
 
         self.potential = self.openmm_energy
+
     
     def setup(self, stage: Optional[str] = None) -> None:
         # Divide batch size by the number of devices.

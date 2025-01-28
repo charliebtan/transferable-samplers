@@ -59,7 +59,6 @@ class BoltzmannGeneratorLitModule(LightningModule):
             logger.warning(f"Unexpected arguments: {args}, {kwargs}")
 
         self.net = net
-
         if self.hparams.ema_decay > 0:
             self.net = EMA(net, decay=self.hparams.ema_decay)
 
@@ -233,6 +232,8 @@ class BoltzmannGeneratorLitModule(LightningModule):
         logging.info("Eval epoch end")
         if generator is None:
             generator = self.batched_generate_samples
+            if "dummy_ll" in self.hparams and self.hparams.dummy_ll:
+                generator = lambda x: self.batched_generate_samples(x, dummy_ll=True)
         if prefix.startswith("val") or prefix.startswith("base"):
             num_proposal_samples = self.hparams.sampling_config.num_proposal_samples
             true_data = self.datamodule.data_val
