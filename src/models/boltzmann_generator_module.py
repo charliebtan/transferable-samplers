@@ -274,7 +274,8 @@ class BoltzmannGeneratorLitModule(LightningModule):
 
         # compute weights + resample
         assert log_p.shape == sample_target_energy.shape
-        logits = -sample_target_energy - log_p
+        sample_target_energy_com = self.datamodule.energy(samples, use_com_energy=self.hparams.use_com_energy)
+        logits = -sample_target_energy_com - log_p
         ess = sampling_efficiency(logits)
         self.log(f"{prefix}/unclipped_effective_sample_size", ess, sync_dist=True)
         # clip the top 1% of the logits to avoid numerical issues
@@ -296,6 +297,8 @@ class BoltzmannGeneratorLitModule(LightningModule):
             logits = logits[~clipped_logits_mask]
             samples = samples[~clipped_logits_mask]
             sample_target_energy = sample_target_energy[~clipped_logits_mask]
+
+            logging.info("Clipped logits")
         
         ess = sampling_efficiency(logits)
         self.log(f"{prefix}/effective_sample_size", ess, sync_dist=True)
@@ -431,6 +434,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
             log_p,
             jarzynski_samples,
             num_eval_samples=self.hparams.sampling_config.num_eval_samples,
+            use_com_energy=self.hparams.use_com_energy,
             loggers=self.loggers,
             prefix=prefix,
         )

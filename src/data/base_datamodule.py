@@ -1,3 +1,4 @@
+import logging
 import os
 from typing import Any, Dict, List, Optional
 
@@ -175,9 +176,23 @@ class BaseDataModule(LightningDataModule):
         x = x * self.std.to(x)
         return x
 
-    def energy(self, x):
+    def energy(self, x, use_com_energy=False):
+
+        if use_com_energy:
+
+            logging.info("Using CoM energy")
+
+            # self.std is the std dev of com augmentation in normalised scale
+            com = x.view(-1, self.n_particles, self.n_dimensions).mean(axis=1)
+            com_energy = (com ** 2).sum(axis=-1) / (2 * self.std ** 2)
+
         x = self.unnormalize(x)
-        return self.potential.energy(x).flatten()
+        energy = self.potential.energy(x).flatten()
+
+        if use_com_energy:
+            energy = energy + com_energy
+
+        return energy
 
     def log_on_epoch_end(
         self,
@@ -185,6 +200,7 @@ class BaseDataModule(LightningDataModule):
         log_p_samples: torch.Tensor,
         samples_jarzynski: torch.Tensor = None,
         num_eval_samples: int = 5000, # for compatability
+        use_com_energy: bool = True,
         loggers: List[Any] = None,
         prefix: str = "",
     ) -> None:
@@ -199,7 +215,7 @@ class BaseDataModule(LightningDataModule):
         if len(prefix) > 0 and prefix[-1] != "/":
             prefix += "/"
 
-        samples_fig = self.get_dataset_fig(samples, log_p_samples, samples_jarzynski)
+        samples_fig = self.get_dataset_fig(samples, log_p_samples, samples_jarzynski, use_com_energy=use_com_energy)
         wandb_logger.log_image(f"{prefix}generated_samples", [samples_fig])
         self.current_epoch += 1
 
@@ -229,6 +245,7 @@ class BaseDataModule(LightningDataModule):
         samples,
         log_p_samples: torch.Tensor,
         samples_jarzynski: torch.Tensor = None,
+        use_com_energy: bool = True,
         min_energy=-26,
         max_energy=0,
         ylim=(0, 0.2),
@@ -280,7 +297,7 @@ class BaseDataModule(LightningDataModule):
 
         axs[0].set_xlabel("Interatomic distance")
 
-        energy_samples = self.energy(samples)
+        energy_samples = self.energy(samples, use_com_energy=use_com_energy)
         logits = -energy_samples.flatten() - log_p_samples.flatten()
         importance_weights = torch.nn.functional.softmax(logits, dim=0).detach().cpu()
         energy_samples = energy_samples.detach().cpu()
