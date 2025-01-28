@@ -13,7 +13,7 @@
 #SBATCH --requeue                     # Requeue upon pre-emption
 #SBATCH --signal=SIGUSR1@90
 
-RUN_NAME="big_al4_tarflow_v6"
+RUN_NAME=""
 
 #python -u src/train.py \
 srun python -u src/train.py \
