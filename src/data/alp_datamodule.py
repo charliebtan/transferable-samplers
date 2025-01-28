@@ -66,25 +66,47 @@ class ALPDataModule(BaseDataModule):
         self.pdb_path = f"{self.hparams.data_dir}/{pdb_filename}"
         self.topology = md.load_topology(self.pdb_path)
         self.pdb = app.PDBFile(self.pdb_path)
-        forcefield = app.ForceField("amber14-all.xml", "implicit/obc1.xml")
 
-        system = forcefield.createSystem(
-            self.pdb.topology,
-            nonbondedMethod=app.CutoffNonPeriodic,
-            nonbondedCutoff=2.0 * openmm.unit.nanometer,
-            constraints=None,
-        )
-        temperature = 310
-        if n_particles == 42:
+        if n_particles != 42:
+
+            forcefield = app.ForceField("amber14-all.xml", "implicit/obc1.xml")
+
+            system = forcefield.createSystem(
+                self.pdb.topology,
+                nonbondedMethod=app.CutoffNonPeriodic,
+                nonbondedCutoff=2.0 * openmm.unit.nanometer,
+                constraints=None,
+            )
+            temperature = 310
+            integrator = openmm.LangevinMiddleIntegrator(
+                temperature * openmm.unit.kelvin,
+                0.3 / openmm.unit.picosecond,
+                1.0 * openmm.unit.femtosecond,
+            )
+            self.openmm_energy = OpenMMEnergy(
+                bridge=OpenMMBridge(system, integrator, platform_name="CUDA")
+            )
+
+        else:
+
+            forcefield = openmm.app.ForceField('amber99sbildn.xml', 'tip3p.xml', 'amber99_obc.xml')
+
+            system = forcefield.createSystem(
+                self.pdb.topology,
+                nonbondedMethod=openmm.app.NoCutoff,
+                nonbondedCutoff=.9*openmm.unit.nanometer,
+                constraints=None
+            )
             temperature = 300
-        integrator = openmm.LangevinMiddleIntegrator(
-            temperature * openmm.unit.kelvin,
-            0.3 / openmm.unit.picosecond,
-            1.0 * openmm.unit.femtosecond,
-        )
-        self.openmm_energy = OpenMMEnergy(
-            bridge=OpenMMBridge(system, integrator, platform_name="CUDA")
-        )
+            integrator = openmm.LangevinMiddleIntegrator(
+                temperature*openmm.unit.kelvin,
+                0.3/openmm.unit.picosecond,
+                1.0*openmm.unit.femtosecond
+            )
+            self.openmm_energy = OpenMMEnergy(
+                bridge=OpenMMBridge(system, integrator, platform_name="CUDA")
+            )
+
         self.potential = self.openmm_energy
     
     def setup(self, stage: Optional[str] = None) -> None:
