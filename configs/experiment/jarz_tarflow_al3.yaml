@@ -10,21 +10,22 @@ train: False
 model:
   sampling_config:
     batch_size: 10_000
-    num_test_proposal_samples: 100_000
-    num_jarzynski_samples: 100_000
+    num_test_proposal_samples: 10_000
+    num_jarzynski_samples: 10_000
     num_eval_samples: 10_000
-    energy_cutoff: 50.0
+    energy_cutoff: -120.0
   net:
     in_channels: 3
     channels: 256
     num_blocks: 6
     layers_per_block: 6
   jarzynski_sampler:
-    langevin_eps: 2e-7
+    langevin_eps: 1e-7
     num_timesteps: 100
+    batch_size: 1024 # set for 48gb
     enabled: True
 
   data:
-    - batch_size: 1024
+    - batch_size: 10_000
 
 tags: [jarz]

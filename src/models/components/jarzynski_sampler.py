@@ -20,6 +20,7 @@ class JarzynskiSampler(torch.nn.Module):
         num_timesteps: int = 1000,
         ess_threshold: float = -1.0,
         enabled: bool = True,
+        do_energy_plots: bool = False,
     ):
         super().__init__()
         self.source_energy = source_energy
@@ -29,6 +30,130 @@ class JarzynskiSampler(torch.nn.Module):
         self.num_timesteps = num_timesteps
         self.ess_threshold = ess_threshold
         self.enabled = enabled
+        self.do_energy_plots = do_energy_plots
+
+    def plot_stepwise_energy(self, target_energy_list, interpolation_energy_list, t_list):
+
+        stepwise_target_energy_np = np.stack(target_energy_list)
+        stepwise_interpolation_energy_np = np.stack(interpolation_energy_list)
+
+        fig, axs = plt.subplots(1, 2, figsize=(15, 5))
+
+        for k in range(stepwise_target_energy_np.shape[1]):
+
+            axs[0].plot(t_list, stepwise_target_energy_np[:, k], linewidth=1, alpha=0.5)
+            axs[1].plot(
+                t_list, stepwise_interpolation_energy_np[:, k], linewidth=1, alpha=0.5
+            )
+
+        axs[0].set_xlabel("Time", fontsize=12)
+        axs[0].set_ylabel("Target energy", fontsize=12)
+
+        axs[1].set_xlabel("Time", fontsize=12)
+        axs[1].set_ylabel("Interpolation energy", fontsize=12)
+
+        plt.tight_layout()
+        self.wandb_logger.log_image(f"langevin/energies", [fig])
+        plt.close()
+
+    def plot_stepwise_energy_hist(self, target_energy_list, interpolation_energy_list, t_list):
+
+        stepwise_target_energy_np = np.stack(target_energy_list)
+        stepwise_interpolation_energy_np = np.stack(interpolation_energy_list)
+        t_np = np.array(t_list)
+
+        fig, axs = plt.subplots(1, 2, figsize=(15, 5))
+
+        data = stepwise_target_energy_np
+        bins = np.linspace(data.min(), data.max(), 100)
+        histograms = np.array([np.histogram(row, bins=bins)[0] for row in data])
+        histograms_normalized = histograms / histograms.sum(axis=1, keepdims=True)
+        extent = [t_np.min(), t_np.max(), bins[0], bins[-1]]
+        im = axs[0].imshow(
+            histograms_normalized.T,
+            origin="lower",
+            extent=extent,
+            aspect="auto",
+            norm=LogNorm(
+                vmin=histograms_normalized[histograms_normalized > 0].min(),
+                vmax=histograms_normalized.max(),
+            ),
+            cmap="inferno",
+        )
+
+        axs[0].set_xlabel("Time", fontsize=12)
+        axs[0].set_ylabel("Target energy", fontsize=12)
+        fig.colorbar(im, ax=axs[0], label="Log Marginal Density")
+
+        data = stepwise_interpolation_energy_np
+        bins = np.linspace(data.min(), data.max(), 100)
+        histograms = np.array([np.histogram(row, bins=bins)[0] for row in data])
+        histograms_normalized = histograms / histograms.sum(axis=1, keepdims=True)
+        extent = [t_np.min(), t_np.max(), bins[0], bins[-1]]
+        im = axs[1].imshow(
+            histograms_normalized.T,
+            origin="lower",
+            extent=extent,
+            aspect="auto",
+            norm=LogNorm(
+                vmin=histograms_normalized[histograms_normalized > 0].min(),
+                vmax=histograms_normalized.max(),
+            ),
+            cmap="inferno",
+        )
+
+        axs[1].set_xlabel("Time", fontsize=12)
+        axs[1].set_ylabel("Interpolation energy", fontsize=12)
+        fig.colorbar(im, ax=axs[1], label="Log Marginal Density")
+
+        plt.tight_layout()
+        self.wandb_logger.log_image(f"langevin/energy_histograms", [fig])
+        plt.close()
+    
+    def plot_dX_t_norm(self, dX_t_norm_list, t_list):
+
+        dX_t_norm_np = np.stack(dX_t_norm_list).T
+
+        fig, axs = plt.subplots(1, 1, figsize=(7.5, 5))
+
+        for k in range(dX_t_norm_np.shape[1]):
+
+            axs.plot(t_list, dX_t_norm_np[k], linewidth=1, alpha=0.5)
+
+        axs.set_xlabel("Time", fontsize=12)
+        axs.set_ylabel("||dX_t||", fontsize=12)
+        plt.tight_layout()
+        self.wandb_logger.log_image(f"langevin/dX_t_norm", [fig])
+        plt.close()
+
+    def plot_weights(self, A_list, ESS_list, t_list):
+
+        A_np = torch.stack(A_list).cpu().numpy()
+
+        fig, axs = plt.subplots(1, 2, figsize=(15, 5))
+        for k in range(A_np.shape[1]):
+            axs[0].plot(t_list, A_np[:, k], linewidth=1, alpha=0.5)
+        axs[0].set_xlabel("Time", fontsize=12)
+        axs[0].set_ylabel("A", fontsize=12)
+
+        axs[1].plot(t_list, ESS_list, linewidth=1, alpha=0.3)
+        axs[1].set_xlabel("Time", fontsize=12)
+        axs[1].set_ylabel("ESS", fontsize=12)
+        axs[1].set_yscale("log")
+
+        plt.tight_layout()
+        self.wandb_logger.log_image(f"langevin/weights", [fig])
+        plt.close()
+
+    def plot_eps(self, eps_list, t_list):
+
+        fig, ax = plt.subplots(1, 1, figsize=(7.5, 5))
+        ax.plot(t_list, eps_list, linewidth=1, alpha=0.5)
+        ax.set_xlabel("Time", fontsize=12)
+        ax.set_ylabel("Eps", fontsize=12)
+        plt.tight_layout()
+        self.wandb_logger.log_image(f"langevin/eps", [fig])
+        plt.close()
 
     def linear_energy_interpolation(self, x, t):
         source_energy = self.source_energy(x)
@@ -91,13 +216,14 @@ class JarzynskiSampler(torch.nn.Module):
         ESS_list = [1.0]
         t_list = [timesteps[0]]
         eps_list = [eps_fn(0.0)]
+        dX_t_norm_list = [torch.zeros(X.shape[0])]
 
-        # slice into list of batches (tensors)
-        X_batches = [X[i : i + self.batch_size] for i in range(0, X.shape[0], self.batch_size)]
+        if self.do_energy_plots:
+            # slice into list of batches (tensors)
+            X_batches = [X[i : i + self.batch_size] for i in range(0, X.shape[0], self.batch_size)]
 
-        target_energy_list = [np.concatenate([self.target_energy(X_batch).cpu() for X_batch in X_batches])]
-        interpolation_energy_list = [np.concatenate([self.linear_energy_interpolation(X_batch, timesteps[0]).cpu() for X_batch in X_batches])]
-        dX_t_norm = [torch.zeros(X.shape[0])]
+            target_energy_list = [np.concatenate([self.target_energy(X_batch).cpu() for X_batch in X_batches])]
+            interpolation_energy_list = [np.concatenate([self.linear_energy_interpolation(X_batch, timesteps[0]).cpu() for X_batch in X_batches])]
 
         t_previous = 0.0
 
@@ -134,10 +260,12 @@ class JarzynskiSampler(torch.nn.Module):
                 # apply the updates to the batch in the list
                 X_batches[batch_idx] = X_batch + dX_t
                 A_batches[batch_idx] = A_batch + dA_t
-
                 dX_t_norm_batches.append(dX_t.norm(dim=-1).cpu())
-                target_energy_batches.append(self.target_energy(X_batch).cpu())
-                interpolation_energy_batches.append(self.linear_energy_interpolation(X_batch, t).cpu())
+
+                if self.do_energy_plots:
+                    target_energy_batches.append(self.target_energy(X_batch).cpu())
+                    interpolation_energy_batches.append(self.linear_energy_interpolation(X_batch, t).cpu())
+
 
             # cat the batches to compute global statistics
             X = torch.cat(X_batches, dim=0)
@@ -148,113 +276,13 @@ class JarzynskiSampler(torch.nn.Module):
 
             if X.isnan().any() or A.isnan().any() or not (j + 1) % 100 or j + 1 == num_timesteps:
 
-                stepwise_target_energy_np = np.stack(target_energy_list)
-                stepwise_interpolation_energy_np = np.stack(interpolation_energy_list)
-                A_np = torch.stack(A_list).cpu().numpy()
-                t_np = np.array(t_list)
-                dX_t_norm_np = np.stack(dX_t_norm).T
+                if self.do_energy_plots:
+                    self.plot_stepwise_energy(target_energy_list, interpolation_energy_list, t_list)
+                    self.plot_stepwise_energy_hist(target_energy_list, interpolation_energy_list, t_list)
 
-                fig, axs = plt.subplots(1, 2, figsize=(15, 5))
-
-                for k in range(stepwise_target_energy_np.shape[1]):
-
-                    axs[0].plot(t_list, stepwise_target_energy_np[:, k], linewidth=1, alpha=0.5)
-                    axs[1].plot(
-                        t_list, stepwise_interpolation_energy_np[:, k], linewidth=1, alpha=0.5
-                    )
-
-                axs[0].set_xlabel("Time", fontsize=12)
-                axs[0].set_ylabel("Target energy", fontsize=12)
-
-                axs[1].set_xlabel("Time", fontsize=12)
-                axs[1].set_ylabel("Interpolation energy", fontsize=12)
-
-                plt.tight_layout()
-                self.wandb_logger.log_image(f"langevin/energies", [fig])
-                plt.close()
-
-                fig, axs = plt.subplots(1, 2, figsize=(15, 5))
-
-                data = stepwise_target_energy_np
-                bins = np.linspace(data.min(), data.max(), 100)
-                histograms = np.array([np.histogram(row, bins=bins)[0] for row in data])
-                histograms_normalized = histograms / histograms.sum(axis=1, keepdims=True)
-                extent = [t_np.min(), t_np.max(), bins[0], bins[-1]]
-                im = axs[0].imshow(
-                    histograms_normalized.T,
-                    origin="lower",
-                    extent=extent,
-                    aspect="auto",
-                    norm=LogNorm(
-                        vmin=histograms_normalized[histograms_normalized > 0].min(),
-                        vmax=histograms_normalized.max(),
-                    ),
-                    cmap="inferno",
-                )
-
-                axs[0].set_xlabel("Time", fontsize=12)
-                axs[0].set_ylabel("Target energy", fontsize=12)
-                fig.colorbar(im, ax=axs[0], label="Log Marginal Density")
-
-                data = stepwise_interpolation_energy_np
-                bins = np.linspace(data.min(), data.max(), 100)
-                histograms = np.array([np.histogram(row, bins=bins)[0] for row in data])
-                histograms_normalized = histograms / histograms.sum(axis=1, keepdims=True)
-                extent = [t_np.min(), t_np.max(), bins[0], bins[-1]]
-                im = axs[1].imshow(
-                    histograms_normalized.T,
-                    origin="lower",
-                    extent=extent,
-                    aspect="auto",
-                    norm=LogNorm(
-                        vmin=histograms_normalized[histograms_normalized > 0].min(),
-                        vmax=histograms_normalized.max(),
-                    ),
-                    cmap="inferno",
-                )
-
-                axs[1].set_xlabel("Time", fontsize=12)
-                axs[1].set_ylabel("Interpolation energy", fontsize=12)
-                fig.colorbar(im, ax=axs[1], label="Log Marginal Density")
-
-                plt.tight_layout()
-                self.wandb_logger.log_image(f"langevin/energy_histograms", [fig])
-                plt.close()
-
-                fig, axs = plt.subplots(1, 2, figsize=(15, 5))
-                for k in range(stepwise_target_energy_np.shape[1]):
-                    axs[0].plot(t_list, A_np[:, k], linewidth=1, alpha=0.5)
-                axs[0].set_xlabel("Time", fontsize=12)
-                axs[0].set_ylabel("A", fontsize=12)
-
-                axs[1].plot(t_list, ESS_list, linewidth=1, alpha=0.3)
-                axs[1].set_xlabel("Time", fontsize=12)
-                axs[1].set_ylabel("ESS", fontsize=12)
-                axs[1].set_yscale("log")
-
-                plt.tight_layout()
-                self.wandb_logger.log_image(f"langevin/weights", [fig])
-                plt.close()
-
-                fig, ax = plt.subplots(1, 1, figsize=(7.5, 5))
-                ax.plot(t_list, eps_list, linewidth=1, alpha=0.5)
-                ax.set_xlabel("Time", fontsize=12)
-                ax.set_ylabel("Eps", fontsize=12)
-                plt.tight_layout()
-                self.wandb_logger.log_image(f"langevin/eps", [fig])
-                plt.close()
-
-                fig, axs = plt.subplots(1, 1, figsize=(7.5, 5))
-
-                for k in range(stepwise_target_energy_np.shape[1]):
-
-                    axs.plot(t_list, dX_t_norm_np[k], linewidth=1, alpha=0.5)
-
-                axs.set_xlabel("Time", fontsize=12)
-                axs.set_ylabel("||dX_t||", fontsize=12)
-                plt.tight_layout()
-                self.wandb_logger.log_image(f"langevin/dX_t_norm", [fig])
-                plt.close()
+                self.plot_dX_t_norm(dX_t_norm_list, t_list)
+                self.plot_weights(A_list, ESS_list, t_list)
+                self.plot_eps(eps_list, t_list)
 
             if X.isnan().any():
                 raise ValueError("X has NaNs")
@@ -264,13 +292,15 @@ class JarzynskiSampler(torch.nn.Module):
             A_list.append(A)
             ESS = sampling_efficiency(A)
             ESS_list.append(ESS.cpu())
+            dX_t_norm_list.append(np.concatenate(dX_t_norm_batches))
 
             t_list.append(t)
             eps_list.append(eps)
-            dX_t_norm.append(np.concatenate(dX_t_norm_batches))
 
-            target_energy_list.append(np.concatenate(target_energy_batches))
-            interpolation_energy_list.append(np.concatenate(interpolation_energy_batches))
+            if self.do_energy_plots:
+                target_energy_list.append(np.concatenate(target_energy_batches))
+                interpolation_energy_list.append(np.concatenate(interpolation_energy_batches))
+
 
             if ESS < self.ess_threshold:
                 # qmc_rand = sampler.random(n=len(A))
@@ -287,13 +317,14 @@ class JarzynskiSampler(torch.nn.Module):
 
                 t_list.append(t + 1e-9)
                 eps_list.append(eps)
-                dX_t_norm.append(np.concatenate(dX_t_norm_batches))
+                dX_t_norm_list.append(np.concatenate(dX_t_norm_batches))
 
                 # slice into list of batches (tensors)
                 X_batches = [X[i : i + self.batch_size] for i in range(0, X.shape[0], self.batch_size)]
 
-                target_energy_list.append(np.concatenate([self.target_energy(X_batch).cpu() for X_batch in X_batches]))
-                interpolation_energy_list.append(np.concatenate([self.linear_energy_interpolation(X_batch, t+1e-9).cpu() for X_batch in X_batches]))
+                if self.do_energy_plots:
+                    target_energy_list.append(np.concatenate([self.target_energy(X_batch).cpu() for X_batch in X_batches]))
+                    interpolation_energy_list.append(np.concatenate([self.linear_energy_interpolation(X_batch, t+1e-9).cpu() for X_batch in X_batches]))
 
             t_previous = t
 

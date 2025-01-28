@@ -14,7 +14,7 @@ if [ True = True ]; then
     ckpt_path='${oc.env:AL2_EQ1}/last.ckpt'
         #,${oc.env:AL2_EQ2}/last.ckpt,${oc.env:AL2_EQ3}/last.ckpt'
 fi
-if [ False = True ]; then
+if [ True = True ]; then
     python src/train.py -m \
     experiment=aldp logger=wandb \
     data=al3 \
@@ -26,8 +26,9 @@ if [ False = True ]; then
     model.net.hidden_nf=256 \
     data.num_workers=2 \
     train=False \
-    ckpt_path='${oc.env:AL3_EQ1}/last.ckpt,${oc.env:AL3_EQ2}/last.ckpt,${oc.env:AL3_EQ3}/last.ckpt'
+    ckpt_path='${oc.env:AL3_EQ3}/last.ckpt'
 fi
+    #ckpt_path='${oc.env:AL3_EQ1}/last.ckpt,${oc.env:AL3_EQ2}/last.ckpt,${oc.env:AL3_EQ3}/last.ckpt'
 if [ False = True ]; then
     python src/train.py -m \
     experiment=aldp logger=wandb \

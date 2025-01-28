@@ -30,6 +30,8 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
         self.nfe = 0
         self.num_integrations = 0
         self.eps = 1e-1
+        if "strict_loading" in kwargs:
+            self.strict_loading = kwargs["strict_loading"]
 
     def forward(self, t: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass through the model `self.net`.
