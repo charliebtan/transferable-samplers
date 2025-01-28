@@ -116,7 +116,7 @@ class JarzynskiSampler(torch.nn.Module):
 
         fig, axs = plt.subplots(1, 1, figsize=(7.5, 5))
 
-        for k in range(dX_t_norm_np.shape[1]):
+        for k in range(dX_t_norm_np.shape[0]):
 
             axs.plot(t_list, dX_t_norm_np[k], linewidth=1, alpha=0.5)
 
