@@ -1,4 +1,5 @@
 #!/bin/bash
+export CUDA_VISIBLE_DEVICES=$1
 python src/train.py -m \
 experiment=jarz_tarflow_al3 \
 trainer=gpu \
