@@ -157,7 +157,7 @@ class JarzynskiSampler(torch.nn.Module):
 
     def linear_energy_interpolation(self, x, t):
         source_energy = self.source_energy(x)
-        target_energy = self.target_energy(x)
+        target_energy = self.target_energy(x, use_com_energy=self.use_com_energy)
         target_energy = target_energy.reshape(-1)
         assert source_energy.shape == (
             x.shape[0],
