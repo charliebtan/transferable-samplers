@@ -1,5 +1,7 @@
-import wandb
 import os
+
+import wandb
+
 
 # Function to download media from a specific run
 def download_wandb_media(project_name, run_id, media_type, output_dir):
@@ -30,6 +32,7 @@ def download_wandb_media(project_name, run_id, media_type, output_dir):
         file.download(root=output_dir)
 
     print("Download complete.")
+
 
 # Example usage
 if __name__ == "__main__":
