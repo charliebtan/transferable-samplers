@@ -73,6 +73,9 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
 
         xt = self.get_xt(batch_prior, batch, t)
         vt_flow = self.get_flow_targets(batch_prior, batch)
+        if "sigma" in self.hparams:
+            xt += self.hparams.sigma * torch.randn_like(xt)
+
 
         vt_pred = self.forward(t, xt)
         loss = self.criterion(vt_pred, vt_flow)

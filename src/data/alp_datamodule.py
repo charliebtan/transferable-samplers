@@ -23,6 +23,7 @@ from src.models.components.distribution_distances import (
 from src.models.components.optimal_transport import torus_wasserstein
 from src.models.components.utils import resample
 
+logger = logging.getLogger(__name__)
 
 class ALPDataModule(BaseDataModule):
     def __init__(
@@ -67,6 +68,7 @@ class ALPDataModule(BaseDataModule):
         self.atom_types_encoding = np.load(f"{self.hparams.data_dir}/{self.hparams.atom_encoding_filename}", allow_pickle=True).item()
 
         self.pdb_path = f"{self.hparams.data_dir}/{pdb_filename}"
+        logger.info(f"Loading pdb file from {self.pdb_path}")
         self.topology = md.load_topology(self.pdb_path)
         self.pdb = app.PDBFile(self.pdb_path)
 
