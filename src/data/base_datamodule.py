@@ -1,6 +1,8 @@
 import logging
 import os
 from typing import Any, Dict, List, Optional
+import scipy
+import math
 
 import hydra
 import matplotlib.pyplot as plt
@@ -182,10 +184,12 @@ class BaseDataModule(LightningDataModule):
 
             logging.info("Using CoM energy")
 
+            sigma = self.proposal_com_std
+
             # self.std is the std dev of com augmentation in normalised scale
             com = x.view(-1, self.n_particles, self.n_dimensions).mean(axis=1)
             com_norm = com.norm(dim=-1)
-            com_energy = com_norm ** 2 / (2 * self.proposal_com_std ** 2) - torch.log(com_norm ** 2)
+            com_energy = com_norm ** 2 / (2 * sigma ** 2) - torch.log(com_norm ** 2 / (math.sqrt(2) * sigma ** 3 * scipy.special.gamma(3/2)))
 
         x = self.unnormalize(x)
         energy = self.potential.energy(x).flatten()
