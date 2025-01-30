@@ -11,7 +11,7 @@ model:
   sampling_config:
     batch_size: 10_000
     num_test_proposal_samples: 100_000
-    num_jarzynski_samples: 100_000
+    num_jarzynski_samples: 1_000_000
     num_eval_samples: 10_000
     energy_cutoff: 10.0
   net:
