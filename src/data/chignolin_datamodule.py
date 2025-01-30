@@ -140,14 +140,16 @@ class ChignolinDataModule(BaseDataModule):
         samples,
         log_p_samples: torch.Tensor,
         samples_jarzynski: torch.Tensor = None,
+        use_com_energy: bool = False,
         min_energy=-500,
-        max_energy=-250,
+        max_energy=500,
         ylim=(0, 0.04),
     ):
         return super().get_dataset_fig(
             samples,
             log_p_samples,
             samples_jarzynski,
+            use_com_energy,
             min_energy,
             max_energy,
             ylim=ylim,

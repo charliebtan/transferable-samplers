@@ -1,0 +1,30 @@
+# @package _global_
+
+defaults:
+  - override /model: normalizing_flow
+  - override /data: chignolin
+
+ckpt_path: "/network/scratch/b/bosejoey/fast-tbg/logs/train/runs/chignolin_tarflow_moonshot/checkpoints/last.ckpt"
+train: False
+
+model:
+  sampling_config:
+    batch_size: 1_024
+    num_test_proposal_samples: 10_000
+    num_jarzynski_samples: 10_000
+    num_eval_samples: 10_000
+    energy_cutoff: -250.0
+  net:
+    channels: 512
+    num_blocks: 8
+    layers_per_block: 8
+  jarzynski_sampler:
+    langevin_eps: 1e-7
+    num_timesteps: 100
+    batch_size: 128 # set for 48gb
+    enabled: False
+
+  data:
+    - batch_size: 512
+
+tags: [jarz]
