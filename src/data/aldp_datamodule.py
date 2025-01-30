@@ -65,6 +65,7 @@ class ALDPDataModule(BaseDataModule):
         self.bgmol_dataset = AImplicitUnconstrained(
             read=True, download=True if "AImplicitUnconstrained" not in os.listdir() else False
         )
+        self.topology = self.bgmol_dataset.system.mdtraj_topology
         self.potential = self.bgmol_dataset.get_energy_model()
         self.adj_list = None
         self.atom_types = None
@@ -264,7 +265,8 @@ class ALDPDataModule(BaseDataModule):
             eval_samples = self.data_val[: x_pred.shape[0]]
         elif "test" in prefix:
             eval_samples = self.data_test[: x_pred.shape[0]]
-
+        else:
+            eval_samples = self.data_test[: x_pred.shape[0]]
         x_true = self.get_phi_psi_vectors(self.unnormalize(eval_samples))
 
         metrics = compute_distribution_distances_with_prefix(x_true, x_pred, prefix=prefix)
