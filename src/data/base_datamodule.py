@@ -224,6 +224,7 @@ class BaseDataModule(LightningDataModule):
         dist = torch.linalg.norm(distances, dim=-1)
         return dist
 
+
     def plot_nice_samples(
         self,
         samples,
@@ -231,8 +232,9 @@ class BaseDataModule(LightningDataModule):
         samples_jarzynski: torch.Tensor = None,
         min_energy=-26,
         max_energy=0,
-        ylim=(0, 0.2),
+        ylim=None,
         clip_energy=False,
+        clip_weights=0.002
     ):
         test_data_smaller = self.data_test[:10000]
         import matplotlib.pyplot as plt
@@ -245,16 +247,25 @@ class BaseDataModule(LightningDataModule):
 
         fig, ax = plt.subplots(figsize=(4, 3), dpi=300, constrained_layout=True)
         fig.patch.set_facecolor("white")
+        clipper = lambda x: x
+        if clip_energy:
+            max_energy=clip_energy
+            clipper = lambda x: torch.clamp(x, max=max_energy - 0.1)
         bin_edges = np.linspace(min_energy, max_energy, 100)
 
         energy_samples = self.energy(samples)
         logits = -energy_samples.flatten() - log_p_samples.flatten()
+        if clip_weights > 0:
+            clipped_logits_mask = logits > torch.quantile(logits, 1 - clip_weights)
+            logits = logits[~clipped_logits_mask]
+            samples = samples[~clipped_logits_mask]
+            energy_samples = energy_samples[~clipped_logits_mask]
         importance_weights = torch.nn.functional.softmax(logits, dim=0).detach().cpu()
         energy_samples = energy_samples.detach().cpu()
         energy_test = self.energy(test_data_smaller).detach().cpu()
 
         ax.hist(
-            energy_test.cpu(),
+            clipper(energy_test.cpu()),
             bins=bin_edges,
             density=True,
             alpha=0.4,
@@ -265,7 +276,7 @@ class BaseDataModule(LightningDataModule):
         )
         try:
             ax.hist(
-                energy_samples.cpu(),
+                clipper(energy_samples.cpu()),
                 bins=bin_edges,
                 density=True,
                 alpha=0.4,
@@ -278,7 +289,7 @@ class BaseDataModule(LightningDataModule):
             print(e)
         try:
             ax.hist(
-                energy_samples,
+                clipper(energy_samples),
                 bins=bin_edges,
                 density=True,
                 alpha=0.4,
@@ -295,7 +306,7 @@ class BaseDataModule(LightningDataModule):
             energies_jarzynski = energies_jarzynski.detach().cpu().numpy()
 
             ax.hist(
-                energies_jarzynski,
+                clipper(energies_jarzynski),
                 bins=bin_edges,
                 density=True,
                 alpha=0.4,
@@ -307,17 +318,14 @@ class BaseDataModule(LightningDataModule):
         if clip_energy:
             xticks = list(ax.get_xticks())
             xticks = xticks[1:-1]
-
-            new_tick = bin_edges[-1] - 1
+            new_tick = bin_edges[-1]
             custom_label = rf"$\geq {new_tick}$"
-
             xticks.append(new_tick)
             xtick_labels = [str(int(tick)) if tick != new_tick else custom_label for tick in xticks]
-
             ax.set_xticks(xticks)
             ax.set_xticklabels(xtick_labels)
-
-        #ax.set_ylim(ylim)
+        if ylim is not None:
+            ax.set_ylim(ylim)
         plt.xlabel(r"$\mathcal{E}(x)$",labelpad=-5)#, fontsize=35)
         plt.ylabel("Normalized Density")#, fontsize=35)
         plt.legend()#fontsize=30)
