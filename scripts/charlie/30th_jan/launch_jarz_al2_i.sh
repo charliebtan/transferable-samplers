@@ -4,7 +4,7 @@ python src/train.py -m \
 experiment=jarz_tarflow_aldp \
 trainer=gpu \
 tags=[jarz,jarz_final_iv5] \
-model.sampling_config.num_test_proposal_samples=100_000,1_000_000 \
+model.sampling_config.num_test_proposal_samples=1_000,10_000,100_000,1_000_000 \
 model.jarzynski_sampler.num_timesteps=100 \
 model.sampling_config.energy_cutoff=10.0 \
 model.jarzynski_sampler.langevin_eps=1e-7 \
