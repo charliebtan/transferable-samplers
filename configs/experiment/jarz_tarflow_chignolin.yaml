@@ -10,8 +10,8 @@ train: False
 model:
   sampling_config:
     batch_size: 1_024
-    num_test_proposal_samples: 10_000
-    num_jarzynski_samples: 10_000
+    num_test_proposal_samples: 100_000
+    num_jarzynski_samples: 100_000
     num_eval_samples: 10_000
     energy_cutoff: -100.0
   net:
