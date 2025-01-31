@@ -111,7 +111,7 @@ class ALDPDataModule(BaseDataModule):
         )
 
         self.data_val, self.data_test = test_data[:20_000], test_data[20_000:]
-
+        self.original_test_data = test_data[20_000:]
         val_rng = np.random.default_rng(0)
         self.data_val = torch.tensor(val_rng.permutation(self.data_val))
 

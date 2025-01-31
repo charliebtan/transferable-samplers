@@ -303,10 +303,10 @@ class BaseDataModule(LightningDataModule):
             print(e)
         if samples_jarzynski is not None:
             energies_jarzynski = self.energy(samples_jarzynski)
-            energies_jarzynski = energies_jarzynski.detach().cpu().numpy()
+            energies_jarzynski = energies_jarzynski.detach().cpu()
 
             ax.hist(
-                clipper(energies_jarzynski),
+                energies_jarzynski,
                 bins=bin_edges,
                 density=True,
                 alpha=0.4,

@@ -141,6 +141,7 @@ class ALPDataModule(BaseDataModule):
 
         train_data = data[:100000]
         test_data = data[100000:]
+        self.original_test_data = data[120_000:]
 
         # compute std on only train data
         self.std = train_data.std()
@@ -156,6 +157,7 @@ class ALPDataModule(BaseDataModule):
         # standardize the data
         train_data = self.normalize(train_data)
         test_data = self.normalize(test_data)
+        
 
         # split the data
         self.data_train = TransformDataset(
@@ -281,7 +283,8 @@ class ALPDataModule(BaseDataModule):
             eval_samples = self.data_val[: x_pred.shape[0]]
         elif "test" in prefix:
             eval_samples = self.data_test[: x_pred.shape[0]]
-
+        else:
+            eval_samples = self.data_test[: x_pred.shape[0]]
         x_true = self.get_phi_psi_vectors(self.unnormalize(eval_samples))
 
         metrics = compute_distribution_distances_with_prefix(x_true, x_pred, prefix=prefix)
