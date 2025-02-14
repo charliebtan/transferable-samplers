@@ -23,6 +23,8 @@ from src.models.components.distribution_distances import (
 from src.models.components.optimal_transport import torus_wasserstein
 from src.models.components.utils import resample
 
+logger = logging.getLogger(__name__)
+
 
 class ALPDataModule(BaseDataModule):
     def __init__(
@@ -64,9 +66,12 @@ class ALPDataModule(BaseDataModule):
         self.adj_list = None
         self.atom_types = None
         self.atom_encoding_filename = atom_encoding_filename
-        self.atom_types_encoding = np.load(f"{self.hparams.data_dir}/{self.hparams.atom_encoding_filename}", allow_pickle=True).item()
+        self.atom_types_encoding = np.load(
+            f"{self.hparams.data_dir}/{self.hparams.atom_encoding_filename}", allow_pickle=True
+        ).item()
 
         self.pdb_path = f"{self.hparams.data_dir}/{pdb_filename}"
+        logger.info(f"Loading pdb file from {self.pdb_path}")
         self.topology = md.load_topology(self.pdb_path)
         self.pdb = app.PDBFile(self.pdb_path)
 
@@ -92,19 +97,19 @@ class ALPDataModule(BaseDataModule):
 
         else:
 
-            forcefield = openmm.app.ForceField('amber99sbildn.xml', 'tip3p.xml', 'amber99_obc.xml')
+            forcefield = openmm.app.ForceField("amber99sbildn.xml", "tip3p.xml", "amber99_obc.xml")
 
             system = forcefield.createSystem(
                 self.pdb.topology,
                 nonbondedMethod=openmm.app.NoCutoff,
-                nonbondedCutoff=.9*openmm.unit.nanometer,
-                constraints=None
+                nonbondedCutoff=0.9 * openmm.unit.nanometer,
+                constraints=None,
             )
             temperature = 300
             integrator = openmm.LangevinMiddleIntegrator(
-                temperature*openmm.unit.kelvin,
-                0.3/openmm.unit.picosecond,
-                1.0*openmm.unit.femtosecond
+                temperature * openmm.unit.kelvin,
+                0.3 / openmm.unit.picosecond,
+                1.0 * openmm.unit.femtosecond,
             )
             self.openmm_energy = OpenMMEnergy(
                 bridge=OpenMMBridge(system, integrator, platform_name="CUDA")
@@ -112,7 +117,6 @@ class ALPDataModule(BaseDataModule):
 
         self.potential = self.openmm_energy
 
-    
     def setup(self, stage: Optional[str] = None) -> None:
         # Divide batch size by the number of devices.
         if self.trainer is not None:
@@ -139,6 +143,7 @@ class ALPDataModule(BaseDataModule):
 
         train_data = data[:100000]
         test_data = data[100000:]
+        self.original_test_data = data[120_000:]
 
         # compute std on only train data
         self.std = train_data.std()
@@ -225,15 +230,12 @@ class ALPDataModule(BaseDataModule):
         resampled_samples = resample(samples, -self.energy(samples) - log_p_samples)
         samples = self.unnormalize(samples).cpu()
         samples_metrics = self.get_ramachandran_metrics(
-            samples[:num_eval_samples],
-            prefix=prefix + "/rama"
-            )
+            samples[:num_eval_samples], prefix=prefix + "/rama"
+        )
 
         logging.info("Ramachandran metrics computed")
 
-        self.plot_ramachandran(
-            samples, prefix=prefix + "/rama", wandb_logger=wandb_logger
-        )
+        self.plot_ramachandran(samples, prefix=prefix + "/rama", wandb_logger=wandb_logger)
         self.plot_ramachandran(samples, prefix=prefix + "/rama", wandb_logger=wandb_logger)
         metrics.update(samples_metrics)
 
@@ -250,8 +252,7 @@ class ALPDataModule(BaseDataModule):
         if samples_jarzynski is not None:
             samples_jarzynski = self.unnormalize(samples_jarzynski).cpu()
             samples_jarzynski_metrics = self.get_ramachandran_metrics(
-                samples_jarzynski[:num_eval_samples],
-                prefix=prefix + "/jarzynski/rama"
+                samples_jarzynski[:num_eval_samples], prefix=prefix + "/jarzynski/rama"
             )
             logging.info("Ramachandran metrics computed (jarzynski)")
             self.plot_ramachandran(
@@ -279,7 +280,8 @@ class ALPDataModule(BaseDataModule):
             eval_samples = self.data_val[: x_pred.shape[0]]
         elif "test" in prefix:
             eval_samples = self.data_test[: x_pred.shape[0]]
-
+        else:
+            eval_samples = self.data_test[: x_pred.shape[0]]
         x_true = self.get_phi_psi_vectors(self.unnormalize(eval_samples))
 
         metrics = compute_distribution_distances_with_prefix(x_true, x_pred, prefix=prefix)
@@ -348,7 +350,7 @@ class ALPDataModule(BaseDataModule):
             ax.xaxis.set_tick_params(labelsize=25)
             ax.yaxis.set_tick_params(labelsize=25)
             ax.yaxis.set_ticks([])
-            cbar = fig.colorbar(im) #, ticks=ticks)
+            cbar = fig.colorbar(im)  # , ticks=ticks)
             im.set_clim(vmax=samples.shape[0] // 20)
             cbar.ax.set_ylabel(f"Count, max = {int(h.max())}", fontsize=18)
             if wandb_logger is not None:

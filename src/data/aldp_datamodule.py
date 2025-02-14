@@ -65,6 +65,7 @@ class ALDPDataModule(BaseDataModule):
         self.bgmol_dataset = AImplicitUnconstrained(
             read=True, download=True if "AImplicitUnconstrained" not in os.listdir() else False
         )
+        self.topology = self.bgmol_dataset.system.mdtraj_topology
         self.potential = self.bgmol_dataset.get_energy_model()
         self.adj_list = None
         self.atom_types = None
@@ -110,7 +111,7 @@ class ALDPDataModule(BaseDataModule):
         )
 
         self.data_val, self.data_test = test_data[:20_000], test_data[20_000:]
-
+        self.original_test_data = test_data[20_000:]
         val_rng = np.random.default_rng(0)
         self.data_val = torch.tensor(val_rng.permutation(self.data_val))
 
@@ -160,7 +161,6 @@ class ALDPDataModule(BaseDataModule):
         metrics.update(samples_metrics)
 
         logging.info("Align and compute metrics done")
-        
 
         resampled_samples = resample(samples, -self.energy(samples) - log_p_samples)
         resampled_metrics = self.align_and_compute_metrics(
@@ -181,7 +181,7 @@ class ALDPDataModule(BaseDataModule):
                 num_eval_samples=num_eval_samples,
             )
             metrics.update(samples_jarzynski_metrics)
-            
+
             logging.info("Align and compute metrics done (jarzynski)")
 
         if "val" in prefix:
@@ -264,7 +264,8 @@ class ALDPDataModule(BaseDataModule):
             eval_samples = self.data_val[: x_pred.shape[0]]
         elif "test" in prefix:
             eval_samples = self.data_test[: x_pred.shape[0]]
-
+        else:
+            eval_samples = self.data_test[: x_pred.shape[0]]
         x_true = self.get_phi_psi_vectors(self.unnormalize(eval_samples))
 
         metrics = compute_distribution_distances_with_prefix(x_true, x_pred, prefix=prefix)
@@ -306,8 +307,6 @@ class ALDPDataModule(BaseDataModule):
         cbar.ax.set_ylabel(r"Free energy / $k_B T$", fontsize=35)
         if wandb_logger is not None:
             wandb_logger.log_image(f"{prefix}/ramachandran", [fig])
-
-        
 
         return fig
 

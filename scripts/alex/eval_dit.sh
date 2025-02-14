@@ -55,4 +55,3 @@ elif [ $1 = 4 ]; then
     train=False \
     ckpt_path='${oc.env:AL4_DIT1}/last.ckpt,${oc.env:AL4_DIT2}/last.ckpt,${oc.env:AL4_DIT3}/last.ckpt'
 fi
-
