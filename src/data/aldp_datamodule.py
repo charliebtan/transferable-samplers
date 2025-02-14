@@ -216,7 +216,9 @@ class ALDPDataModule(BaseDataModule):
         aligned_symmetrized_samples[symmetry_change] *= -1
         correctable_symmetry_rate = 1 - symmetry_change.sum() / len(symmetry_change)
         symmetry_change_symmetrized = self.get_symmetry_change(aligned_symmetrized_samples)
-        uncorrectable_symmetry_rate = symmetry_change_symmetrized.sum() / len(symmetry_change_symmetrized)
+        uncorrectable_symmetry_rate = symmetry_change_symmetrized.sum() / len(
+            symmetry_change_symmetrized
+        )
         try:
             aligned_symmetrized_samples = aligned_symmetrized_samples[~symmetry_change_symmetrized]
             self.plot_ramachandran(

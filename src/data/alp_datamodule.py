@@ -21,7 +21,12 @@ from src.models.components.distribution_distances import (
     compute_distribution_distances_with_prefix,
 )
 from src.models.components.optimal_transport import torus_wasserstein
-from src.models.components.utils import resample, check_symmetry_change, find_chirality_centers, compute_chirality_sign
+from src.models.components.utils import (
+    check_symmetry_change,
+    compute_chirality_sign,
+    find_chirality_centers,
+    resample,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -217,9 +222,7 @@ class ALPDataModule(BaseDataModule):
         atom_types = torch.from_numpy(np.array([atom_dict[atom_type] for atom_type in atom_types]))
         n_particles = len(atom_types)
         adj_list = torch.from_numpy(
-            np.array(
-                [(b.atom1.index, b.atom2.index) for b in self.topology.bonds], dtype=np.int32
-            )
+            np.array([(b.atom1.index, b.atom2.index) for b in self.topology.bonds], dtype=np.int32)
         )
         return adj_list, atom_types
 
@@ -246,28 +249,29 @@ class ALPDataModule(BaseDataModule):
         resampled_samples = resample(samples, -self.energy(samples) - log_p_samples)
         samples = self.unnormalize(samples).cpu()
         samples_metrics = self.get_ramachandran_metrics(
-            samples[:num_eval_samples],
-            prefix=prefix + "/rama"
-            )
+            samples[:num_eval_samples], prefix=prefix + "/rama"
+        )
         reference_samples = self.data_test
         chirality_centers = find_chirality_centers(self.adj_list, self.atom_types)
         reference_signs = compute_chirality_sign(
             reference_samples.reshape(-1, self.n_particles, 3)[[1]], chirality_centers
         )
         resampled_samples = resampled_samples.reshape(-1, self.n_particles, 3)
-        symmetry_change = check_symmetry_change(resampled_samples, chirality_centers, reference_signs)
+        symmetry_change = check_symmetry_change(
+            resampled_samples, chirality_centers, reference_signs
+        )
         print("Symmetry change frac:", (symmetry_change).float().mean())
         resampled_samples[symmetry_change] *= -1
-        symmetry_change = check_symmetry_change(resampled_samples, chirality_centers, reference_signs)
+        symmetry_change = check_symmetry_change(
+            resampled_samples, chirality_centers, reference_signs
+        )
         resampled_samples = resampled_samples[~symmetry_change]
         resampled_samples = resampled_samples.reshape(-1, self.n_particles * 3)
 
         logging.info("Ramachandran metrics computed")
 
         try:
-            self.plot_ramachandran(
-                samples, prefix=prefix + "/rama", wandb_logger=wandb_logger
-            )
+            self.plot_ramachandran(samples, prefix=prefix + "/rama", wandb_logger=wandb_logger)
             self.plot_ramachandran(samples, prefix=prefix + "/rama", wandb_logger=wandb_logger)
             metrics.update(samples_metrics)
 
