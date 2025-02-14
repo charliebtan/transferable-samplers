@@ -21,7 +21,7 @@ from src.models.components.distribution_distances import (
     compute_distribution_distances_with_prefix,
 )
 from src.models.components.optimal_transport import torus_wasserstein
-from src.models.components.utils import resample
+from src.models.components.utils import resample, check_symmetry_change, find_chirality_centers, compute_chirality_sign
 
 
 class ALPDataModule(BaseDataModule):
@@ -69,6 +69,8 @@ class ALPDataModule(BaseDataModule):
         self.pdb_path = f"{self.hparams.data_dir}/{pdb_filename}"
         self.topology = md.load_topology(self.pdb_path)
         self.pdb = app.PDBFile(self.pdb_path)
+
+        self.adj_list, self.atom_types = self.compute_adj_list_and_atom_types()
 
         if n_particles != 42:
 
@@ -202,6 +204,20 @@ class ALPDataModule(BaseDataModule):
             ylim=ylim,
         )
 
+    def compute_adj_list_and_atom_types(self):
+        atom_dict = {"C": 0, "H": 1, "N": 2, "O": 3, "S": 4}
+        atom_types = []
+        for atom_name in self.topology.atoms:
+            atom_types.append(atom_name.name[0])
+        atom_types = torch.from_numpy(np.array([atom_dict[atom_type] for atom_type in atom_types]))
+        n_particles = len(atom_types)
+        adj_list = torch.from_numpy(
+            np.array(
+                [(b.atom1.index, b.atom2.index) for b in self.topology.bonds], dtype=np.int32
+            )
+        )
+        return adj_list, atom_types
+
     def log_on_epoch_end(
         self,
         samples,
@@ -228,23 +244,38 @@ class ALPDataModule(BaseDataModule):
             samples[:num_eval_samples],
             prefix=prefix + "/rama"
             )
+        reference_samples = self.data_test
+        chirality_centers = find_chirality_centers(self.adj_list, self.atom_types)
+        reference_signs = compute_chirality_sign(
+            reference_samples.reshape(-1, self.n_particles, 3)[[1]], chirality_centers
+        )
+        resampled_samples = resampled_samples.reshape(-1, self.n_particles, 3)
+        symmetry_change = check_symmetry_change(resampled_samples, chirality_centers, reference_signs)
+        print("Symmetry change frac:", (symmetry_change).float().mean())
+        resampled_samples[symmetry_change] *= -1
+        symmetry_change = check_symmetry_change(resampled_samples, chirality_centers, reference_signs)
+        resampled_samples = resampled_samples[~symmetry_change]
+        resampled_samples = resampled_samples.reshape(-1, self.n_particles * 3)
 
         logging.info("Ramachandran metrics computed")
 
-        self.plot_ramachandran(
-            samples, prefix=prefix + "/rama", wandb_logger=wandb_logger
-        )
-        self.plot_ramachandran(samples, prefix=prefix + "/rama", wandb_logger=wandb_logger)
-        metrics.update(samples_metrics)
+        try:
+            self.plot_ramachandran(
+                samples, prefix=prefix + "/rama", wandb_logger=wandb_logger
+            )
+            self.plot_ramachandran(samples, prefix=prefix + "/rama", wandb_logger=wandb_logger)
+            metrics.update(samples_metrics)
 
-        resampled_samples = self.unnormalize(resampled_samples.cpu())
-        resampled_metrics = self.get_ramachandran_metrics(
-            resampled_samples[:num_eval_samples], prefix=prefix + "/resampled/rama"
-        )
-        logging.info("Ramachandran metrics computed (resampled)")
-        self.plot_ramachandran(
-            resampled_samples, prefix=prefix + "/resampled/rama", wandb_logger=wandb_logger
-        )
+            resampled_samples = self.unnormalize(resampled_samples.cpu())
+            resampled_metrics = self.get_ramachandran_metrics(
+                resampled_samples[:num_eval_samples], prefix=prefix + "/resampled/rama"
+            )
+            logging.info("Ramachandran metrics computed (resampled)")
+            self.plot_ramachandran(
+                resampled_samples, prefix=prefix + "/resampled/rama", wandb_logger=wandb_logger
+            )
+        except ValueError as e:
+            logging.error(f"Error in plotting Ramachandran: {e}")
         metrics.update(resampled_metrics)
 
         if samples_jarzynski is not None:
