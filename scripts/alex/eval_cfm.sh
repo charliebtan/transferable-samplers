@@ -1,23 +1,24 @@
+
 if [ -z "$1" ]
   then
     echo "No argument supplied"
     exit 1
 fi
 if [ $1 = 2 ]; then
-    python src/train.py \
+    python src/train.py -m \
     experiment=aldp logger=wandb \
     data=aldp \
-    trainer=gpu trainer.max_epochs=1000 \
-    tags=[al,cnf,eval,v9] \
+    trainer=ddp trainer.max_epochs=1000 \
+    tags=[al,cnf,eval,v11] \
     data.batch_size=512 \
-    model.sampling_config.batch_size=256 \
+    model.sampling_config.batch_size=512 \
     model.sampling_config.num_test_proposal_samples=10000 \
     model.net.hidden_nf=256 \
     data.num_workers=2 \
-    model.div_estimator="ito" \
     train=False \
-    ckpt_path='${oc.env:AL2_EQ1}/last.ckpt'
-        #,${oc.env:AL2_EQ2}/last.ckpt,${oc.env:AL2_EQ3}/last.ckpt'
+    ckpt_path='${oc.env:AL2_EQ1}/last.ckpt,${oc.env:AL2_EQ2}/last.ckpt,${oc.env:AL2_EQ3}/last.ckpt'
+    #model.div_estimator="ito" \
+fi
 elif [ $1 = 3 ]; then
     python src/train.py -m \
     experiment=aldp logger=wandb \
@@ -31,8 +32,8 @@ elif [ $1 = 3 ]; then
     model.net.hidden_nf=256 \
     data.num_workers=2 \
     train=True \
+    ckpt_path='${oc.env:AL3_EQ1}/last.ckpt,${oc.env:AL3_EQ2}/last.ckpt,${oc.env:AL3_EQ3}/last.ckpt'
     #ckpt_path='${oc.env:AL3_EQ3}/last.ckpt'
-    #ckpt_path='${oc.env:AL3_EQ1}/last.ckpt,${oc.env:AL3_EQ2}/last.ckpt,${oc.env:AL3_EQ3}/last.ckpt'
 elif [ $1 = 4 ]; then
     python src/train.py -m \
     experiment=aldp logger=wandb \

@@ -209,35 +209,41 @@ class ALDPDataModule(BaseDataModule):
             return {
                 f"{prefix}/correct_config_rate": 0,
                 f"{prefix}/correct_symmetry_rate": 0,
+                f"{prefix}/uncorrectable_symmetry_rate": 0,
             }
         symmetry_change = self.get_symmetry_change(aligned_samples)
-        correct_symmetry_rate = 1 - symmetry_change.sum() / len(symmetry_change)
+        aligned_symmetrized_samples = aligned_samples.copy()
+        aligned_symmetrized_samples[symmetry_change] *= -1
+        correctable_symmetry_rate = 1 - symmetry_change.sum() / len(symmetry_change)
+        symmetry_change_symmetrized = self.get_symmetry_change(aligned_symmetrized_samples)
+        uncorrectable_symmetry_rate = symmetry_change_symmetrized.sum() / len(
+            symmetry_change_symmetrized
+        )
         try:
-            aligned_symmetric_samples = aligned_samples[~symmetry_change]
+            aligned_symmetrized_samples = aligned_symmetrized_samples[~symmetry_change_symmetrized]
             self.plot_ramachandran(
-                aligned_symmetric_samples, prefix=prefix, wandb_logger=wandb_logger
+                aligned_symmetrized_samples, prefix=prefix, wandb_logger=wandb_logger
             )
             metrics = self.get_ramachandran_metrics(
-                aligned_symmetric_samples[:num_eval_samples], prefix=prefix
+                aligned_symmetrized_samples[:num_eval_samples], prefix=prefix
             )
             metrics.update(
                 {
                     f"{prefix}/correct_config_rate": correct_config_rate,
-                    f"{prefix}/correct_symmetry_rate": correct_symmetry_rate,
+                    f"{prefix}/correct_symmetry_rate": correctable_symmetry_rate,
+                    f"{prefix}/uncorrectable_symmetry_rate": uncorrectable_symmetry_rate,
                 }
             )
             return metrics
         except Exception as e:
             logging.warning(
-                "Aligned samples:",
-                aligned_samples.shape,
-                "Symmetry change:",
-                symmetry_change.shape,
+                f"Aligned samples: {aligned_samples.shape} Symmetry change: {symmetry_change.shape}",
             )
             logging.warning(e)
             return {
                 f"{prefix}/correct_config_rate": -1.0,
                 f"{prefix}/correct_symmetry_rate": -1.0,
+                f"{prefix}/uncorrectable_symmetry_rate": -1.0,
             }
 
     def get_symmetry_change(self, aligned_samples):
@@ -253,8 +259,8 @@ class ALDPDataModule(BaseDataModule):
             chirality_centers,
         )
         symmetry_change = check_symmetry_change(model_samples, chirality_centers, reference_signs)
-        model_samples[symmetry_change] *= -1
-        symmetry_change = check_symmetry_change(model_samples, chirality_centers, reference_signs)
+        # model_samples[symmetry_change] *= -1
+        # symmetry_change = check_symmetry_change(model_samples, chirality_centers, reference_signs)
         return symmetry_change
 
     def get_ramachandran_metrics(self, samples, prefix: str = ""):
