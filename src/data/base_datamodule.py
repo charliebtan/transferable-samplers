@@ -184,7 +184,7 @@ class BaseDataModule(LightningDataModule):
         samples,
         log_p_samples: torch.Tensor,
         samples_jarzynski: torch.Tensor = None,
-        num_eval_samples: int = 5000,  # for compatability
+        num_eval_samples: int = 5000,  # for compatibility
         loggers: List[Any] = None,
         prefix: str = "",
     ) -> None:
@@ -224,7 +224,6 @@ class BaseDataModule(LightningDataModule):
         dist = torch.linalg.norm(distances, dim=-1)
         return dist
 
-
     def plot_nice_samples(
         self,
         samples,
@@ -234,13 +233,13 @@ class BaseDataModule(LightningDataModule):
         max_energy=0,
         ylim=None,
         clip_energy=False,
-        clip_weights=0.002
+        clip_weights=0.002,
     ):
         test_data_smaller = self.data_test[:10000]
-        import matplotlib.pyplot as plt
-        from matplotlib.ticker import NullLocator
-        from matplotlib.patches import Rectangle
         import matplotlib
+        import matplotlib.pyplot as plt
+        from matplotlib.patches import Rectangle
+        from matplotlib.ticker import NullLocator
 
         matplotlib.rcParams["mathtext.fontset"] = "stix"
         matplotlib.rcParams["font.family"] = "STIXGeneral"
@@ -249,7 +248,7 @@ class BaseDataModule(LightningDataModule):
         fig.patch.set_facecolor("white")
         clipper = lambda x: x
         if clip_energy:
-            max_energy=clip_energy
+            max_energy = clip_energy
             clipper = lambda x: torch.clamp(x, max=max_energy - 0.1)
         bin_edges = np.linspace(min_energy, max_energy, 100)
 
@@ -321,15 +320,16 @@ class BaseDataModule(LightningDataModule):
             new_tick = bin_edges[-1]
             custom_label = rf"$\geq {new_tick}$"
             xticks.append(new_tick)
-            xtick_labels = [str(int(tick)) if tick != new_tick else custom_label for tick in xticks]
+            xtick_labels = [
+                str(int(tick)) if tick != new_tick else custom_label for tick in xticks
+            ]
             ax.set_xticks(xticks)
             ax.set_xticklabels(xtick_labels)
         if ylim is not None:
             ax.set_ylim(ylim)
-        plt.xlabel(r"$\mathcal{E}(x)$",labelpad=-5)#, fontsize=35)
-        plt.ylabel("Normalized Density")#, fontsize=35)
-        plt.legend()#fontsize=30)
-
+        plt.xlabel(r"$\mathcal{E}(x)$", labelpad=-5)  # , fontsize=35)
+        plt.ylabel("Normalized Density")  # , fontsize=35)
+        plt.legend()  # fontsize=30)
 
     def get_dataset_fig(
         self,

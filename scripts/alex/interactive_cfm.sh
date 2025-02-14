@@ -14,4 +14,3 @@ model.sampling_config.num_proposal_samples=1000 \
 model.net.hidden_nf=256 \
 #trainer.strategy=ddp_find_unused_parameters_true \
 #python src/train.py experiment=aldp logger=wandb seed=42 data=al4 trainer=ddp model/net=egnn_dynamics_ad2_cat_v2 tags=[al,cnf,v11,egnn_v2] trainer.check_val_every_n_epoch=200 data.batch_size=512 +data.repeat_factor=1 trainer.max_epochs=1000 model.sampling_config.batch_size=200 +trainer.num_sanity_val_steps=1 model.sampling_config.num_proposal_samples=1000 model.net.hidden_nf=256 trainer.strategy=ddp_find_unused_parameters_true data.num_workers=6
-

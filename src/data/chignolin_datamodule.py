@@ -21,9 +21,7 @@ from src.models.components.distribution_distances import (
     compute_distribution_distances_with_prefix,
 )
 from src.models.components.optimal_transport import torus_wasserstein
-from src.models.components.utils import (
-    resample,
-)
+from src.models.components.utils import resample
 
 
 class ChignolinDataModule(BaseDataModule):
@@ -79,20 +77,20 @@ class ChignolinDataModule(BaseDataModule):
         system = forcefield.createSystem(
             self.topology.to_openmm(),
             nonbondedMethod=app.CutoffNonPeriodic,
-            nonbondedCutoff=2.0*openmm.unit.nanometer,
-            constraints=None
-            )
+            nonbondedCutoff=2.0 * openmm.unit.nanometer,
+            constraints=None,
+        )
 
         temperature = 310
         integrator = openmm.LangevinMiddleIntegrator(
-             temperature * openmm.unit.kelvin,
-             0.3/openmm.unit.picosecond,
-             1.0*openmm.unit.femtosecond
-             )
+            temperature * openmm.unit.kelvin,
+            0.3 / openmm.unit.picosecond,
+            1.0 * openmm.unit.femtosecond,
+        )
 
         self.openmm_energy = OpenMMEnergy(
             bridge=OpenMMBridge(system, integrator, platform_name="CUDA")
-            )
+        )
 
         self.potential = self.openmm_energy
 
