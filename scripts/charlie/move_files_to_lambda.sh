@@ -11,6 +11,7 @@ FILES=(
     "/home/mila/b/bosejoey/scratch/fast-tbg/logs/train/multiruns/2025-01-21_19-56-57/0/checkpoints/epoch_749_cropped.ckpt"
     "/home/mila/b/bosejoey/scratch/fast-tbg/logs/train/multiruns/2025-01-21_19-56-57/1/checkpoints/epoch_999_cropped.ckpt"
     "/home/mila/b/bosejoey/scratch/fast-tbg/logs/train/multiruns/2025-01-21_19-56-57/2/checkpoints/epoch_999_cropped.ckpt"
+    "/network/scratch/b/bosejoey/fast-tbg/logs/train/runs/chignolin_tarflow_moonshot/checkpoints/epoch_799_time.ckpt"
 )
 
 DEST_FILE=(
@@ -23,6 +24,7 @@ DEST_FILE=(
     "/home/ubuntu/scratch/al4/0.ckpt"
     "/home/ubuntu/scratch/al4/1.ckpt"
     "/home/ubuntu/scratch/al4/2.ckpt"
+    "/home/ubuntu/scratch/deca/epoch_799_time.ckpt"
 )
 
 # Source SSH config alias
