@@ -86,7 +86,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
             self.prior = NormalDistribution(self.datamodule.dim)
         if self.hparams.stabilize_training:
             self.gradient_history = RunningMedian(100)
-        
+
         self.target_target_energy = None
 
     def training_step(
@@ -297,7 +297,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
             logits = logits[~clipped_logits_mask]
             samples = samples[~clipped_logits_mask]
             sample_target_energy = sample_target_energy[~clipped_logits_mask]
-        
+
         ess = sampling_efficiency(logits)
         self.log(f"{prefix}/effective_sample_size", ess, sync_dist=True)
 

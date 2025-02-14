@@ -8,7 +8,7 @@ from tqdm import tqdm
 
 from src.models.boltzmann_generator_module import BoltzmannGeneratorLitModule
 from src.models.components.wrappers import TorchdynWrapper, torch_wrapper
-import ipdb
+
 logger = logging.getLogger(__name__)
 
 
@@ -73,6 +73,8 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
 
         xt = self.get_xt(batch_prior, batch, t)
         vt_flow = self.get_flow_targets(batch_prior, batch)
+        if "sigma" in self.hparams:
+            xt += self.hparams.sigma * torch.randn_like(xt)
 
         vt_pred = self.forward(t, xt)
         loss = self.criterion(vt_pred, vt_flow)
@@ -114,7 +116,7 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
     def flow(self, x: torch.Tensor, reverse=False, dummy_ll=False) -> torch.Tensor:
         dlog_p = torch.zeros((x.shape[0], 1), device=x.device)
         t_span = torch.linspace(1, 0, 2) if reverse else torch.linspace(0, 1, 2)
-        if self.hparams.div_estimator == 'ito':
+        if self.hparams.div_estimator == "ito":
             x_ito, dlog_p_ito = self.sde_integrate(x, reverse=reverse)
             # prior_log_p = -self.prior.energy(x)
             # logp_ito = prior_log_p.squeeze() + dlog_p_ito
@@ -149,33 +151,32 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
         if not dummy_ll:
             dlog_p = x[..., -1] * self.hparams.logp_tol_scale
             x = x[..., :-1]
-        # ipdb.set_trace()
         # logp = (-self.prior.energy(x).view(-1) - dlog_p.view(-1))
         return x, dlog_p
 
     def euler_maruyama_step(
-            self,
-            t: torch.Tensor,
-            x: torch.Tensor,
-            dt: float,
-            step: int,
-            batch_size: int,
+        self,
+        t: torch.Tensor,
+        x: torch.Tensor,
+        dt: float,
+        step: int,
+        batch_size: int,
     ):
 
         vt = self.net(t, x, d_base=None)
 
         # if t.dim() == 0:
-            # # repeat the same time for all points if we have a scalar time
-            # t = t * torch.ones_like(x).to(x.device)
+        # # repeat the same time for all points if we have a scalar time
+        # t = t * torch.ones_like(x).to(x.device)
 
-        sigma_t_squared = (2 * (1 - t) / torch.clip(t, min=self.eps))
+        sigma_t_squared = 2 * (1 - t) / torch.clip(t, min=self.eps)
         sigma_t_squared = 2 * (1 - t) / torch.clip(t, min=0.1)
-        sigma_t = sigma_t_squared ** 0.5
+        sigma_t = sigma_t_squared**0.5
 
         # st is correct we checked
-        st = vt + sigma_t_squared * (t * vt - x) / torch.clip(1-t, min=self.eps) / 2
+        st = vt + sigma_t_squared * (t * vt - x) / torch.clip(1 - t, min=self.eps) / 2
         eps_t = torch.randn_like(x)
-        noise_t = sigma_t * eps_t * (dt ** 0.5)
+        noise_t = sigma_t * eps_t * (dt**0.5)
         dxt = st * dt + noise_t
 
         score_t = (t * vt - x) / torch.clip(1 - t, min=self.eps)
@@ -198,9 +199,9 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
             num_integration_steps = 1000
         else:
             num_integration_steps = self.num_integrations
-        times = torch.linspace(
-            start_time, end_time, num_integration_steps + 1, device=x0.device
-        )[:-1]
+        times = torch.linspace(start_time, end_time, num_integration_steps + 1, device=x0.device)[
+            :-1
+        ]
         x = x0
 
         x0.requires_grad = True
@@ -208,8 +209,9 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
         dlogp_sum = 0
 
         for step, t in enumerate(times):
-            x, dlogp = self.euler_maruyama_step(t, x, time_range/num_integration_steps, step,
-                                    batch_size)
+            x, dlogp = self.euler_maruyama_step(
+                t, x, time_range / num_integration_steps, step, batch_size
+            )
             dlogp_sum += dlogp
             samples.append(x)
 

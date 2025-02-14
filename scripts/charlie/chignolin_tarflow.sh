@@ -40,4 +40,3 @@ logger.wandb.id=${RUN_NAME} \
 data.batch_size=512 \
 callbacks.model_checkpoint_time.every_n_epochs=5
 # +trainer.limit_train_batches=10.0 \
-

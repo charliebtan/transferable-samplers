@@ -1,0 +1,30 @@
+# @package _global_
+
+defaults:
+  - override /model: flow_matching
+  - override /model/net: egnn_dynamics_ad2_cat
+  - override /model/scheduler: onestep
+  - override /data: al3
+
+model:
+  sigma: 0.01
+  sampling_config:
+    batch_size: 100
+    num_proposal_samples: 1000
+    num_test_proposal_samples: 10000
+  net:
+    hidden_nf: 64
+    n_layers: 5
+
+  optimizer:
+    _target_: torch.optim.AdamW
+    _partial_: true
+    lr: 5e-4
+
+trainer:
+  check_val_every_n_epoch: 100
+  max_epochs: 1000
+  num_sanity_val_steps: 1
+
+data:
+  batch_size: 256
