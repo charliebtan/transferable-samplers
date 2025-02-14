@@ -1,13 +1,13 @@
 import logging
+import math
 import os
 from typing import Any, Dict, List, Optional
-import scipy
-import math
 
 import hydra
 import matplotlib.pyplot as plt
 import numpy as np
 import requests
+import scipy
 import torch
 from bgflow import MultiDoubleWellPotential
 from bgflow.utils import distance_vectors, distances_from_vectors
@@ -189,7 +189,9 @@ class BaseDataModule(LightningDataModule):
             # self.std is the std dev of com augmentation in normalised scale
             com = x.view(-1, self.n_particles, self.n_dimensions).mean(axis=1)
             com_norm = com.norm(dim=-1)
-            com_energy = com_norm ** 2 / (2 * sigma ** 2) - torch.log(com_norm ** 2 / (math.sqrt(2) * sigma ** 3 * scipy.special.gamma(3/2)))
+            com_energy = com_norm**2 / (2 * sigma**2) - torch.log(
+                com_norm**2 / (math.sqrt(2) * sigma**3 * scipy.special.gamma(3 / 2))
+            )
 
         x = self.unnormalize(x)
         energy = self.potential.energy(x).flatten()
@@ -204,8 +206,8 @@ class BaseDataModule(LightningDataModule):
         samples,
         log_p_samples: torch.Tensor,
         samples_jarzynski: torch.Tensor = None,
-        num_eval_samples: int = 5000, # for compatability
-        use_com_energy: bool = True,
+        num_eval_samples: int = 5000,  # for compatability
+        use_com_energy: bool = False,
         loggers: List[Any] = None,
         prefix: str = "",
     ) -> None:
@@ -220,7 +222,9 @@ class BaseDataModule(LightningDataModule):
         if len(prefix) > 0 and prefix[-1] != "/":
             prefix += "/"
 
-        samples_fig = self.get_dataset_fig(samples, log_p_samples, samples_jarzynski, use_com_energy=use_com_energy)
+        samples_fig = self.get_dataset_fig(
+            samples, log_p_samples, samples_jarzynski, use_com_energy=use_com_energy
+        )
         wandb_logger.log_image(f"{prefix}generated_samples", [samples_fig])
         self.current_epoch += 1
 
@@ -250,7 +254,7 @@ class BaseDataModule(LightningDataModule):
         samples,
         log_p_samples: torch.Tensor,
         samples_jarzynski: torch.Tensor = None,
-        use_com_energy: bool = True,
+        use_com_energy: bool = False,
         min_energy=-26,
         max_energy=0,
         ylim=(0, 0.2),
@@ -302,14 +306,17 @@ class BaseDataModule(LightningDataModule):
 
         axs[0].set_xlabel("Interatomic distance")
 
-        energy_samples = self.energy(samples, use_com_energy=use_com_energy)
-        logits = -energy_samples.flatten() - log_p_samples.flatten()
+        # get importance weights (maybe using com energy)
+        energy_samples_com = self.energy(samples, use_com_energy=use_com_energy)
+        logits = -energy_samples_com.flatten() - log_p_samples.flatten()
         importance_weights = torch.nn.functional.softmax(logits, dim=0).detach().cpu()
-        energy_samples = energy_samples.detach().cpu()
+
+        # need normal energy values for plotting
+        energy_samples = self.energy(samples).detach().cpu()
         energy_test = self.energy(test_data_smaller).detach().cpu()
 
         axs[1].hist(
-            energy_test.cpu(),
+            energy_test,
             bins=100,
             density=True,
             alpha=0.4,
@@ -321,7 +328,7 @@ class BaseDataModule(LightningDataModule):
         )
         try:
             axs[1].hist(
-                energy_samples.cpu(),
+                energy_samples,
                 bins=100,
                 density=True,
                 alpha=0.4,
