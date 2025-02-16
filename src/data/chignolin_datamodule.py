@@ -138,15 +138,173 @@ class ChignolinDataModule(BaseDataModule):
         samples,
         log_p_samples: torch.Tensor,
         samples_jarzynski: torch.Tensor = None,
+        use_com_energy: bool = False,
         min_energy=-500,
-        max_energy=-250,
+        max_energy=500,
         ylim=(0, 0.04),
     ):
         return super().get_dataset_fig(
             samples,
             log_p_samples,
             samples_jarzynski,
+            use_com_energy,
             min_energy,
             max_energy,
             ylim=ylim,
         )
+
+    def log_on_epoch_end(
+        self,
+        samples,
+        log_p_samples: torch.Tensor,
+        samples_jarzynski: torch.Tensor = None,
+        num_eval_samples: int = 5000,
+        use_com_energy: bool = False,
+        loggers=None,
+        prefix: str = "",
+    ) -> None:
+        wandb_logger = self.get_wandb_logger(loggers)
+        super().log_on_epoch_end(
+            samples,
+            log_p_samples,
+            samples_jarzynski,
+            use_com_energy=use_com_energy,
+            loggers=loggers,
+            prefix=prefix,
+        )
+        logging.info("Base plots done")
+
+        metrics = {}
+        resampled_samples = resample(samples, -self.energy(samples, use_com_energy=use_com_energy) - log_p_samples)
+        samples = self.unnormalize(samples).cpu()
+        samples_metrics = self.get_ramachandran_metrics(
+            samples[:num_eval_samples],
+            prefix=prefix + "/rama"
+            )
+
+        logging.info("Ramachandran metrics computed")
+
+        self.plot_ramachandran(
+            samples, prefix=prefix + "/rama", wandb_logger=wandb_logger
+        )
+        self.plot_ramachandran(samples, prefix=prefix + "/rama", wandb_logger=wandb_logger)
+        metrics.update(samples_metrics)
+
+        resampled_samples = self.unnormalize(resampled_samples.cpu())
+        resampled_metrics = self.get_ramachandran_metrics(
+            resampled_samples[:num_eval_samples], prefix=prefix + "/resampled/rama"
+        )
+        logging.info("Ramachandran metrics computed (resampled)")
+        self.plot_ramachandran(
+            resampled_samples, prefix=prefix + "/resampled/rama", wandb_logger=wandb_logger
+        )
+        metrics.update(resampled_metrics)
+
+        if samples_jarzynski is not None:
+            samples_jarzynski = self.unnormalize(samples_jarzynski).cpu()
+            samples_jarzynski_metrics = self.get_ramachandran_metrics(
+                samples_jarzynski[:num_eval_samples],
+                prefix=prefix + "/jarzynski/rama"
+            )
+            logging.info("Ramachandran metrics computed (jarzynski)")
+            self.plot_ramachandran(
+                samples_jarzynski,
+                prefix=prefix + "/jarzynski/rama",
+                wandb_logger=wandb_logger,
+            )
+            metrics.update(samples_jarzynski_metrics)
+
+        if "val" in prefix:
+            self.plot_ramachandran(
+                self.data_val, prefix=prefix + "/ground_truth/rama", wandb_logger=wandb_logger
+            )
+        elif "test" in prefix:
+            self.plot_ramachandran(
+                self.data_test, prefix=prefix + "/ground_truth/rama", wandb_logger=wandb_logger
+            )
+
+        return metrics
+
+    def get_ramachandran_metrics(self, samples, prefix: str = ""):
+        x_pred = self.get_phi_psi_vectors(samples)
+
+        if "val" in prefix:
+            eval_samples = self.data_val[: x_pred.shape[0]]
+        elif "test" in prefix:
+            eval_samples = self.data_test[: x_pred.shape[0]]
+
+        x_true = self.get_phi_psi_vectors(self.unnormalize(eval_samples))
+
+        metrics = compute_distribution_distances_with_prefix(x_true, x_pred, prefix=prefix)
+        metrics[prefix + "/torus_wasserstein"] = torus_wasserstein(x_true, x_pred)
+        return metrics
+
+    def get_phi_psi_vectors(self, samples):
+        samples = samples.reshape(-1, self.n_particles, self.n_dimensions)
+        traj_samples = md.Trajectory(samples, topology=self.topology)
+        phis = md.compute_phi(traj_samples)[1]
+        psis = md.compute_psi(traj_samples)[1]
+        x = torch.cat([torch.from_numpy(phis), torch.from_numpy(psis)], dim=1)
+        return x
+
+    def plot_ramachandran(self, samples, prefix: str = "", wandb_logger: WandbLogger = None):
+        samples = samples.reshape(-1, self.n_particles, self.n_dimensions)
+        traj_samples = md.Trajectory(samples, topology=self.topology)
+        phis = md.compute_phi(traj_samples)[1]
+        psis = md.compute_psi(traj_samples)[1]
+        for i in range(phis.shape[1]):
+            print(f"Plotting Ramachandran {i} out of {phis.shape[1]}")
+            phi_tmp = phis[:, i]
+            psi_tmp = psis[:, i]
+            fig, ax = plt.subplots()
+            plot_range = [-np.pi, np.pi]
+            h, x_bins, y_bins, im = ax.hist2d(
+                phi_tmp,
+                psi_tmp,
+                100,
+                norm=LogNorm(),
+                range=[plot_range, plot_range],
+                rasterized=True,
+            )
+            ticks = np.array(
+                [np.exp(-6) * h.max(), np.exp(-4.0) * h.max(), np.exp(-2) * h.max(), h.max()]
+            )
+            ax.set_xlabel(r"$\varphi$", fontsize=45)
+            # ax.set_title("Boltzmann Generator", fontsize=45)
+            ax.set_ylabel(r"$\psi$", fontsize=45)
+            ax.xaxis.set_tick_params(labelsize=25)
+            ax.yaxis.set_tick_params(labelsize=25)
+            ax.yaxis.set_ticks([])
+            cbar = fig.colorbar(im, ticks=ticks)
+            # cbar.ax.set_yticklabels(np.abs(-np.log(ticks/h.max())), fontsize=25)
+            cbar.ax.set_yticklabels([6.0, 4.0, 2.0, 0.0], fontsize=25)
+
+            cbar.ax.invert_yaxis()
+            cbar.ax.set_ylabel(r"Free energy / $k_B T$", fontsize=35)
+            if wandb_logger is not None:
+                wandb_logger.log_image(f"{prefix}/ramachandran/{i}", [fig])
+
+            phi_tmp = phis[:, i]
+            psi_tmp = psis[:, i]
+            fig, ax = plt.subplots()
+            plot_range = [-np.pi, np.pi]
+            h, x_bins, y_bins, im = ax.hist2d(
+                phi_tmp,
+                psi_tmp,
+                100,
+                norm=LogNorm(),
+                range=[plot_range, plot_range],
+                rasterized=True,
+            )
+            ax.set_xlabel(r"$\varphi$", fontsize=45)
+            ax.set_ylabel(r"$\psi$", fontsize=45)
+            ax.xaxis.set_tick_params(labelsize=25)
+            ax.yaxis.set_tick_params(labelsize=25)
+            ax.yaxis.set_ticks([])
+            cbar = fig.colorbar(im) #, ticks=ticks)
+            im.set_clim(vmax=samples.shape[0] // 20)
+            cbar.ax.set_ylabel(f"Count, max = {int(h.max())}", fontsize=18)
+            if wandb_logger is not None:
+                wandb_logger.log_image(f"{prefix}/ramachandran_simple/{i}", [fig])
+
+        return fig

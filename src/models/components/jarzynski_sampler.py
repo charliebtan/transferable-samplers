@@ -114,7 +114,7 @@ class JarzynskiSampler(torch.nn.Module):
 
         fig, axs = plt.subplots(1, 1, figsize=(7.5, 5))
 
-        for k in range(dX_t_norm_np.shape[1]):
+        for k in range(dX_t_norm_np.shape[0]):
 
             axs.plot(t_list, dX_t_norm_np[k], linewidth=1, alpha=0.5)
 
@@ -155,7 +155,7 @@ class JarzynskiSampler(torch.nn.Module):
 
     def linear_energy_interpolation(self, x, t):
         source_energy = self.source_energy(x)
-        target_energy = self.target_energy(x)
+        target_energy = self.target_energy(x, use_com_energy=self.use_com_energy)
         target_energy = target_energy.reshape(-1)
         assert source_energy.shape == (
             x.shape[0],

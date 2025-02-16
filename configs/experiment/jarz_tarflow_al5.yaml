@@ -2,21 +2,21 @@
 
 defaults:
   - override /model: normalizing_flow
-  - override /data: al3
+  - override /data: al5
 
-ckpt_path: "/home/mila/b/bosejoey/scratch/fast-tbg/logs/train/multiruns/2025-01-21_19-57-11/2/checkpoints/epoch_899_cropped.ckpt"
+ckpt_path: "/network/scratch/b/bosejoey/fast-tbg/logs/train/runs/tarflow_al5_v2/checkpoints/epoch_999_time.ckpt"
 train: False
 
 model:
   sampling_config:
     batch_size: 10_000
     num_test_proposal_samples: 100_000
-    num_jarzynski_samples: 1_000_000
+    num_jarzynski_samples: 100_000
     num_eval_samples: 10_000
-    energy_cutoff: -120.0
+    energy_cutoff: 50.0
   net:
     in_channels: 3
-    channels: 256
+    channels: 384
     num_blocks: 6
     layers_per_block: 6
   jarzynski_sampler:

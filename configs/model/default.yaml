@@ -44,3 +44,4 @@ eval_non_ema: false
 compile: false
 mean_free_prior: true
 clip_logits: 0.002
+use_com_energy: false

@@ -123,6 +123,7 @@ class ALDPDataModule(BaseDataModule):
         samples,
         log_p_samples: torch.Tensor,
         samples_jarzynski: torch.Tensor = None,
+        use_com_energy: bool = False,
         min_energy=-50,
         max_energy=100,
         ylim=(0, 0.2),
@@ -131,6 +132,7 @@ class ALDPDataModule(BaseDataModule):
             samples,
             log_p_samples,
             samples_jarzynski,
+            use_com_energy,
             min_energy,
             max_energy,
             ylim=ylim,
@@ -142,6 +144,7 @@ class ALDPDataModule(BaseDataModule):
         log_p_samples: torch.Tensor,
         samples_jarzynski: torch.Tensor = None,
         num_eval_samples: int = 5000,
+        use_com_energy: bool = False,
         loggers=None,
         prefix: str = "",
     ) -> None:
@@ -150,6 +153,7 @@ class ALDPDataModule(BaseDataModule):
             samples,
             log_p_samples,
             samples_jarzynski,
+            use_com_energy=use_com_energy,
             loggers=loggers,
             prefix=prefix,
         )
@@ -162,7 +166,7 @@ class ALDPDataModule(BaseDataModule):
 
         logging.info("Align and compute metrics done")
 
-        resampled_samples = resample(samples, -self.energy(samples) - log_p_samples)
+        resampled_samples = resample(samples, -self.energy(samples, use_com_energy=use_com_energy) - log_p_samples)
         resampled_metrics = self.align_and_compute_metrics(
             resampled_samples,
             prefix=prefix + "/resampled/rama",

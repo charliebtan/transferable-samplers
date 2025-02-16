@@ -273,9 +273,15 @@ class BoltzmannGeneratorLitModule(LightningModule):
         self.log(f"{prefix}/mean_energy", sample_target_energy.mean(), sync_dist=True)
         logging.info("Energies computed")
 
+        coms = samples.view(samples.shape[0], -1, 3).mean(dim=1)
+        proposal_com_std = coms.std()
+        self.datamodule.proposal_com_std = proposal_com_std
+        logging.info(f"data coms std: {self.datamodule.std}, proposal coms std: {proposal_com_std}")
+
         # compute weights + resample
         assert log_p.shape == sample_target_energy.shape
-        logits = -sample_target_energy - log_p
+        sample_target_energy_com = self.datamodule.energy(samples, use_com_energy=self.hparams.use_com_energy)
+        logits = -sample_target_energy_com - log_p
         ess = sampling_efficiency(logits)
         self.log(f"{prefix}/unclipped_effective_sample_size", ess, sync_dist=True)
         # clip the top 1% of the logits to avoid numerical issues
@@ -298,6 +304,8 @@ class BoltzmannGeneratorLitModule(LightningModule):
             samples = samples[~clipped_logits_mask]
             sample_target_energy = sample_target_energy[~clipped_logits_mask]
 
+            logging.info("Clipped logits")
+  
         ess = sampling_efficiency(logits)
         self.log(f"{prefix}/effective_sample_size", ess, sync_dist=True)
 
@@ -305,6 +313,26 @@ class BoltzmannGeneratorLitModule(LightningModule):
         num_eval_samples = min(
             self.hparams.sampling_config.num_eval_samples, len(samples), len(true_data)
         )
+
+        # coms = samples.view(samples.shape[0], -1, 3).mean(dim=1)
+        # coms_norm = coms.norm(dim=1)
+
+        # logging.info(coms_norm.mean())
+        # logging.info(coms_norm.std())
+
+        # rs_coms = resampled_samples.view(resampled_samples.shape[0], -1, 3).mean(dim=1)
+        # rs_coms_norm = rs_coms.norm(dim=1)
+
+        # import matplotlib.pyplot as plt
+
+        # # compute and plot histogram of coms_norm
+        # plt.hist(coms_norm.cpu().numpy(), bins=50, density=True)
+        # plt.hist(rs_coms_norm.cpu().numpy(), bins=50, density=True)
+        # plt.xlabel("Center of Mass Norm")
+        # plt.ylabel("Density")
+        # plt.title(f"{prefix} Center of Mass Norm Histogram")
+        # plt.savefig(f"{self.hparams.use_com_energy}_{self.hparams.clip_logits}_{len(coms)}_{proposal_com_std}_coms_norm_histogram.png")
+        # plt.close()
 
         eval_samples = true_data[:num_eval_samples]
 
@@ -347,6 +375,8 @@ class BoltzmannGeneratorLitModule(LightningModule):
 
         jarzynski_samples, jarzynski_logits = None, None
         if self.jarzynski_sampler is not None and self.jarzynski_sampler.enabled:
+
+            self.jarzynski_sampler.use_com_energy = self.hparams.use_com_energy
 
             logging.info("Jarzynski sampling enabled")
 
@@ -432,6 +462,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
             log_p,
             jarzynski_samples,
             num_eval_samples=self.hparams.sampling_config.num_eval_samples,
+            use_com_energy=self.hparams.use_com_energy,
             loggers=self.loggers,
             prefix=prefix,
         )
