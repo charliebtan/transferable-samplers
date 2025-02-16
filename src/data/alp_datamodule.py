@@ -262,13 +262,20 @@ class ALPDataModule(BaseDataModule):
         )
         print("Symmetry change frac:", (symmetry_change).float().mean())
         resampled_samples[symmetry_change] *= -1
+        correct_symmetry_rate = 1 - symmetry_change.sum() / len(symmetry_change)
         symmetry_change = check_symmetry_change(
             resampled_samples, chirality_centers, reference_signs
         )
         resampled_samples = resampled_samples[~symmetry_change]
+        uncorrectable_symmetry_rate = symmetry_change.sum() / len(symmetry_change)
         resampled_samples = resampled_samples.reshape(-1, self.n_particles * 3)
 
-        logging.info("Ramachandran metrics computed")
+        metrics.update(
+            {
+                prefix + "/correct_symmetry_rate": correct_symmetry_rate,
+                prefix + "/uncorrectable_symmetry_rate": uncorrectable_symmetry_rate,
+            }
+        )
 
         try:
             self.plot_ramachandran(samples, prefix=prefix + "/rama", wandb_logger=wandb_logger)
@@ -308,6 +315,8 @@ class ALPDataModule(BaseDataModule):
             self.plot_ramachandran(
                 self.data_test, prefix=prefix + "/ground_truth/rama", wandb_logger=wandb_logger
             )
+
+        logging.info("Ramachandran metrics computed")
 
         return metrics
 
