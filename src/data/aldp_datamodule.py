@@ -65,6 +65,7 @@ class ALDPDataModule(BaseDataModule):
         self.bgmol_dataset = AImplicitUnconstrained(
             read=True, download=True if "AImplicitUnconstrained" not in os.listdir() else False
         )
+        self.topology = self.bgmol_dataset.system.mdtraj_topology
         self.potential = self.bgmol_dataset.get_energy_model()
         self.adj_list = None
         self.atom_types = None
@@ -110,7 +111,7 @@ class ALDPDataModule(BaseDataModule):
         )
 
         self.data_val, self.data_test = test_data[:20_000], test_data[20_000:]
-
+        self.original_test_data = test_data[20_000:]
         val_rng = np.random.default_rng(0)
         self.data_val = torch.tensor(val_rng.permutation(self.data_val))
 
@@ -164,7 +165,6 @@ class ALDPDataModule(BaseDataModule):
         metrics.update(samples_metrics)
 
         logging.info("Align and compute metrics done")
-        
 
         resampled_samples = resample(samples, -self.energy(samples, use_com_energy=use_com_energy) - log_p_samples)
         resampled_metrics = self.align_and_compute_metrics(
@@ -185,7 +185,7 @@ class ALDPDataModule(BaseDataModule):
                 num_eval_samples=num_eval_samples,
             )
             metrics.update(samples_jarzynski_metrics)
-            
+
             logging.info("Align and compute metrics done (jarzynski)")
 
         if "val" in prefix:
@@ -213,35 +213,41 @@ class ALDPDataModule(BaseDataModule):
             return {
                 f"{prefix}/correct_config_rate": 0,
                 f"{prefix}/correct_symmetry_rate": 0,
+                f"{prefix}/uncorrectable_symmetry_rate": 0,
             }
         symmetry_change = self.get_symmetry_change(aligned_samples)
-        correct_symmetry_rate = 1 - symmetry_change.sum() / len(symmetry_change)
+        aligned_symmetrized_samples = aligned_samples.copy()
+        aligned_symmetrized_samples[symmetry_change] *= -1
+        correctable_symmetry_rate = 1 - symmetry_change.sum() / len(symmetry_change)
+        symmetry_change_symmetrized = self.get_symmetry_change(aligned_symmetrized_samples)
+        uncorrectable_symmetry_rate = symmetry_change_symmetrized.sum() / len(
+            symmetry_change_symmetrized
+        )
         try:
-            aligned_symmetric_samples = aligned_samples[~symmetry_change]
+            aligned_symmetrized_samples = aligned_symmetrized_samples[~symmetry_change_symmetrized]
             self.plot_ramachandran(
-                aligned_symmetric_samples, prefix=prefix, wandb_logger=wandb_logger
+                aligned_symmetrized_samples, prefix=prefix, wandb_logger=wandb_logger
             )
             metrics = self.get_ramachandran_metrics(
-                aligned_symmetric_samples[:num_eval_samples], prefix=prefix
+                aligned_symmetrized_samples[:num_eval_samples], prefix=prefix
             )
             metrics.update(
                 {
                     f"{prefix}/correct_config_rate": correct_config_rate,
-                    f"{prefix}/correct_symmetry_rate": correct_symmetry_rate,
+                    f"{prefix}/correct_symmetry_rate": correctable_symmetry_rate,
+                    f"{prefix}/uncorrectable_symmetry_rate": uncorrectable_symmetry_rate,
                 }
             )
             return metrics
         except Exception as e:
             logging.warning(
-                "Aligned samples:",
-                aligned_samples.shape,
-                "Symmetry change:",
-                symmetry_change.shape,
+                f"Aligned samples: {aligned_samples.shape} Symmetry change: {symmetry_change.shape}",
             )
             logging.warning(e)
             return {
                 f"{prefix}/correct_config_rate": -1.0,
                 f"{prefix}/correct_symmetry_rate": -1.0,
+                f"{prefix}/uncorrectable_symmetry_rate": -1.0,
             }
 
     def get_symmetry_change(self, aligned_samples):
@@ -257,8 +263,8 @@ class ALDPDataModule(BaseDataModule):
             chirality_centers,
         )
         symmetry_change = check_symmetry_change(model_samples, chirality_centers, reference_signs)
-        model_samples[symmetry_change] *= -1
-        symmetry_change = check_symmetry_change(model_samples, chirality_centers, reference_signs)
+        # model_samples[symmetry_change] *= -1
+        # symmetry_change = check_symmetry_change(model_samples, chirality_centers, reference_signs)
         return symmetry_change
 
     def get_ramachandran_metrics(self, samples, prefix: str = ""):
@@ -268,7 +274,8 @@ class ALDPDataModule(BaseDataModule):
             eval_samples = self.data_val[: x_pred.shape[0]]
         elif "test" in prefix:
             eval_samples = self.data_test[: x_pred.shape[0]]
-
+        else:
+            eval_samples = self.data_test[: x_pred.shape[0]]
         x_true = self.get_phi_psi_vectors(self.unnormalize(eval_samples))
 
         metrics = compute_distribution_distances_with_prefix(x_true, x_pred, prefix=prefix)
@@ -310,8 +317,6 @@ class ALDPDataModule(BaseDataModule):
         cbar.ax.set_ylabel(r"Free energy / $k_B T$", fontsize=35)
         if wandb_logger is not None:
             wandb_logger.log_image(f"{prefix}/ramachandran", [fig])
-
-        
 
         return fig
 

@@ -8,7 +8,7 @@ defaults:
 model:
   sampling_config:
     num_proposal_samples: 1000
-    num_test_proposal_samples: 1000
+    num_test_proposal_samples: 10000
 
 trainer:
   check_val_every_n_epoch: 50

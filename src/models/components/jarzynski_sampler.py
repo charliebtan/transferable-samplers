@@ -42,9 +42,7 @@ class JarzynskiSampler(torch.nn.Module):
         for k in range(stepwise_target_energy_np.shape[1]):
 
             axs[0].plot(t_list, stepwise_target_energy_np[:, k], linewidth=1, alpha=0.5)
-            axs[1].plot(
-                t_list, stepwise_interpolation_energy_np[:, k], linewidth=1, alpha=0.5
-            )
+            axs[1].plot(t_list, stepwise_interpolation_energy_np[:, k], linewidth=1, alpha=0.5)
 
         axs[0].set_xlabel("Time", fontsize=12)
         axs[0].set_ylabel("Target energy", fontsize=12)
@@ -109,7 +107,7 @@ class JarzynskiSampler(torch.nn.Module):
         plt.tight_layout()
         self.wandb_logger.log_image(f"langevin/energy_histograms", [fig])
         plt.close()
-    
+
     def plot_dX_t_norm(self, dX_t_norm_list, t_list):
 
         dX_t_norm_np = np.stack(dX_t_norm_list).T
@@ -222,8 +220,17 @@ class JarzynskiSampler(torch.nn.Module):
             # slice into list of batches (tensors)
             X_batches = [X[i : i + self.batch_size] for i in range(0, X.shape[0], self.batch_size)]
 
-            target_energy_list = [np.concatenate([self.target_energy(X_batch).cpu() for X_batch in X_batches])]
-            interpolation_energy_list = [np.concatenate([self.linear_energy_interpolation(X_batch, timesteps[0]).cpu() for X_batch in X_batches])]
+            target_energy_list = [
+                np.concatenate([self.target_energy(X_batch).cpu() for X_batch in X_batches])
+            ]
+            interpolation_energy_list = [
+                np.concatenate(
+                    [
+                        self.linear_energy_interpolation(X_batch, timesteps[0]).cpu()
+                        for X_batch in X_batches
+                    ]
+                )
+            ]
 
         t_previous = 0.0
 
@@ -264,8 +271,9 @@ class JarzynskiSampler(torch.nn.Module):
 
                 if self.do_energy_plots:
                     target_energy_batches.append(self.target_energy(X_batch).cpu())
-                    interpolation_energy_batches.append(self.linear_energy_interpolation(X_batch, t).cpu())
-
+                    interpolation_energy_batches.append(
+                        self.linear_energy_interpolation(X_batch, t).cpu()
+                    )
 
             # cat the batches to compute global statistics
             X = torch.cat(X_batches, dim=0)
@@ -277,8 +285,12 @@ class JarzynskiSampler(torch.nn.Module):
             if X.isnan().any() or A.isnan().any() or not (j + 1) % 100 or j + 1 == num_timesteps:
 
                 if self.do_energy_plots:
-                    self.plot_stepwise_energy(target_energy_list, interpolation_energy_list, t_list)
-                    self.plot_stepwise_energy_hist(target_energy_list, interpolation_energy_list, t_list)
+                    self.plot_stepwise_energy(
+                        target_energy_list, interpolation_energy_list, t_list
+                    )
+                    self.plot_stepwise_energy_hist(
+                        target_energy_list, interpolation_energy_list, t_list
+                    )
 
                 self.plot_dX_t_norm(dX_t_norm_list, t_list)
                 self.plot_weights(A_list, ESS_list, t_list)
@@ -301,7 +313,6 @@ class JarzynskiSampler(torch.nn.Module):
                 target_energy_list.append(np.concatenate(target_energy_batches))
                 interpolation_energy_list.append(np.concatenate(interpolation_energy_batches))
 
-
             if ESS < self.ess_threshold:
                 # qmc_rand = sampler.random(n=len(A))
                 # cum_prob = torch.cumsum(torch.softmax(A, dim=-1), dim=0)
@@ -320,11 +331,24 @@ class JarzynskiSampler(torch.nn.Module):
                 dX_t_norm_list.append(np.concatenate(dX_t_norm_batches))
 
                 # slice into list of batches (tensors)
-                X_batches = [X[i : i + self.batch_size] for i in range(0, X.shape[0], self.batch_size)]
+                X_batches = [
+                    X[i : i + self.batch_size] for i in range(0, X.shape[0], self.batch_size)
+                ]
 
                 if self.do_energy_plots:
-                    target_energy_list.append(np.concatenate([self.target_energy(X_batch).cpu() for X_batch in X_batches]))
-                    interpolation_energy_list.append(np.concatenate([self.linear_energy_interpolation(X_batch, t+1e-9).cpu() for X_batch in X_batches]))
+                    target_energy_list.append(
+                        np.concatenate(
+                            [self.target_energy(X_batch).cpu() for X_batch in X_batches]
+                        )
+                    )
+                    interpolation_energy_list.append(
+                        np.concatenate(
+                            [
+                                self.linear_energy_interpolation(X_batch, t + 1e-9).cpu()
+                                for X_batch in X_batches
+                            ]
+                        )
+                    )
 
             t_previous = t
 

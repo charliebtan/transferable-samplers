@@ -29,6 +29,9 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
         super().__init__(*args, **kwargs)
         self.nfe = 0
         self.num_integrations = 0
+        self.eps = 1e-1
+        if "strict_loading" in kwargs:
+            self.strict_loading = kwargs["strict_loading"]
 
     def forward(self, t: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass through the model `self.net`.
@@ -70,6 +73,8 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
 
         xt = self.get_xt(batch_prior, batch, t)
         vt_flow = self.get_flow_targets(batch_prior, batch)
+        if "sigma" in self.hparams:
+            xt += self.hparams.sigma * torch.randn_like(xt)
 
         vt_pred = self.forward(t, xt)
         loss = self.criterion(vt_pred, vt_flow)
@@ -111,6 +116,15 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
     def flow(self, x: torch.Tensor, reverse=False, dummy_ll=False) -> torch.Tensor:
         dlog_p = torch.zeros((x.shape[0], 1), device=x.device)
         t_span = torch.linspace(1, 0, 2) if reverse else torch.linspace(0, 1, 2)
+        if self.hparams.div_estimator == "ito":
+            x_ito, dlog_p_ito = self.sde_integrate(x, reverse=reverse)
+            # prior_log_p = -self.prior.energy(x)
+            # logp_ito = prior_log_p.squeeze() + dlog_p_ito
+            # x = x_ito
+            # reverse = True
+            # t_span = torch.linspace(1, 0, 2) if reverse else torch.linspace(0, 1, 2)
+            return x_ito, dlog_p_ito
+
         if dummy_ll:
             wrapped_net = torch_wrapper(self.net)
         else:
@@ -137,7 +151,72 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
         if not dummy_ll:
             dlog_p = x[..., -1] * self.hparams.logp_tol_scale
             x = x[..., :-1]
+        # logp = (-self.prior.energy(x).view(-1) - dlog_p.view(-1))
         return x, dlog_p
+
+    def euler_maruyama_step(
+        self,
+        t: torch.Tensor,
+        x: torch.Tensor,
+        dt: float,
+        step: int,
+        batch_size: int,
+    ):
+
+        vt = self.net(t, x, d_base=None)
+
+        # if t.dim() == 0:
+        # # repeat the same time for all points if we have a scalar time
+        # t = t * torch.ones_like(x).to(x.device)
+
+        sigma_t_squared = 2 * (1 - t) / torch.clip(t, min=self.eps)
+        sigma_t_squared = 2 * (1 - t) / torch.clip(t, min=0.1)
+        sigma_t = sigma_t_squared**0.5
+
+        # st is correct we checked
+        st = vt + sigma_t_squared * (t * vt - x) / torch.clip(1 - t, min=self.eps) / 2
+        eps_t = torch.randn_like(x)
+        noise_t = sigma_t * eps_t * (dt**0.5)
+        dxt = st * dt + noise_t
+
+        score_t = (t * vt - x) / torch.clip(1 - t, min=self.eps)
+        a = -x.shape[-1] / torch.clip(t, min=self.eps) * dt
+        b = (sigma_t_squared / 2 * score_t * score_t).sum(-1) * dt
+        c = (score_t * noise_t).sum(-1)
+
+        dlogp = a + b + c
+        # Update the state
+        x_next = x + dxt
+        return x_next, dlogp
+
+    def sde_integrate(self, x0: torch.Tensor, reverse=False) -> torch.Tensor:
+
+        batch_size = x0.shape[0]
+        time_range = 1.0
+        start_time = 1.0 if reverse else 0.0
+        end_time = 1.0 - start_time
+        if self.num_integrations == 0:
+            num_integration_steps = 1000
+        else:
+            num_integration_steps = self.num_integrations
+        times = torch.linspace(start_time, end_time, num_integration_steps + 1, device=x0.device)[
+            :-1
+        ]
+        x = x0
+
+        x0.requires_grad = True
+        samples = []
+        dlogp_sum = 0
+
+        for step, t in enumerate(times):
+            x, dlogp = self.euler_maruyama_step(
+                t, x, time_range / num_integration_steps, step, batch_size
+            )
+            dlogp_sum += dlogp
+            samples.append(x)
+
+        samples = torch.stack(samples)
+        return x, dlogp_sum
 
     def proposal_energy(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         x, dlogp = self.flow(x, reverse=True)

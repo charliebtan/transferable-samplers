@@ -37,6 +37,8 @@ class TorchdynWrapper(torch.nn.Module):
             self.div_fn = self.div_fn_exact
         elif div_estimator == "exact_no_functional":
             self.div_fn = self.div_fn_exact_no_functional
+        elif div_estimator == "ito":
+            self.div_fn = self.div_fn_exact
         else:
             self.div_fn = self.div_fn_hutch
             self.n = n_eps
