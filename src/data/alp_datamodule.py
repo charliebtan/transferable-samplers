@@ -255,6 +255,7 @@ class ALPDataModule(BaseDataModule):
         samples_metrics = self.get_ramachandran_metrics(
             samples[:num_eval_samples], prefix=prefix + "/rama"
         )
+        metrics.update(samples_metrics)
         reference_samples = self.data_test
         chirality_centers = find_chirality_centers(self.adj_list, self.atom_types)
         reference_signs = compute_chirality_sign(
@@ -283,20 +284,18 @@ class ALPDataModule(BaseDataModule):
 
         try:
             self.plot_ramachandran(samples, prefix=prefix + "/rama", wandb_logger=wandb_logger)
-            self.plot_ramachandran(samples, prefix=prefix + "/rama", wandb_logger=wandb_logger)
-            metrics.update(samples_metrics)
 
             resampled_samples = self.unnormalize(resampled_samples.cpu())
             resampled_metrics = self.get_ramachandran_metrics(
                 resampled_samples[:num_eval_samples], prefix=prefix + "/resampled/rama"
             )
+            metrics.update(resampled_metrics)
             logging.info("Ramachandran metrics computed (resampled)")
             self.plot_ramachandran(
                 resampled_samples, prefix=prefix + "/resampled/rama", wandb_logger=wandb_logger
             )
         except ValueError as e:
             logging.error(f"Error in plotting Ramachandran: {e}")
-        metrics.update(resampled_metrics)
 
         if samples_jarzynski is not None:
             samples_jarzynski = self.unnormalize(samples_jarzynski).cpu()
