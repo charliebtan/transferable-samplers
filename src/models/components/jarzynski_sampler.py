@@ -236,6 +236,8 @@ class JarzynskiSampler(torch.nn.Module):
 
         for j, t in tqdm(enumerate(timesteps[:-1])):
 
+            logging.info("Outer loop iteration")
+
             # slice into list of batches (tensors)
             X_batches = [X[i : i + self.batch_size] for i in range(0, X.shape[0], self.batch_size)]
             A_batches = [A[i : i + self.batch_size] for i in range(0, A.shape[0], self.batch_size)]
