@@ -20,18 +20,21 @@ if [ $1 = 2 ]; then
     #model.div_estimator="ito" \
 elif [ $1 = 3 ]; then
     python src/train.py -m \
+    launcher=mila_48gb_long \
+    hydra.launcher.gres=gpu:l40s:1 \
     experiment=aldp logger=wandb \
     data=al3 \
     trainer=ddp trainer.max_epochs=10 \
-    tags=[al,cnf,eval,v11] \
+    tags=[al,cnf,eval,v22] \
     data.batch_size=512 \
     +trainer.num_sanity_val_steps=0 \
-    model.sampling_config.batch_size=256 \
-    model.sampling_config.num_test_proposal_samples=10000 \
+    model.sampling_config.batch_size=40 \
+    model.sampling_config.num_test_proposal_samples=100,200,500 \
     model.net.hidden_nf=256 \
     data.num_workers=2 \
     train=False \
     ckpt_path='${oc.env:AL3_EQ1}/last.ckpt,${oc.env:AL3_EQ2}/last.ckpt,${oc.env:AL3_EQ3}/last.ckpt'
+    #model.sampling_config.num_test_proposal_samples=1000,2000,5000,10000,20000 \
     #ckpt_path='${oc.env:AL3_EQ3}/last.ckpt'
 elif [ $1 = 4 ]; then
     python src/train.py -m \

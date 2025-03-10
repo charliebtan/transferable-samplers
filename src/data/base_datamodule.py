@@ -182,7 +182,7 @@ class BaseDataModule(LightningDataModule):
 
         if use_com_energy:
 
-            logging.info("Using CoM energy")
+            # logging.info("Using CoM energy")
 
             sigma = self.proposal_com_std
 
