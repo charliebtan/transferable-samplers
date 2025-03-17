@@ -1,4 +1,4 @@
-_target_: src.models.components.tarflow.TarFlow
+_target_: src.models.components.tarflow.tarflow.TarFlow
 img_size: ${data.dim}
 in_channels: ${data.n_dimensions}
 patch_size: 1
