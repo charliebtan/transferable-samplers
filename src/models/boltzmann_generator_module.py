@@ -15,7 +15,7 @@ from lightning.pytorch.utilities import grad_norm
 from torchmetrics import MeanMetric
 from tqdm import tqdm
 
-from src.models.components.distribution_distances import (
+from src.data.components.distribution_distances import (
     compute_distribution_distances_with_prefix,
     energy_distances,
 )
