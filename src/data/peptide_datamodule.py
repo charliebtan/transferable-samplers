@@ -48,6 +48,8 @@ class PeptideDataModule(BaseDataModule):
         com_augmentation: bool = False,
         dim: int = 99,
         batch_size: int = 64,
+        num_workers: int = 0,
+        pin_memory: bool = False,
         scaling: float = 1.0, # TODO
         make_iid: bool = False,
         n_train_samples: int = 100_000, # First N trajectory samples
@@ -80,7 +82,7 @@ class PeptideDataModule(BaseDataModule):
         # Setup transforms
         transform_list = [Random3DRotationTransform(self.n_particles, self.n_dimensions)]
         if self.hparams.com_augmentation:
-            transform_list.append(CenterOfMassTransform(self.n_particles, self.n_dimensions, 1 / math.sqrt(self.n_particles)))
+            transform_list.append(CenterOfMassTransform(self.n_particles, self.n_dimensions, 1 / math.sqrt(self.n_particles))) # TODO check these values
         self.transforms = torchvision.transforms.Compose(transform_list)
 
     def prepare_data(self) -> None:
@@ -110,44 +112,6 @@ class PeptideDataModule(BaseDataModule):
         # Download atom types encoding file
         if not os.path.exists(self.atom_encoding_path):
             download(self.hparams.atom_encoding_url, self.atom_encoding_path)
-
-    def setup_potential(self):
-
-        logger.info(f"Loading pdb from {self.pdb_path}")
-        self.topology = md.load_topology(self.pdb_path)
-        self.pdb = app.PDBFile(self.pdb_path)
-    
-        # Different system configs for different datasets
-        if self.n_particles != 42:
-            forcefield = openmm.app.ForceField("amber14-all.xml", "implicit/obc1.xml")
-            nonbondedMethod = openmm.app.CutoffNonPeriodic
-            nonbondedCutoff = 2.0 * openmm.unit.nanometer
-            temperature = 310
-        else:
-            forcefield = openmm.app.ForceField("amber99sbildn.xml", "tip3p.xml", "amber99_obc.xml")
-            nonbondedMethod = openmm.app.NoCutoff
-            nonbondedCutoff = 0.9 * openmm.unit.nanometer
-            temperature = 300
-
-        # Initalize forcefield system
-        system = forcefield.createSystem(
-            self.pdb.topology,
-            nonbondedMethod = nonbondedMethod,
-            nonbondedCutoff = nonbondedCutoff,
-            constraints=None,
-        )
-        
-        # Initialize integrator
-        integrator = openmm.LangevinMiddleIntegrator(
-            temperature * openmm.unit.kelvin,
-            0.3 / openmm.unit.picosecond,
-            1.0 * openmm.unit.femtosecond,
-        )
-
-        # Initialize potential
-        self.potential = OpenMMEnergy(
-            bridge=OpenMMBridge(system, integrator, platform_name="CUDA")
-        )
 
     def setup_data(self):
 
@@ -192,7 +156,57 @@ class PeptideDataModule(BaseDataModule):
 
         # Randomized ordering / subset of test samples
         test_rng = np.random.default_rng(1)
-        self.data_test = torch.tensor(test_rng.permutation(self.data_test))[self.hparams.n_test_samples]
+        self.data_test = torch.tensor(test_rng.permutation(self.data_test))[self.hparams.n_test_samples:]
+
+    def setup_potential(self):
+
+        logger.info(f"Loading pdb from {self.pdb_path}")
+        self.topology = md.load_topology(self.pdb_path)
+        self.pdb = app.PDBFile(self.pdb_path)
+    
+        # Different system configs for different datasets
+        if self.n_particles != 42:
+            forcefield = openmm.app.ForceField("amber14-all.xml", "implicit/obc1.xml")
+            nonbondedMethod = openmm.app.CutoffNonPeriodic
+            nonbondedCutoff = 2.0 * openmm.unit.nanometer
+            temperature = 310
+        else:
+            forcefield = openmm.app.ForceField("amber99sbildn.xml", "tip3p.xml", "amber99_obc.xml")
+            nonbondedMethod = openmm.app.NoCutoff
+            nonbondedCutoff = 0.9 * openmm.unit.nanometer
+            temperature = 300
+
+        # Initalize forcefield system
+        system = forcefield.createSystem(
+            self.pdb.topology,
+            nonbondedMethod = nonbondedMethod,
+            nonbondedCutoff = nonbondedCutoff,
+            constraints=None,
+        )
+        
+        # Initialize integrator
+        integrator = openmm.LangevinMiddleIntegrator(
+            temperature * openmm.unit.kelvin,
+            0.3 / openmm.unit.picosecond,
+            1.0 * openmm.unit.femtosecond,
+        )
+
+        # Initialize potential
+        self.potential = OpenMMEnergy(
+            bridge=OpenMMBridge(system, integrator, platform_name="CUDA")
+        )
+    
+    def setup_atom_types(self):
+        atom_dict = {"C": 0, "H": 1, "N": 2, "O": 3, "S": 4}
+        atom_types = []
+        for atom_name in self.topology.atoms:
+            atom_types.append(atom_name.name[0])
+        self.atom_types = torch.from_numpy(np.array([atom_dict[atom_type] for atom_type in atom_types]))
+
+    def setup_adj_list(self):   
+        self.adj_list = torch.from_numpy(
+            np.array([(b.atom1.index, b.atom2.index) for b in self.topology.bonds], dtype=np.int32)
+        )
 
     def setup(self, stage: Optional[str] = None) -> None:
         """Load data. Set variables: `self.data_train`, `self.data_val`, `self.data_test`.
@@ -212,26 +226,14 @@ class PeptideDataModule(BaseDataModule):
                 )
             self.batch_size_per_device = self.hparams.batch_size // self.trainer.world_size
 
-        self.setup_potential()
         self.setup_data()
+        self.setup_potential()
+        self.setup_atom_types()
+        self.setup_adj_list()
 
         # TODO what is this even used for?
         # logger.info(f"Loading atom encoding from {self.atom_encoding_path}")
         # self.atom_encoding = np.load(self.atom_encoding_path, allow_pickle=True)
-
-        self.adj_list, self.atom_types = self.compute_adj_list_and_atom_types()
-
-    def compute_adj_list_and_atom_types(self):
-        atom_dict = {"C": 0, "H": 1, "N": 2, "O": 3, "S": 4}
-        atom_types = []
-        for atom_name in self.topology.atoms:
-            atom_types.append(atom_name.name[0])
-        atom_types = torch.from_numpy(np.array([atom_dict[atom_type] for atom_type in atom_types]))
-        n_particles = len(atom_types)
-        adj_list = torch.from_numpy(
-            np.array([(b.atom1.index, b.atom2.index) for b in self.topology.bonds], dtype=np.int32)
-        )
-        return adj_list, atom_types
 
     def log_on_epoch_end(
         self,
