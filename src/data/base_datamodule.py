@@ -19,13 +19,9 @@ from torch.utils.data import DataLoader, Dataset
 class BaseDataModule(LightningDataModule):
     def __init__(
         self,
-        data_dir: str,
-        data_url: str,
-        filename: str,
         n_particles: int,
         n_dimensions: int,
         dim: int,
-        repeat_factor: int = 1,
         batch_size: int = 64,
         num_workers: int = 0,
         pin_memory: bool = False,
@@ -47,7 +43,6 @@ class BaseDataModule(LightningDataModule):
         self.n_particles = n_particles
         self.n_dimensions = n_dimensions
         self.dim = dim
-        self.repeat_factor = repeat_factor
 
         self.data_train: Optional[Dataset] = None
         self.data_val: Optional[Dataset] = None
@@ -63,18 +58,7 @@ class BaseDataModule(LightningDataModule):
 
         Do not use it to assign state (self.x = y).
         """
-
-        os.makedirs(self.hparams.data_dir, exist_ok=True)
-
-        if not os.path.exists(self.hparams.data_dir + self.hparams.filename):
-            print(f"Downloading file from {self.hparams.data_url}")
-            response = requests.get(self.hparams.data_url, timeout=300)
-
-            # Save the file in binary (write) mode
-            with open(self.hparams.data_dir + self.hparams.filename, "wb") as f:
-                f.write(response.content)
-
-            print(f"File downloaded and saved as: {self.hparams.filename}")
+        raise NotImplementedError
 
     def setup(self, stage: Optional[str] = None) -> None:
         """Load data. Set variables: `self.data_train`, `self.data_val`, `self.data_test`.
@@ -200,6 +184,8 @@ class BaseDataModule(LightningDataModule):
             energy = energy + com_energy
 
         return energy
+
+    ### Delete from here
 
     def log_on_epoch_end(
         self,
