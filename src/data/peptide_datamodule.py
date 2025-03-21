@@ -16,6 +16,7 @@ from matplotlib.colors import LogNorm
 from openmm import app
 
 from src.data.base_datamodule import BaseDataModule
+from src.data.components.encodings import ATOM_TYPE_ENCODING_DICT, AA_TYPE_ENCODING_DICT
 from src.data.components.center_of_mass import CenterOfMassTransform
 from src.data.components.rotation import Random3DRotationTransform
 from src.data.components.transform_dataset import TransformDataset
@@ -39,10 +40,8 @@ class PeptideDataModule(BaseDataModule):
         data_dir: str = "data/al3",
         npy_url: str = "https://osf.io/download/y7ntk/?view_only=1052300a21bd43c08f700016728aa96e",
         pdb_url: str = "https://osf.io/download/y7ntk/?view_only=1052300a21bd43c08f700016728aa96e",
-        atom_encoding_url: str = "https://osf.io/download/y7ntk/?view_only=1052300a21bd43c08f700016728aa96e",
         npy_filename: str = "AlaAlaAla_310K.npy",
         pdb_filename: str = "AlaAlaAla_310K.pdb",
-        atom_encoding_filename: str = "atom_types_encoding.npy",
         n_particles: int = 33,
         n_dimensions: int = 3,
         com_augmentation: bool = False,
@@ -71,13 +70,11 @@ class PeptideDataModule(BaseDataModule):
 
         self.adj_list = None
         self.atom_types = None
-        self.atom_encoding_filename = atom_encoding_filename
 
         ###
 
         self.npy_path = f"{self.hparams.data_dir}/{self.hparams.npy_filename}"
         self.pdb_path = f"{self.hparams.data_dir}/{self.hparams.pdb_filename}"
-        self.atom_encoding_path = f"{self.hparams.data_dir}/{self.hparams.atom_encoding_filename}"
 
         # Setup transforms
         transform_list = [Random3DRotationTransform(self.n_particles, self.n_dimensions)]
@@ -108,10 +105,6 @@ class PeptideDataModule(BaseDataModule):
         # Download pdb file
         if not os.path.exists(self.pdb_path):
             download(self.hparams.pdb_url, self.pdb_path)
-
-        # Download atom types encoding file
-        if not os.path.exists(self.atom_encoding_path):
-            download(self.hparams.atom_encoding_url, self.atom_encoding_path)
 
     def setup_data(self):
 
@@ -208,6 +201,46 @@ class PeptideDataModule(BaseDataModule):
             np.array([(b.atom1.index, b.atom2.index) for b in self.topology.bonds], dtype=np.int32)
         )
 
+    def setup_atom_encoding(self):
+        aa_pos_encoding = []
+        aa_type_encoding = []
+        atom_type_encoding = []
+
+        for i, aa in enumerate(self.topology.residues):
+            for atom in aa.atoms:
+
+                aa_pos_encoding.append(i)
+                aa_type_encoding.append(AA_TYPE_ENCODING_DICT[aa.name])
+
+                # TODO double check this with Leon
+                # Standarize side-chain H atom encoding
+                if atom.name[0] == "H" and atom.name[-1] in ("1", "2", "3"):
+                    # For these AA the H-X-N atoms are not interchangable
+                    if aa.name in (
+                        "HIS",
+                        "PHE",
+                        "TRP",
+                        "TYR"
+                        ) and atom.name[:2] in (
+                            "HE",
+                            "HD",
+                            "HZ",
+                            "HH",
+                            ):
+                        pass
+                    else:
+                        atom.name = atom.name[:-1]
+
+                # Standarize side-chain O atom encoding
+                if atom.name[:2] == "OE" or atom.name[:2] == "OD":
+                    atom.name = atom.name[:-1]
+
+                atom_type_encoding.append(ATOM_TYPE_ENCODING_DICT[atom.name])
+
+        self.atom_type_encoding = np.array(atom_type_encoding)
+        self.aa_pos_encoding = np.array(aa_pos_encoding)
+        self.aa_type_encoding = np.array(aa_type_encoding)
+
     def setup(self, stage: Optional[str] = None) -> None:
         """Load data. Set variables: `self.data_train`, `self.data_val`, `self.data_test`.
 
@@ -230,10 +263,7 @@ class PeptideDataModule(BaseDataModule):
         self.setup_potential()
         self.setup_atom_types()
         self.setup_adj_list()
-
-        # TODO what is this even used for?
-        # logger.info(f"Loading atom encoding from {self.atom_encoding_path}")
-        # self.atom_encoding = np.load(self.atom_encoding_path, allow_pickle=True)
+        self.setup_atom_encoding()
 
     def log_on_epoch_end(
         self,
