@@ -4,6 +4,11 @@ import os
 from typing import Any, Dict, List, Optional
 
 import hydra
+import matplotlib
+
+matplotlib.rcParams["mathtext.fontset"] = "stix"
+matplotlib.rcParams["font.family"] = "STIXGeneral"
+
 import matplotlib.pyplot as plt
 import numpy as np
 import requests
@@ -15,6 +20,10 @@ from lightning import LightningDataModule
 from lightning.pytorch.loggers import WandbLogger
 from torch.utils.data import DataLoader, Dataset
 
+from src.data.components.distribution_distances import compute_distribution_distances_with_prefix, energy_distances
+from src.models.components.utils import resample # TODO move?
+from src.utils.tbg_utils import sampling_efficiency
+from src.utils.data_types import SamplesData
 
 class BaseDataModule(LightningDataModule):
     def __init__(
@@ -185,97 +194,50 @@ class BaseDataModule(LightningDataModule):
 
         return energy
 
-    ### Delete from here
 
-    def log_on_epoch_end(
+    
+    def get_loggers(self, logger):
+        self.logger = logger
+        for l in logger:
+            if isinstance(l, WandbLogger):
+                self.wandb_logger = l
+                break
+
+    # TODO can this be removed? is it implemented elsewhere?
+    # def interatomic_dist(self, x):
+    #     batch_shape = x.shape[:-1]
+    #     x = x.view(*batch_shape, self.n_particles, self.n_dimensions)
+
+    #     # Compute the pairwise interatomic distances
+    #     # removes duplicates and diagonal
+    #     distances = x[:, None, :, :] - x[:, :, None, :]
+    #     distances = distances[
+    #         :,
+    #         torch.triu(torch.ones((self.n_particles, self.n_particles)), diagonal=1) == 1,
+    #     ]
+    #     dist = torch.linalg.norm(distances, dim=-1)
+    #     return dist
+
+    def plot_energies(
         self,
-        samples,
-        log_p_samples: torch.Tensor,
-        samples_jarzynski: torch.Tensor = None,
-        num_eval_samples: int = 5000, #  for compatibility
-        use_com_energy: bool = False,
-        loggers: List[Any] = None,
-        prefix: str = "",
-    ) -> None:
-        wandb_logger = self.get_wandb_logger(loggers)
-
-        if samples is None:
-            return
-
-        if wandb_logger is None:
-            return
-
-        if len(prefix) > 0 and prefix[-1] != "/":
-            prefix += "/"
-
-        samples_fig = self.get_dataset_fig(
-            samples, log_p_samples, samples_jarzynski, use_com_energy=use_com_energy
-        )
-        wandb_logger.log_image(f"{prefix}generated_samples", [samples_fig])
-        self.current_epoch += 1
-
-    def get_wandb_logger(self, loggers):
-        wandb_logger = None
-        for logger in loggers:
-            if isinstance(logger, WandbLogger):
-                wandb_logger = logger
-        return wandb_logger
-
-    def interatomic_dist(self, x):
-        batch_shape = x.shape[:-1]
-        x = x.view(*batch_shape, self.n_particles, self.n_dimensions)
-
-        # Compute the pairwise interatomic distances
-        # removes duplicates and diagonal
-        distances = x[:, None, :, :] - x[:, :, None, :]
-        distances = distances[
-            :,
-            torch.triu(torch.ones((self.n_particles, self.n_particles)), diagonal=1) == 1,
-        ]
-        dist = torch.linalg.norm(distances, dim=-1)
-        return dist
-
-    def plot_nice_samples(
-        self,
-        samples,
-        log_p_samples: torch.Tensor,
-        samples_jarzynski: torch.Tensor = None,
-        min_energy=-26,
-        max_energy=0,
+        proposal_samples,
+        resampled_samples,
+        jarzynski_samples,
+        prefix,
         ylim=None,
-        clip_energy=False,
-        clip_weights=0.002,
     ):
-        test_data_smaller = self.data_test[:10000]
-        import matplotlib
-        import matplotlib.pyplot as plt
-        from matplotlib.patches import Rectangle
-        from matplotlib.ticker import NullLocator
-
-        matplotlib.rcParams["mathtext.fontset"] = "stix"
-        matplotlib.rcParams["font.family"] = "STIXGeneral"
-
+        test_samples_energy = self.energy(self.data_test_small).cpu()
+        proposal_samples_energy = self.energy(proposal_samples).cpu()
+        resampled_samples_energy = self.energy(resampled_samples).cpu()
+        
         fig, ax = plt.subplots(figsize=(4, 3), dpi=300, constrained_layout=True)
         fig.patch.set_facecolor("white")
-        clipper = lambda x: x
-        if clip_energy:
-            max_energy = clip_energy
-            clipper = lambda x: torch.clamp(x, max=max_energy - 0.1)
-        bin_edges = np.linspace(min_energy, max_energy, 100)
 
-        energy_samples = self.energy(samples)
-        logits = -energy_samples.flatten() - log_p_samples.flatten()
-        if clip_weights > 0:
-            clipped_logits_mask = logits > torch.quantile(logits, 1 - clip_weights)
-            logits = logits[~clipped_logits_mask]
-            samples = samples[~clipped_logits_mask]
-            energy_samples = energy_samples[~clipped_logits_mask]
-        importance_weights = torch.nn.functional.softmax(logits, dim=0).detach().cpu()
-        energy_samples = energy_samples.detach().cpu()
-        energy_test = self.energy(test_data_smaller).detach().cpu()
+        energy_cropper = lambda x: torch.clamp(x, max=self.hparams.hist_max_energy - 0.1) if self.hparams.hist_max_energy else lambda x: x
+        bin_edges = np.linspace(self.hparams.hist_min_energy, self.hparams.hist_max_energy, 100)
 
         ax.hist(
-            clipper(energy_test.cpu()),
+            energy_cropper(test_samples_energy),
             bins=bin_edges,
             density=True,
             alpha=0.4,
@@ -284,39 +246,30 @@ class BaseDataModule(LightningDataModule):
             linewidth=3,
             label="True data",
         )
-        try:
+        ax.hist(
+            energy_cropper(proposal_samples_energy),
+            bins=bin_edges,
+            density=True,
+            alpha=0.4,
+            color="r",
+            histtype="step",
+            linewidth=3,
+            label="Proposal",
+        )
+        ax.hist(
+            energy_cropper(resampled_samples_energy),
+            bins=bin_edges,
+            density=True,
+            alpha=0.4,
+            histtype="step",
+            linewidth=3,
+            color="b",
+            label="Proposal (reweighted)",
+        )
+        if jarzynski_samples is not None:
+            jarzynski_samples_energy = self.energy(jarzynski_samples)
             ax.hist(
-                clipper(energy_samples.cpu()),
-                bins=bin_edges,
-                density=True,
-                alpha=0.4,
-                color="r",
-                histtype="step",
-                linewidth=3,
-                label="Proposal",
-            )
-        except Exception as e:
-            print(e)
-        try:
-            ax.hist(
-                clipper(energy_samples),
-                bins=bin_edges,
-                density=True,
-                alpha=0.4,
-                histtype="step",
-                linewidth=3,
-                color="b",
-                label="Proposal (reweighted)",
-                weights=importance_weights,
-            )
-        except Exception as e:
-            print(e)
-        if samples_jarzynski is not None:
-            energies_jarzynski = self.energy(samples_jarzynski)
-            energies_jarzynski = energies_jarzynski.detach().cpu()
-
-            ax.hist(
-                energies_jarzynski,
+                jarzynski_samples_energy,
                 bins=bin_edges,
                 density=True,
                 alpha=0.4,
@@ -325,151 +278,125 @@ class BaseDataModule(LightningDataModule):
                 color="orange",
                 label="SBG",
             )
-        if clip_energy:
-            xticks = list(ax.get_xticks())
-            xticks = xticks[1:-1]
-            new_tick = bin_edges[-1]
-            custom_label = rf"$\geq {new_tick}$"
-            xticks.append(new_tick)
-            xtick_labels = [
-                str(int(tick)) if tick != new_tick else custom_label for tick in xticks
-            ]
-            ax.set_xticks(xticks)
-            ax.set_xticklabels(xtick_labels)
+
+        xticks = list(ax.get_xticks())
+        xticks = xticks[1:-1]
+        new_tick = bin_edges[-1]
+        custom_label = rf"$\geq {new_tick}$"
+        xticks.append(new_tick)
+        xtick_labels = [
+            str(int(tick)) if tick != new_tick else custom_label for tick in xticks
+        ]
+        ax.set_xticks(xticks)
+        ax.set_xticklabels(xtick_labels)
+
         if ylim is not None:
             ax.set_ylim(ylim)
+
         plt.xlabel(r"$\mathcal{E}(x)$", labelpad=-5)  # , fontsize=35)
         plt.ylabel("Normalized Density")  # , fontsize=35)
         plt.legend()  # fontsize=30)
 
-    def get_dataset_fig(
+        fig.canvas.draw()
+        self.wandb_logger.log_image(f"{prefix}generated_samples", [fig])
+
+    def plot_distances(
         self,
-        samples,
-        log_p_samples: torch.Tensor,
-        samples_jarzynski: torch.Tensor = None,
-        use_com_energy: bool = False,
-        min_energy=-26,
-        max_energy=0,
-        ylim=(0, 0.2),
+        proposal_samples,
+        resampled_samples,
+        jarzynski_samples,
+        prefix,
+        ylim=None,
     ):
-        test_data_smaller = self.data_test[:10000]
+        test_samples_dist = self.interatomic_dist(self.unnormalize(self.test_data_small)).flatten().cpu()
+        proposal_samples_dist = self.interatomic_dist(self.unnormalize(proposal_samples)).flatten().cpu()
+        resampled_samples_dist = self.interatomic_dist(self.unnormalize(resampled_samples)).flatten().cpu()
 
-        fig, axs = plt.subplots(1, 2, figsize=(12, 4))
+        min_dist = min(proposal_samples_dist.min(), test_samples_dist.min(), resampled_samples_dist.min())
+        max_dist = max(proposal_samples_dist.max(), test_samples_dist.max(), resampled_samples_dist.max())
 
-        dist_samples = self.interatomic_dist(self.unnormalize(samples)).detach().cpu()
-        dist_test = self.interatomic_dist(self.unnormalize(test_data_smaller)).detach().cpu()
+        if jarzynski_samples is not None:
+            jarzynski_samples_dist = self.interatomic_dist(self.unnormalize(jarzynski_samples)).detach().cpu()
+            min_dist = min(min_dist, jarzynski_samples_dist.min())
+            max_dist = max(max_dist, jarzynski_samples_dist.max())
 
-        axs[0].hist(
-            dist_test.view(-1),
-            bins=100,
-            alpha=0.5,
-            density=True,
-            histtype="step",
-            linewidth=4,
-            label="True data",
-            color="g",
-        )
-        try:
-            axs[0].hist(
-                dist_samples.view(-1),
-                bins=100,
-                alpha=0.5,
-                density=True,
-                histtype="step",
-                linewidth=4,
-                label="Proposal",
-                color="r",
-            )
-        except Exception as e:
-            print(e)
-        if samples_jarzynski is not None:
-            dist_samples_jarzynski = (
-                self.interatomic_dist(self.unnormalize(samples_jarzynski)).detach().cpu()
-            )
-            axs[0].hist(
-                dist_samples_jarzynski.view(-1),
-                bins=100,
-                alpha=0.5,
-                density=True,
-                histtype="step",
-                linewidth=4,
-                label="Jarzynski",
-                color="orange",
-            )
+        fig, ax = plt.subplots(figsize=(4, 3), dpi=300, constrained_layout=True)
+        fig.patch.set_facecolor("white")
+        bin_edges = np.linspace(min_dist, max_dist, 100)
 
-        axs[0].set_xlabel("Interatomic distance")
-
-        # get importance weights (maybe using com energy)
-        energy_samples_com = self.energy(samples, use_com_energy=use_com_energy)
-        logits = -energy_samples_com.flatten() - log_p_samples.flatten()
-        importance_weights = torch.nn.functional.softmax(logits, dim=0).detach().cpu()
-
-        # need normal energy values for plotting
-        energy_samples = self.energy(samples).detach().cpu()
-        energy_test = self.energy(test_data_smaller).detach().cpu()
-
-        axs[1].hist(
-            energy_test,
-            bins=100,
+        ax.hist(
+            test_samples_dist,
+            bins=bin_edges,
             density=True,
             alpha=0.4,
-            range=(min_energy, max_energy),
             color="g",
             histtype="step",
-            linewidth=4,
+            linewidth=3,
             label="True data",
         )
-        try:
-            axs[1].hist(
-                energy_samples,
-                bins=100,
-                density=True,
-                alpha=0.4,
-                range=(min_energy, max_energy),
-                color="r",
-                histtype="step",
-                linewidth=4,
-                label="Proposal",
-            )
-        except Exception as e:
-            print(e)
-        try:
-            axs[1].hist(
-                energy_samples,
-                bins=100,
-                density=True,
-                range=(min_energy, max_energy),
-                alpha=0.4,
-                histtype="step",
-                linewidth=4,
-                color="b",
-                label="Proposal (reweighted)",
-                weights=importance_weights,
-            )
-        except Exception as e:
-            print(e)
-        if samples_jarzynski is not None:
-            energies_jarzynski = self.energy(samples_jarzynski)
-            energies_jarzynski = energies_jarzynski.detach().cpu().numpy()
+        ax.hist(
+            proposal_samples_dist,
+            bins=bin_edges,
+            density=True,
+            alpha=0.4,
+            color="r",
+            histtype="step",
+            linewidth=3,
+            label="Proposal",
+        )
+        ax.hist(
+            resampled_samples_dist,
+            bins=bin_edges,
+            density=True,
+            alpha=0.4,
+            histtype="step",
+            linewidth=3,
+            color="b",
+            label="Proposal (reweighted)",
+        )
 
-            axs[1].hist(
-                energies_jarzynski,
-                bins=100,
+        if jarzynski_samples is not None:
+            ax.hist(
+                jarzynski_samples_dist,
+                bins=bin_edges,
                 density=True,
-                range=(min_energy, max_energy),
                 alpha=0.4,
                 histtype="step",
-                linewidth=4,
+                linewidth=3,
                 color="orange",
-                label="Jarzynski",
+                label="SBG",
             )
-        axs[1].set_xlabel("u(x)")
-        axs[1].legend()
-        axs[1].set_ylim(ylim)
+
+        if ylim is not None:
+            ax.set_ylim(ylim)
+
+        plt.xlabel("Interatomic Distance  ", labelpad=-2)  # , fontsize=35)
+        plt.ylabel("Normalized Density")  # , fontsize=35)
+        plt.legend()  # fontsize=30)
 
         fig.canvas.draw()
+        self.wandb_logger.log_image(f"{prefix}generated_samples", [fig])
 
-        return fig
+    def distribution_distance_metrics(self, true_samples, pred_samples, prefix):
+
+        return compute_distribution_distances_with_prefix(
+            self.unnormalize(pred_samples).cpu(),
+            self.unnormalize(true_samples).cpu(),
+            prefix=prefix,
+        )
+
+    def compute_energy_distance_metrics(self, true_samples_energy, pred_samples_energy, prefix):
+
+        metrics = energy_distances(
+            true_samples_energy.cpu(),
+            pred_samples_energy.cpu(),
+            prefix=prefix,
+        )
+
+        metrics[f"{prefix}/mean_energy"] = pred_samples_energy.mean().cpu()
+
+        return metrics
+
 
 
 if __name__ == "__main__":

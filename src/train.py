@@ -75,6 +75,8 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     log.info(f"Instantiating trainer <{cfg.trainer._target_}>")
     trainer: Trainer = hydra.utils.instantiate(cfg.trainer, callbacks=callbacks, logger=logger)
 
+    datamodule.get_loggers(logger) # TODO is there a better way to do this?
+
     object_dict = {
         "cfg": cfg,
         "datamodule": datamodule,

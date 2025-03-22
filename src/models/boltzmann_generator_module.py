@@ -23,6 +23,7 @@ from src.models.components.ema import EMA
 from src.models.components.jarzynski_sampler import JarzynskiSampler
 from src.models.components.utils import RunningMedian, resample
 from src.utils.tbg_utils import sampling_efficiency
+from src.utils.data_types import SamplesData
 
 logger = logging.getLogger(__name__)
 
@@ -229,180 +230,102 @@ class BoltzmannGeneratorLitModule(LightningModule):
 
     @torch.no_grad()
     def evaluate(self, prefix: str = "val", generator=None, output_dir=None) -> None:
-        logging.info("Eval epoch end")
+        """Generates samples from the proposal and runs SMC if enabled.
+        Also computes metrics, through the datamodule function "metrics_and_plots".
+        """
+        logging.info("Evaluating sampling")
+
+        # Define proposal generator
         if generator is None:
             generator = self.batched_generate_samples
             if "dummy_ll" in self.hparams and self.hparams.dummy_ll:
                 generator = lambda x: self.batched_generate_samples(x, dummy_ll=True)
-        if prefix.startswith("val") or prefix.startswith("base"):
-            num_proposal_samples = self.hparams.sampling_config.num_proposal_samples
-            true_data = self.datamodule.data_val
-        elif prefix.startswith("test"):
+
+        if prefix.startswith("test"):
             num_proposal_samples = self.hparams.sampling_config.num_test_proposal_samples
-            true_data = self.datamodule.data_test
+            true_samples = self.datamodule.data_test
+        else:
+            num_proposal_samples = self.hparams.sampling_config.num_proposal_samples
+            true_samples = self.datamodule.data_val
 
-        # generate samples and record time
+        true_data = SamplesData(
+            true_samples,
+            -self.energy(true_samples),
+        )
 
+        # Generate samples and record time
         torch.cuda.synchronize()
         start_time = time.time()
-
-        samples, log_p, prior_samples = generator(num_proposal_samples)
-
+        proposal_samples, proposal_log_p, prior_samples = generator(num_proposal_samples)
         torch.cuda.synchronize()
         time_duration = time.time() - start_time
         self.log(f"{prefix}/samples_walltime", time_duration)
-        self.log(f"{prefix}/samples_per_second", len(samples) / time_duration)
+        self.log(f"{prefix}/samples_per_second", len(proposal_samples) / time_duration)
 
-        # save samples to dist
-
-        samples_dict = {
-            "samples": samples,
-            "log_p": log_p,
-            "prior_samples": prior_samples,
-        }
-        if output_dir is None:
-            output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
-        logging.info(f"Saving {len(samples)} samples to {output_dir}/{prefix}_samples.pt")
-        torch.save(samples_dict, f"{output_dir}/{prefix}_samples.pt")
-
-        # compute energy
-        sample_target_energy = self.datamodule.energy(samples)
-        if self.target_target_energy is None:
-            self.target_target_energy = self.datamodule.energy(true_data)
-        target_target_energy = self.target_target_energy
-        self.log(f"{prefix}/mean_energy", sample_target_energy.mean(), sync_dist=True)
-        logging.info("Energies computed")
-
-        coms = samples.view(samples.shape[0], -1, 3).mean(dim=1)
+        # Compute proposal center of mass std - TODO should this just be 1 / sqrt(N) ?
+        coms = proposal_samples.view(proposal_samples.shape[0], -1, 3).mean(dim=1)
         proposal_com_std = coms.std()
+        self.log(f"{prefix}/proposal_com_std", proposal_com_std, sync_dist=True)
         self.datamodule.proposal_com_std = proposal_com_std
-        logging.info(f"data coms std: {self.datamodule.std}, proposal coms std: {proposal_com_std}")
 
-        # compute weights + resample
-        assert log_p.shape == sample_target_energy.shape
-        sample_target_energy_com = self.datamodule.energy(samples, use_com_energy=self.hparams.use_com_energy)
-        logits = -sample_target_energy_com - log_p
-        ess = sampling_efficiency(logits)
-        self.log(f"{prefix}/unclipped_effective_sample_size", ess, sync_dist=True)
-        # clip the top 1% of the logits to avoid numerical issues
-        for quantile in [0.1, 0.01, 0.002]:
-            clipped_logits_mask = logits > torch.quantile(logits, 1 - quantile)
-            ess = sampling_efficiency(logits[~clipped_logits_mask])
-            self.log(f"{prefix}/clip_{quantile}/effective_sample_size", ess, sync_dist=True)
-            self.log(
-                f"{prefix}/clip_{quantile}/n_clipped",
-                clipped_logits_mask.float().sum(),
-                sync_dist=True,
+        # Datatype for easier metrics and plotting
+        proposal_data = SamplesData(
+            proposal_samples,
+            proposal_samples_energy,
+        )
+
+        # Compute resampling index
+        proposal_samples_energy = -self.energy(proposal_samples)
+        resampling_logits = proposal_samples_energy - proposal_log_p # TODO CoM
+        _, resampling_index = resample(resampling_logits, num_proposal_samples, return_index=True)
+
+        # metrics.update(sampling_efficiency(resampling_logits), prefix))
+
+        reweighted_data = SamplesData(
+            proposal_samples[resampling_index],
+            proposal_samples_energy[resampling_index],
+        )
+
+        # Filter proposal samples based on logit clipping
+        if self.hparams.sampling_config.clip_logits:
+            clipped_logits_mask = resampling_logits > torch.quantile(
+                resampling_logits, 1 - float(self.hparams.sampling_config.clip_logits)
             )
-
-        if "clip_logits" in self.hparams and self.hparams.clip_logits:
-            clipped_logits_mask = logits > torch.quantile(
-                logits, 1 - float(self.hparams.clip_logits)
-            )
-            log_p = log_p[~clipped_logits_mask]
-            logits = logits[~clipped_logits_mask]
-            samples = samples[~clipped_logits_mask]
-            sample_target_energy = sample_target_energy[~clipped_logits_mask]
-
+            resampling_logits = resampling_logits[~clipped_logits_mask]
+            proposal_samples = proposal_samples[~clipped_logits_mask]
+            proposal_samples_energy = proposal_samples_energy[~clipped_logits_mask]
             logging.info("Clipped logits")
-  
-        ess = sampling_efficiency(logits)
-        self.log(f"{prefix}/effective_sample_size", ess, sync_dist=True)
 
-        resampled_samples = resample(samples, logits)
-        num_eval_samples = min(
-            self.hparams.sampling_config.num_eval_samples, len(samples), len(true_data)
-        )
+        # Filter samples based on target energy cutoff
+        if self.hparams.sampling_config.energy_cutoff is not None:
+            filter_array = proposal_samples_energy < self.hparams.sampling_config.energy_cutoff
+            filtered_samples = proposal_samples[filter_array]
+            self.log(f"{prefix}/filtered_samples", torch.sum(~filter_array).float())
+            logging.info("Clipping energies")
+        else:
+            filtered_samples = proposal_samples
+            self.log(f"{prefix}/filtered_samples", 0.0)
 
-        # coms = samples.view(samples.shape[0], -1, 3).mean(dim=1)
-        # coms_norm = coms.norm(dim=1)
-
-        # logging.info(coms_norm.mean())
-        # logging.info(coms_norm.std())
-
-        # rs_coms = resampled_samples.view(resampled_samples.shape[0], -1, 3).mean(dim=1)
-        # rs_coms_norm = rs_coms.norm(dim=1)
-
-        # import matplotlib.pyplot as plt
-
-        # # compute and plot histogram of coms_norm
-        # plt.hist(coms_norm.cpu().numpy(), bins=50, density=True)
-        # plt.hist(rs_coms_norm.cpu().numpy(), bins=50, density=True)
-        # plt.xlabel("Center of Mass Norm")
-        # plt.ylabel("Density")
-        # plt.title(f"{prefix} Center of Mass Norm Histogram")
-        # plt.savefig(f"{self.hparams.use_com_energy}_{self.hparams.clip_logits}_{len(coms)}_{proposal_com_std}_coms_norm_histogram.png")
-        # plt.close()
-
-        eval_samples = true_data[:num_eval_samples]
-
-        # compute dist metrics
-        dist_metrics = compute_distribution_distances_with_prefix(
-            self.datamodule.unnormalize(samples[:num_eval_samples]).cpu(),
-            self.datamodule.unnormalize(eval_samples).cpu(),
-            prefix=prefix,
-        )
-        dist_metrics[f"{prefix}/num_eval_samples"] = num_eval_samples
-        self.log_dict(dist_metrics)
-
-        # compute resampled dist metrics
-        resampled_dist_metrics = compute_distribution_distances_with_prefix(
-            self.datamodule.unnormalize(resampled_samples[:num_eval_samples]).cpu(),
-            self.datamodule.unnormalize(eval_samples).cpu(),
-            prefix=prefix + "/resampled",
-        )
-        self.log_dict(resampled_dist_metrics)
-
-        logging.info("Distance metrics computed")
-
-        # compute energy metrics
-        energy_metrics = energy_distances(sample_target_energy, target_target_energy, prefix)
-        self.log_dict(energy_metrics)
-
-        # compute resampled energy metrics
-        resampled_sample_target_energy = self.datamodule.energy(resampled_samples)
-        self.log(
-            f"{prefix}/resampled/mean_energy",
-            resampled_sample_target_energy.mean(),
-            sync_dist=True,
-        )
-        resampled_energy_metrics = energy_distances(
-            resampled_sample_target_energy, target_target_energy, prefix + "/resampled"
-        )
-        self.log_dict(resampled_energy_metrics)
-
-        logging.info("Energy metrics computed")
-
-        jarzynski_samples, jarzynski_logits = None, None
         if self.jarzynski_sampler is not None and self.jarzynski_sampler.enabled:
 
+            # TODO remove this once refactored
             self.jarzynski_sampler.use_com_energy = self.hparams.use_com_energy
 
             logging.info("Jarzynski sampling enabled")
 
+            # Hack to get wandb logger into jarzynski sampler for plotting
             self.jarzynski_sampler.wandb_logger = self.datamodule.get_wandb_logger(self.loggers)
-
-            if self.hparams.sampling_config.energy_cutoff is not None:
-                filter_array = sample_target_energy < self.hparams.sampling_config.energy_cutoff
-                filtered_samples = samples[filter_array]
-                self.log(f"{prefix}/filtered_samples", torch.sum(~filter_array).float())
-            else:
-                filtered_samples = samples
-                self.log(f"{prefix}/filtered_samples", 0.0)
 
             num_jarzynski_samples = min(
                 self.hparams.sampling_config.num_jarzynski_samples, len(filtered_samples)
             )
 
-            # generate jarzynski samples and record time
-
+            # Generate jarzynski samples and record time
             torch.cuda.synchronize()
             start_time = time.time()
-
             jarzynski_samples, jarzynski_logits = self.jarzynski_sampler.sample(
                 filtered_samples[:num_jarzynski_samples]
             )
-
             torch.cuda.synchronize()
             time_duration = time.time() - start_time
             self.log(f"{prefix}/jarzynski/samples_walltime", time_duration)
@@ -410,64 +333,26 @@ class BoltzmannGeneratorLitModule(LightningModule):
                 f"{prefix}/jarzynski/samples_per_second", len(jarzynski_samples) / time_duration
             )
 
-            # save samples to dist
-
-            jarzynski_samples_dict = {
-                "samples": jarzynski_samples,
-                "logits": jarzynski_logits,
-            }
-            logging.info(
-                f"Saving {len(jarzynski_samples)} samples to {output_dir}/{prefix}_jarzynski_samples.pt"
+            # Datatype for easier metrics and plotting
+            jarzynski_data = SamplesData(
+                jarzynski_samples,
+                -self.energy(jarzynski_samples),
             )
-            torch.save(jarzynski_samples_dict, f"{output_dir}/{prefix}_jarzynski_samples.pt")
 
-            # jarzynski samples should always be resampled
-            # after this point the logits are only used for ESS computation
-            jarzynski_samples = resample(jarzynski_samples, jarzynski_logits)
+        else:
 
-            jarzynski_ess = sampling_efficiency(jarzynski_logits)
-            self.log(f"{prefix}/jarzynski/effective_sample_size", jarzynski_ess, sync_dist=True)
-
-            num_eval_samples = min(
-                num_jarzynski_samples,
-                self.hparams.sampling_config.num_eval_samples,
-                len(true_data),
-            )
-            eval_samples = true_data[:num_eval_samples]
-
-            # compute jarzynski dist metrics
-            jarzynski_dist_metrics = compute_distribution_distances_with_prefix(
-                self.datamodule.unnormalize(jarzynski_samples[:num_eval_samples]),
-                self.datamodule.unnormalize(eval_samples),
-                prefix=prefix + "/jarzynski",
-            )
-            jarzynski_dist_metrics[f"{prefix}/jarzynski/num_eval_samples"] = num_eval_samples
-            self.log_dict(jarzynski_dist_metrics)
-
-            logging.info("Distance metrics computed (jarzynski)")
-
-            # compute jarzynski energy metrics
-            sample_target_jarzynski_energy = self.datamodule.energy(jarzynski_samples)
-            self.log(f"{prefix}/jarzynski/mean_energy", sample_target_jarzynski_energy.mean())
-            jarzynski_energy_metrics = energy_distances(
-                sample_target_jarzynski_energy, target_target_energy, prefix + "/jarzynski"
-            )
-            self.log_dict(jarzynski_energy_metrics)
-
-            logging.info("Energy metrics computed (jarzynski)")
+            jarzynski_data = None
 
         # log dataset metrics
-        dataset_metrics = self.datamodule.log_on_epoch_end(
-            samples,
-            log_p,
-            jarzynski_samples,
-            num_eval_samples=self.hparams.sampling_config.num_eval_samples,
-            use_com_energy=self.hparams.use_com_energy,
-            loggers=self.loggers,
+        metrics = self.datamodule.metrics_and_plots(
+            true_data,
+            proposal_data,
+            reweighted_data,
+            jarzynski_data,
+            num_eval_samples=num_eval_samples,
             prefix=prefix,
         )
-        if dataset_metrics is not None:
-            self.log_dict(dataset_metrics)
+        self.log_dict(metrics)
 
     def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
         pass

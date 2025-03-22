@@ -354,6 +354,8 @@ class JarzynskiSampler(torch.nn.Module):
 
             t_previous = t
 
+        # TODO resample before returning
+
         jarzynski_samples = X
         jarzynski_logits = A
         assert jarzynski_samples.shape == samples_proposal.shape, "shape mismatch"

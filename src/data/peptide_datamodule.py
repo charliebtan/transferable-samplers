@@ -1,6 +1,6 @@
 import logging
 import os
-from typing import Optional
+from typing import Any, List, Optional
 import wget
 import math
 
@@ -30,9 +30,9 @@ from src.models.components.utils import (
     find_chirality_centers,
     resample,
 )
+from src.utils.data_types import SamplesData
 
-logger = logging.getLogger(__name__)
-
+logger = logging.getLogger(__name__) # TODO what is actually going on with the logging
 
 class PeptideDataModule(BaseDataModule):
     def __init__(
@@ -51,9 +51,13 @@ class PeptideDataModule(BaseDataModule):
         pin_memory: bool = False,
         scaling: float = 1.0, # TODO
         make_iid: bool = False,
+        # TODO maybe make this all just *args?
         n_train_samples: int = 100_000, # First N trajectory samples
         n_val_samples: int = 20_000, # Following M trajectory samples
         n_test_samples: int = 100_000, # Random K trajectory samples from the rest
+        n_test_samples_small: int = 10_000, # Smaller subset for plotting etc
+        hist_min_energy: float = -200.0, # TODO
+        hist_max_energy: float = 400.0, # TODO
     ):
         super().__init__(
             n_particles=n_particles, # TODO why some done as hparams and others not?
@@ -150,6 +154,9 @@ class PeptideDataModule(BaseDataModule):
         # Randomized ordering / subset of test samples
         test_rng = np.random.default_rng(1)
         self.data_test = torch.tensor(test_rng.permutation(self.data_test))[self.hparams.n_test_samples:]
+
+        # Smaller subset for plotting 
+        self.data_test_small = self.data_test[:self.hparams.n_test_samples_small]
 
     def setup_potential(self):
 
@@ -265,129 +272,31 @@ class PeptideDataModule(BaseDataModule):
         self.setup_adj_list()
         self.setup_atom_encoding()
 
-    def log_on_epoch_end(
-        self,
-        samples,
-        log_p_samples: torch.Tensor,
-        samples_jarzynski: torch.Tensor = None,
-        num_eval_samples: int = 5000,
-        use_com_energy: bool = False,
-        loggers=None,
-        prefix: str = "",
-    ) -> None:
-        wandb_logger = self.get_wandb_logger(loggers)
-        super().log_on_epoch_end(
-            samples,
-            log_p_samples,
-            samples_jarzynski,
-            use_com_energy=use_com_energy,
-            loggers=loggers,
-            prefix=prefix,
-        )
-        logging.info("Base plots done")
+    def get_phi_psi_vectors(self, samples):
+        samples = self.unnormalize(samples)
+        samples = samples.reshape(-1, self.n_particles, self.n_dimensions)
+        traj_samples = md.Trajectory(samples, topology=self.topology)
+        phis = md.compute_phi(traj_samples)[1]
+        psis = md.compute_psi(traj_samples)[1]
+        return phis, psis
 
-        metrics = {}
-        resampled_samples = resample(samples, -self.energy(samples, use_com_energy=use_com_energy) - log_p_samples)
-        samples = self.unnormalize(samples).cpu()
-        samples_metrics = self.get_ramachandran_metrics(
-            samples[:num_eval_samples], prefix=prefix + "/rama"
-        )
-        metrics.update(samples_metrics)
-        reference_samples = self.data_test
-        chirality_centers = find_chirality_centers(self.adj_list, self.atom_types)
-        reference_signs = compute_chirality_sign(
-            reference_samples.reshape(-1, self.n_particles, 3)[[1]], chirality_centers
-        )
-        resampled_samples = resampled_samples.reshape(-1, self.n_particles, 3)
-        symmetry_change = check_symmetry_change(
-            resampled_samples, chirality_centers, reference_signs
-        )
-        print("Symmetry change frac:", (symmetry_change).float().mean())
-        resampled_samples[symmetry_change] *= -1
-        correct_symmetry_rate = 1 - symmetry_change.sum() / len(symmetry_change)
-        symmetry_change = check_symmetry_change(
-            resampled_samples, chirality_centers, reference_signs
-        )
-        resampled_samples = resampled_samples[~symmetry_change]
-        uncorrectable_symmetry_rate = symmetry_change.sum() / len(symmetry_change)
-        resampled_samples = resampled_samples.reshape(-1, self.n_particles * 3)
+    def compute_ramachandran_metrics(self, true_samples, pred_samples):
 
-        metrics.update(
-            {
-                prefix + "/correct_symmetry_rate": correct_symmetry_rate,
-                prefix + "/uncorrectable_symmetry_rate": uncorrectable_symmetry_rate,
-            }
-        )
+        phis_true, psis_true = self.get_phi_psi_vectors(true_samples)
+        x_true = torch.cat([torch.from_numpy(phis_true), torch.from_numpy(psis_true)], dim=1)
 
-        try:
-            self.plot_ramachandran(samples, prefix=prefix + "/rama", wandb_logger=wandb_logger)
-
-            resampled_samples = self.unnormalize(resampled_samples.cpu())
-            resampled_metrics = self.get_ramachandran_metrics(
-                resampled_samples[:num_eval_samples], prefix=prefix + "/resampled/rama"
-            )
-            metrics.update(resampled_metrics)
-            logging.info("Ramachandran metrics computed (resampled)")
-            self.plot_ramachandran(
-                resampled_samples, prefix=prefix + "/resampled/rama", wandb_logger=wandb_logger
-            )
-        except ValueError as e:
-            logging.error(f"Error in plotting Ramachandran: {e}")
-
-        if samples_jarzynski is not None:
-            samples_jarzynski = self.unnormalize(samples_jarzynski).cpu()
-            samples_jarzynski_metrics = self.get_ramachandran_metrics(
-                samples_jarzynski[:num_eval_samples], prefix=prefix + "/jarzynski/rama"
-            )
-            logging.info("Ramachandran metrics computed (jarzynski)")
-            self.plot_ramachandran(
-                samples_jarzynski,
-                prefix=prefix + "/jarzynski/rama",
-                wandb_logger=wandb_logger,
-            )
-            metrics.update(samples_jarzynski_metrics)
-
-        if "val" in prefix:
-            self.plot_ramachandran(
-                self.data_val, prefix=prefix + "/ground_truth/rama", wandb_logger=wandb_logger
-            )
-        elif "test" in prefix:
-            self.plot_ramachandran(
-                self.data_test, prefix=prefix + "/ground_truth/rama", wandb_logger=wandb_logger
-            )
-
-        logging.info("Ramachandran metrics computed")
-
-        return metrics
-
-    def get_ramachandran_metrics(self, samples, prefix: str = ""):
-        x_pred = self.get_phi_psi_vectors(samples)
-
-        if "val" in prefix:
-            eval_samples = self.data_val[: x_pred.shape[0]]
-        elif "test" in prefix:
-            eval_samples = self.data_test[: x_pred.shape[0]]
-        else:
-            eval_samples = self.data_test[: x_pred.shape[0]]
-        x_true = self.get_phi_psi_vectors(self.unnormalize(eval_samples))
+        phis_pred, psis_pred = self.get_phi_psi_vectors(pred_samples)
+        x_pred = torch.cat([torch.from_numpy(phis_pred), torch.from_numpy(psis_pred)], dim=1)
 
         metrics = compute_distribution_distances_with_prefix(x_true, x_pred, prefix=prefix)
         metrics[prefix + "/torus_wasserstein"] = torus_wasserstein(x_true, x_pred)
+
         return metrics
 
-    def get_phi_psi_vectors(self, samples):
-        samples = samples.reshape(-1, self.n_particles, self.n_dimensions)
-        traj_samples = md.Trajectory(samples, topology=self.topology)
-        phis = md.compute_phi(traj_samples)[1]
-        psis = md.compute_psi(traj_samples)[1]
-        x = torch.cat([torch.from_numpy(phis), torch.from_numpy(psis)], dim=1)
-        return x
-
     def plot_ramachandran(self, samples, prefix: str = "", wandb_logger: WandbLogger = None):
-        samples = samples.reshape(-1, self.n_particles, self.n_dimensions)
-        traj_samples = md.Trajectory(samples, topology=self.topology)
-        phis = md.compute_phi(traj_samples)[1]
-        psis = md.compute_psi(traj_samples)[1]
+
+        phis, psis = self.get_phi_psi_vectors(samples)
+
         for i in range(phis.shape[1]):
             print(f"Plotting Ramachandran {i} out of {phis.shape[1]}")
             phi_tmp = phis[:, i]
@@ -444,3 +353,106 @@ class PeptideDataModule(BaseDataModule):
                 wandb_logger.log_image(f"{prefix}/ramachandran_simple/{i}", [fig])
 
         return fig
+
+    def check_and_fix_symmetry(self, true_data, pred_data):
+
+        metrics = {}
+
+        true_samples = true_data.samples
+        pred_samples = pred_data.samples
+    
+        chirality_centers = find_chirality_centers(self.adj_list, self.atom_types)
+        reference_signs = compute_chirality_sign(
+            true_samples.reshape(-1, self.n_particles, 3)[[1]], chirality_centers
+        )
+        pred_samples = pred_samples.reshape(-1, self.n_particles, 3)
+        symmetry_change = check_symmetry_change(
+            pred_samples, chirality_centers, reference_signs
+        )
+        pred_samples[symmetry_change] *= -1
+        correct_symmetry_rate = 1 - symmetry_change.sum() / len(symmetry_change)
+        symmetry_change = check_symmetry_change(
+            pred_samples, chirality_centers, reference_signs
+        )
+        uncorrectable_symmetry_rate = symmetry_change.sum() / len(symmetry_change)
+
+        pred_data = pred_data[~symmetry_change]
+
+        metrics["correct_symmetry_rate"] = correct_symmetry_rate
+        metrics["uncorrectable_symmetry_rate"] = uncorrectable_symmetry_rate
+
+        return pred_data, metrics
+
+    def compute_all_metrics(self, true_data, pred_data):
+
+        metrics = {}
+
+        pred_data, symmetry_metrics = self.check_and_fix_symmetry(true_data, pred_data)
+        metrics.update(symmetry_metrics)
+
+        num_eval_samples = min(self.hparams.num_eval_samples, len(pred_data), len(true_data))
+        metrics[f"num_eval_samples"] = min(num_eval_samples, len(pred_data))
+        
+        # Distribution distance metrics
+        metrics.update(self.distribution_distance_metrics(true_data.samples[num_eval_samples], pred_data.samples[num_eval_samples]))
+        logging.info("Distance metrics computed")
+
+        # Energy distance metrics
+        metrics.update(self.energy_distance_metrics(true_data.energy, pred_data.energy))
+        logging.info("Energy metrics computed")
+
+        # Ramachandran metrics
+        metrics.update(self.compute_ramachandran_metrics(true_data, pred_data))
+        logging.info("Ramachandran metrics computed")
+
+        return metrics
+
+    def metrics_and_plots(
+        self,
+        true_data: SamplesData,
+        proposal_data: SamplesData,
+        resampled_data: SamplesData,
+        jarzynski_data: Optional[SamplesData] = None,
+        prefix: str = "",
+    ) -> None:
+        """Log metrics and plots at the end of an epoch."""
+
+        if len(prefix) > 0 and prefix[-1] != "/":
+            prefix += "/"
+
+        metrics = {}
+
+        logging.info(f"Computing metrics for proposal data")
+        metrics.update(self.compute_all_metrics(true_data, proposal_data, prefix + "/proposal"))
+        logging.info(f"Computing metrics for resampled data")
+        metrics.update(self.compute_all_metrics(true_data, resampled_data, prefix + "/resampled"))
+
+        if jarzynski_data is not None:
+            logging.info(f"Computing metrics for jarzynski data")
+            metrics.update(self.compute_metrics(true_data, jarzynski_data, prefix + "/jarzynski"))
+
+        self.plot_energies(
+            true_data.energy,
+            proposal_data.energy,
+            resampled_data.energy,
+            jarzynski_data.energy if jarzynski_data is not None else None,
+            prefix,
+        )
+
+        # TODO can I not repeat the interatomic distance computation?
+        self.plot_distances(
+            true_data.samples,
+            proposal_data.samples,
+            resampled_data.samples,
+            jarzynski_data.samples,
+            prefix,
+        )
+
+        self.plot_ramachandran(true_data.samples, prefix=prefix + "ground_truth/rama")
+        self.plot_ramachandran(proposal_data.samples, prefix=prefix + "proposal/rama")
+        self.plot_ramachandran(resampled_data.samples, prefix=prefix + "resampled/rama")
+
+        if jarzynski_data is not None:
+            self.plot_ramachandran(jarzynski_data.samples, prefix=prefix + "jarzynski/rama")
+
+        return metrics
