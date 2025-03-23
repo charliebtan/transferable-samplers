@@ -269,10 +269,6 @@ class MetaBlock(torch.nn.Module):
                     zb = zb + g * (zb - zb_u)
 
             scale = za[:, 0].float().exp().type(za.dtype)  # get rid of the sequence dimension
-            # x_copy = x.clone()
-            # x_copy[:, i + 1] = x[:, i + 1] * scale + zb[:, 0]
-            # x = x_copy
-            # x[:, i + 1] = x[:, i + 1] * scale + zb[:, 0]
             xs[i + 1] = xs[i + 1] * scale + zb[:, 0]
             x = torch.stack(xs, dim=1)
         self.set_sample_mode(False)
@@ -342,9 +338,6 @@ class TarFlow(torch.nn.Module):
         """Convert a sequence of patches (N,T,C) to an image (N,C',H,W)"""
         x = x.reshape(-1, self.img_size)
         return x
-        # u = x.transpose(1, 2)
-        # pdb.set_trace()
-        # return torch.nn.functional.fold(u, (self.img_size, self.img_size), self.patch_size, stride=self.patch_size)
 
     def forward(
         self, x: torch.Tensor, y: torch.Tensor | None = None
@@ -356,18 +349,6 @@ class TarFlow(torch.nn.Module):
             logdets = logdets + logdet
         x_pred = self.unpatchify(x)
         return x_pred, logdets
-
-    # TODO I've commented these out because I don't think we need them
-    # def update_prior(self, z: torch.Tensor):
-    #     z2 = (z**2).mean(dim=0)
-    #     self.var.lerp_(z2.detach(), weight=self.VAR_LR)
-
-    # def get_loss(self, z: torch.Tensor, logdets: torch.Tensor):
-    #     return 0.5 * z.pow(2).mean() - logdets.mean()
-
-    # def get_loss_mean_free(self, prior, z: torch.Tensor, logdets: torch.Tensor):
-    #     log_prob = prior.energy(z).squeeze() - logdets
-    #     return log_prob.mean()
 
     def reverse(
         self,
