@@ -1,9 +1,7 @@
 import logging
-import math
 import time
 from typing import Any, Dict, Optional, Tuple
 
-import hydra
 import matplotlib.pyplot as plt
 import numpy as np
 import ot as pot
@@ -11,14 +9,9 @@ import torch
 import torchmetrics
 from bgflow import MeanFreeNormalDistribution, NormalDistribution
 from lightning import LightningDataModule, LightningModule
-from lightning.pytorch.utilities import grad_norm
 from torchmetrics import MeanMetric
 from tqdm import tqdm
 
-from src.data.components.distribution_distances import (
-    compute_distribution_distances_with_prefix,
-    energy_distances,
-)
 from src.models.components.ema import EMA
 from src.models.components.jarzynski_sampler import JarzynskiSampler
 from src.models.components.utils import RunningMedian, resample
@@ -228,18 +221,20 @@ class BoltzmannGeneratorLitModule(LightningModule):
             self.evaluate(prefix)
         plt.close("all")
 
+
+
     @torch.no_grad()
-    def evaluate(self, prefix: str = "val", generator=None, output_dir=None) -> None:
+    def evaluate(self, prefix: str = "val", proposal_generator=None, output_dir=None) -> None:
         """Generates samples from the proposal and runs SMC if enabled.
         Also computes metrics, through the datamodule function "metrics_and_plots".
         """
         logging.info("Evaluating sampling")
 
         # Define proposal generator
-        if generator is None:
-            generator = self.batched_generate_samples
+        if proposal_generator is None:
+            proposal_generator = self.batched_generate_samples
             if "dummy_ll" in self.hparams and self.hparams.dummy_ll:
-                generator = lambda x: self.batched_generate_samples(x, dummy_ll=True)
+                proposal_generator = lambda x: self.batched_generate_samples(x, dummy_ll=True)
 
         if prefix.startswith("test"):
             num_proposal_samples = self.hparams.sampling_config.num_test_proposal_samples
@@ -250,13 +245,13 @@ class BoltzmannGeneratorLitModule(LightningModule):
 
         true_data = SamplesData(
             true_samples,
-            -self.energy(true_samples),
+            -self.datamodule.energy(true_samples),
         )
 
         # Generate samples and record time
         torch.cuda.synchronize()
         start_time = time.time()
-        proposal_samples, proposal_log_p, prior_samples = generator(num_proposal_samples)
+        proposal_samples, proposal_log_p, prior_samples = proposal_generator(num_proposal_samples)
         torch.cuda.synchronize()
         time_duration = time.time() - start_time
         self.log(f"{prefix}/samples_walltime", time_duration)
@@ -268,6 +263,9 @@ class BoltzmannGeneratorLitModule(LightningModule):
         self.log(f"{prefix}/proposal_com_std", proposal_com_std, sync_dist=True)
         self.datamodule.proposal_com_std = proposal_com_std
 
+        # Compute energy
+        proposal_samples_energy = -self.datamodule.energy(proposal_samples)
+
         # Datatype for easier metrics and plotting
         proposal_data = SamplesData(
             proposal_samples,
@@ -275,11 +273,9 @@ class BoltzmannGeneratorLitModule(LightningModule):
         )
 
         # Compute resampling index
-        proposal_samples_energy = -self.energy(proposal_samples)
         resampling_logits = proposal_samples_energy - proposal_log_p # TODO CoM
-        _, resampling_index = resample(resampling_logits, num_proposal_samples, return_index=True)
 
-        # metrics.update(sampling_efficiency(resampling_logits), prefix))
+        _, resampling_index = resample(proposal_samples, resampling_logits, return_index=True)
 
         reweighted_data = SamplesData(
             proposal_samples[resampling_index],
@@ -336,11 +332,10 @@ class BoltzmannGeneratorLitModule(LightningModule):
             # Datatype for easier metrics and plotting
             jarzynski_data = SamplesData(
                 jarzynski_samples,
-                -self.energy(jarzynski_samples),
+                -self.datamodule.energy(jarzynski_samples),
             )
 
         else:
-
             jarzynski_data = None
 
         # log dataset metrics
@@ -349,13 +344,9 @@ class BoltzmannGeneratorLitModule(LightningModule):
             proposal_data,
             reweighted_data,
             jarzynski_data,
-            num_eval_samples=num_eval_samples,
             prefix=prefix,
         )
         self.log_dict(metrics)
-
-    def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
-        pass
 
     def on_train_epoch_start(self) -> None:
         logging.info("Train epoch start")
@@ -421,10 +412,6 @@ class BoltzmannGeneratorLitModule(LightningModule):
             norm = torch.nn.utils.clip_grad_norm_(self.parameters(), 5 * running_global_norm)
             self.log("clipped_gradient_norm", norm, on_step=True, prog_bar=True)
 
-    def proposal_energy(self, x: torch.Tensor) -> torch.Tensor:
-        # x is considered to be a sample from the proposal distribution
-        raise NotImplementedError
-
     # https://github.com/Lightning-AI/pytorch-lightning/issues/1462
     def on_before_optimizer_step(self, optimizer, *args, **kwargs) -> None:
         total_norm = 0.0
@@ -440,6 +427,9 @@ class BoltzmannGeneratorLitModule(LightningModule):
         if isinstance(self.net, EMA):
             self.net.update_ema()
 
+    def proposal_energy(self, x: torch.Tensor) -> torch.Tensor:
+        # x is considered to be a sample from the proposal distribution
+        raise NotImplementedError
 
 if __name__ == "__main__":
     _ = BoltzmannGeneratorLitModule(None, None, None, None)

@@ -10,7 +10,7 @@ from .mmd import mix_rbf_mmd2
 from .optimal_transport import wasserstein
 
 
-def energy_distances(pred, true, prefix=""):
+def compute_energy_distances(pred, true, prefix=""):
     pred = pred.cpu().numpy()
     true = true.cpu().numpy()
     energy_w2 = math.sqrt(pot.emd2_1d(true, pred))
@@ -38,7 +38,7 @@ def compute_distances(pred, true):
     return mse, me, mae
 
 
-def compute_distribution_distances(pred: torch.Tensor, true: Union[torch.Tensor, list]):
+def compute_distribution_distances(pred: torch.Tensor, true: Union[torch.Tensor, list], prefix=""):
     """computes distances between distributions.
     pred: [batch, times, dims] tensor
     true: [batch, times, dims] tensor or list[batch[i], dims] of length times
@@ -57,8 +57,8 @@ def compute_distribution_distances(pred: torch.Tensor, true: Union[torch.Tensor,
         "Median_L1",
         "Eq-EMD2",
     ]
-    a = pred
-    b = true
+    a = pred.cpu()
+    b = true.cpu()
     w1 = wasserstein(a, b, power=1)
     w2 = wasserstein(a, b, power=2)
 
@@ -66,17 +66,10 @@ def compute_distribution_distances(pred: torch.Tensor, true: Union[torch.Tensor,
     mean_dists = compute_distances(torch.mean(a, dim=0), torch.mean(b, dim=0))
     median_dists = compute_distances(torch.median(a, dim=0)[0], torch.median(b, dim=0)[0])
     dists = [w1, w2, mmd_rbf, *mean_dists, *median_dists]
-    return NAMES, dists
 
+    NAMES = [f"{prefix}/{name}" for name in NAMES]
 
-def compute_distribution_distances_with_prefix(pred, true, prefix):
-    pred = pred.cpu()
-    true = true.cpu()
-    names, dists = compute_distribution_distances(pred, true)
-    names = [f"{prefix}/{name}" for name in names]
-    metrics = dict(zip(names, dists))
-    return metrics
-
+    return dict(zip(NAMES, dists))
 
 def find_rigid_alignment(A, B):
     """

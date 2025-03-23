@@ -1,29 +1,17 @@
-import logging
 import math
-import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
-import hydra
 import matplotlib
-
-matplotlib.rcParams["mathtext.fontset"] = "stix"
-matplotlib.rcParams["font.family"] = "STIXGeneral"
-
 import matplotlib.pyplot as plt
 import numpy as np
-import requests
 import scipy
 import torch
-from bgflow import MultiDoubleWellPotential
-from bgflow.utils import distance_vectors, distances_from_vectors
 from lightning import LightningDataModule
 from lightning.pytorch.loggers import WandbLogger
 from torch.utils.data import DataLoader, Dataset
 
-from src.data.components.distribution_distances import compute_distribution_distances_with_prefix, energy_distances
-from src.models.components.utils import resample # TODO move?
-from src.utils.tbg_utils import sampling_efficiency
-from src.utils.data_types import SamplesData
+matplotlib.rcParams["mathtext.fontset"] = "stix"
+matplotlib.rcParams["font.family"] = "STIXGeneral"
 
 class BaseDataModule(LightningDataModule):
     def __init__(
@@ -194,42 +182,22 @@ class BaseDataModule(LightningDataModule):
 
         return energy
 
-
-    
     def get_loggers(self, logger):
-        self.logger = logger
         for l in logger:
             if isinstance(l, WandbLogger):
                 self.wandb_logger = l
                 break
 
-    # TODO can this be removed? is it implemented elsewhere?
-    # def interatomic_dist(self, x):
-    #     batch_shape = x.shape[:-1]
-    #     x = x.view(*batch_shape, self.n_particles, self.n_dimensions)
-
-    #     # Compute the pairwise interatomic distances
-    #     # removes duplicates and diagonal
-    #     distances = x[:, None, :, :] - x[:, :, None, :]
-    #     distances = distances[
-    #         :,
-    #         torch.triu(torch.ones((self.n_particles, self.n_particles)), diagonal=1) == 1,
-    #     ]
-    #     dist = torch.linalg.norm(distances, dim=-1)
-    #     return dist
-
     def plot_energies(
         self,
-        proposal_samples,
-        resampled_samples,
-        jarzynski_samples,
-        prefix,
+        test_samples_energy,
+        proposal_samples_energy,
+        resampled_samples_energy,
+        jarzynski_samples_energy,
         ylim=None,
+        prefix="",
     ):
-        test_samples_energy = self.energy(self.data_test_small).cpu()
-        proposal_samples_energy = self.energy(proposal_samples).cpu()
-        resampled_samples_energy = self.energy(resampled_samples).cpu()
-        
+
         fig, ax = plt.subplots(figsize=(4, 3), dpi=300, constrained_layout=True)
         fig.patch.set_facecolor("white")
 
@@ -237,7 +205,7 @@ class BaseDataModule(LightningDataModule):
         bin_edges = np.linspace(self.hparams.hist_min_energy, self.hparams.hist_max_energy, 100)
 
         ax.hist(
-            energy_cropper(test_samples_energy),
+            energy_cropper(test_samples_energy.cpu()),
             bins=bin_edges,
             density=True,
             alpha=0.4,
@@ -246,30 +214,31 @@ class BaseDataModule(LightningDataModule):
             linewidth=3,
             label="True data",
         )
-        ax.hist(
-            energy_cropper(proposal_samples_energy),
-            bins=bin_edges,
-            density=True,
-            alpha=0.4,
-            color="r",
-            histtype="step",
-            linewidth=3,
-            label="Proposal",
-        )
-        ax.hist(
-            energy_cropper(resampled_samples_energy),
-            bins=bin_edges,
-            density=True,
-            alpha=0.4,
-            histtype="step",
-            linewidth=3,
-            color="b",
-            label="Proposal (reweighted)",
-        )
-        if jarzynski_samples is not None:
-            jarzynski_samples_energy = self.energy(jarzynski_samples)
+        if proposal_samples_energy is not None:
             ax.hist(
-                jarzynski_samples_energy,
+                energy_cropper(proposal_samples_energy.cpu()),
+                bins=bin_edges,
+                density=True,
+                alpha=0.4,
+                color="r",
+                histtype="step",
+                linewidth=3,
+                label="Proposal",
+            )
+        if resampled_samples_energy is not None:
+            ax.hist(
+                energy_cropper(resampled_samples_energy.cpu()),
+                bins=bin_edges,
+                density=True,
+                alpha=0.4,
+                histtype="step",
+                linewidth=3,
+                color="b",
+                label="Proposal (reweighted)",
+            )
+        if jarzynski_samples_energy is not None:
+            ax.hist(
+                energy_cropper(jarzynski_samples_energy.cpu()),
                 bins=bin_edges,
                 density=True,
                 alpha=0.4,
@@ -300,23 +269,50 @@ class BaseDataModule(LightningDataModule):
         fig.canvas.draw()
         self.wandb_logger.log_image(f"{prefix}generated_samples", [fig])
 
-    def plot_distances(
+    def interatomic_dist(self, x):
+
+        x = self.unnormalize(x)
+
+        batch_shape = x.shape[:-1]
+        x = x.view(*batch_shape, self.n_particles, self.n_dimensions)
+
+        # Compute the pairwise interatomic distances
+        # removes duplicates and diagonal
+        distances = x[:, None, :, :] - x[:, :, None, :]
+        distances = distances[
+            :,
+            torch.triu(torch.ones((self.n_particles, self.n_particles)), diagonal=1) == 1,
+        ]
+        dist = torch.linalg.norm(distances, dim=-1)
+
+        return dist.flatten()
+
+    def plot_atom_distances(
         self,
+        true_samples,
         proposal_samples,
         resampled_samples,
         jarzynski_samples,
-        prefix,
         ylim=None,
+        prefix="",
     ):
-        test_samples_dist = self.interatomic_dist(self.unnormalize(self.test_data_small)).flatten().cpu()
-        proposal_samples_dist = self.interatomic_dist(self.unnormalize(proposal_samples)).flatten().cpu()
-        resampled_samples_dist = self.interatomic_dist(self.unnormalize(resampled_samples)).flatten().cpu()
 
-        min_dist = min(proposal_samples_dist.min(), test_samples_dist.min(), resampled_samples_dist.min())
-        max_dist = max(proposal_samples_dist.max(), test_samples_dist.max(), resampled_samples_dist.max())
+        true_samples_dist = self.interatomic_dist(true_samples).cpu()
+        min_dist = true_samples_dist.min()
+        max_dist = true_samples_dist.max()
+
+        if proposal_samples is not None:
+            proposal_samples_dist = self.interatomic_dist(proposal_samples).cpu()
+            min_dist = min(min_dist, proposal_samples_dist.min())
+            max_dist = max(max_dist, proposal_samples_dist.max())
+        
+        if resampled_samples is not None:
+            resampled_samples_dist = self.interatomic_dist(resampled_samples).cpu()
+            min_dist = min(min_dist, resampled_samples_dist.min())
+            max_dist = max(max_dist, resampled_samples_dist.max())
 
         if jarzynski_samples is not None:
-            jarzynski_samples_dist = self.interatomic_dist(self.unnormalize(jarzynski_samples)).detach().cpu()
+            jarzynski_samples_dist = self.interatomic_dist(jarzynski_samples).cpu()
             min_dist = min(min_dist, jarzynski_samples_dist.min())
             max_dist = max(max_dist, jarzynski_samples_dist.max())
 
@@ -325,7 +321,7 @@ class BaseDataModule(LightningDataModule):
         bin_edges = np.linspace(min_dist, max_dist, 100)
 
         ax.hist(
-            test_samples_dist,
+            true_samples_dist,
             bins=bin_edges,
             density=True,
             alpha=0.4,
@@ -334,27 +330,28 @@ class BaseDataModule(LightningDataModule):
             linewidth=3,
             label="True data",
         )
-        ax.hist(
-            proposal_samples_dist,
-            bins=bin_edges,
-            density=True,
-            alpha=0.4,
-            color="r",
-            histtype="step",
-            linewidth=3,
-            label="Proposal",
-        )
-        ax.hist(
-            resampled_samples_dist,
-            bins=bin_edges,
-            density=True,
-            alpha=0.4,
-            histtype="step",
-            linewidth=3,
-            color="b",
-            label="Proposal (reweighted)",
-        )
-
+        if proposal_samples is not None:
+            ax.hist(
+                proposal_samples_dist,
+                bins=bin_edges,
+                density=True,
+                alpha=0.4,
+                color="r",
+                histtype="step",
+                linewidth=3,
+                label="Proposal",
+            )
+        if resampled_samples is not None:
+            ax.hist(
+                resampled_samples_dist,
+                bins=bin_edges,
+                density=True,
+                alpha=0.4,
+                histtype="step",
+                linewidth=3,
+                color="b",
+                label="Proposal (reweighted)",
+            )
         if jarzynski_samples is not None:
             ax.hist(
                 jarzynski_samples_dist,
@@ -376,28 +373,6 @@ class BaseDataModule(LightningDataModule):
 
         fig.canvas.draw()
         self.wandb_logger.log_image(f"{prefix}generated_samples", [fig])
-
-    def distribution_distance_metrics(self, true_samples, pred_samples, prefix):
-
-        return compute_distribution_distances_with_prefix(
-            self.unnormalize(pred_samples).cpu(),
-            self.unnormalize(true_samples).cpu(),
-            prefix=prefix,
-        )
-
-    def compute_energy_distance_metrics(self, true_samples_energy, pred_samples_energy, prefix):
-
-        metrics = energy_distances(
-            true_samples_energy.cpu(),
-            pred_samples_energy.cpu(),
-            prefix=prefix,
-        )
-
-        metrics[f"{prefix}/mean_energy"] = pred_samples_energy.mean().cpu()
-
-        return metrics
-
-
 
 if __name__ == "__main__":
     _ = BaseDataModule()

@@ -1,6 +1,6 @@
 import logging
 import os
-from typing import Any, List, Optional
+from typing import Any, Optional
 import wget
 import math
 
@@ -21,14 +21,14 @@ from src.data.components.center_of_mass import CenterOfMassTransform
 from src.data.components.rotation import Random3DRotationTransform
 from src.data.components.transform_dataset import TransformDataset
 from src.data.components.distribution_distances import (
-    compute_distribution_distances_with_prefix,
+    compute_distribution_distances,
+    compute_energy_distances,
 )
 from src.data.components.optimal_transport import torus_wasserstein
 from src.models.components.utils import (
     check_symmetry_change,
     compute_chirality_sign,
     find_chirality_centers,
-    resample,
 )
 from src.utils.data_types import SamplesData
 
@@ -58,6 +58,7 @@ class PeptideDataModule(BaseDataModule):
         n_test_samples_small: int = 10_000, # Smaller subset for plotting etc
         hist_min_energy: float = -200.0, # TODO
         hist_max_energy: float = 400.0, # TODO
+        num_eval_samples: int = 10_000, # TODO
     ):
         super().__init__(
             n_particles=n_particles, # TODO why some done as hparams and others not?
@@ -273,14 +274,14 @@ class PeptideDataModule(BaseDataModule):
         self.setup_atom_encoding()
 
     def get_phi_psi_vectors(self, samples):
-        samples = self.unnormalize(samples)
+        samples = self.unnormalize(samples).cpu()
         samples = samples.reshape(-1, self.n_particles, self.n_dimensions)
         traj_samples = md.Trajectory(samples, topology=self.topology)
         phis = md.compute_phi(traj_samples)[1]
         psis = md.compute_psi(traj_samples)[1]
         return phis, psis
 
-    def compute_ramachandran_metrics(self, true_samples, pred_samples):
+    def compute_ramachandran_metrics(self, true_samples, pred_samples, prefix=""):
 
         phis_true, psis_true = self.get_phi_psi_vectors(true_samples)
         x_true = torch.cat([torch.from_numpy(phis_true), torch.from_numpy(psis_true)], dim=1)
@@ -288,7 +289,7 @@ class PeptideDataModule(BaseDataModule):
         phis_pred, psis_pred = self.get_phi_psi_vectors(pred_samples)
         x_pred = torch.cat([torch.from_numpy(phis_pred), torch.from_numpy(psis_pred)], dim=1)
 
-        metrics = compute_distribution_distances_with_prefix(x_true, x_pred, prefix=prefix)
+        metrics = compute_distribution_distances(x_true, x_pred, prefix=prefix)
         metrics[prefix + "/torus_wasserstein"] = torus_wasserstein(x_true, x_pred)
 
         return metrics
@@ -354,9 +355,7 @@ class PeptideDataModule(BaseDataModule):
 
         return fig
 
-    def check_and_fix_symmetry(self, true_data, pred_data):
-
-        metrics = {}
+    def check_and_fix_symmetry(self, true_data, pred_data, prefix=""):
 
         true_samples = true_data.samples
         pred_samples = pred_data.samples
@@ -378,31 +377,61 @@ class PeptideDataModule(BaseDataModule):
 
         pred_data = pred_data[~symmetry_change]
 
-        metrics["correct_symmetry_rate"] = correct_symmetry_rate
-        metrics["uncorrectable_symmetry_rate"] = uncorrectable_symmetry_rate
+        metrics = {
+            prefix + "/correct_symmetry_rate": correct_symmetry_rate,
+            prefix + "/uncorrectable_symmetry_rate": uncorrectable_symmetry_rate,
+        }
+
+        if uncorrectable_symmetry_rate > 0.1:
+            logging.warning(
+                f"Uncorrectable symmetry rate is {uncorrectable_symmetry_rate:.2f}, "
+            )
 
         return pred_data, metrics
 
-    def compute_all_metrics(self, true_data, pred_data):
+    def compute_all_metrics(self, true_data, pred_data, prefix: str = ""):
+        """Computes all metrics between true and predicted data."""
 
         metrics = {}
 
-        pred_data, symmetry_metrics = self.check_and_fix_symmetry(true_data, pred_data)
-        metrics.update(symmetry_metrics)
+        if len(pred_data) < 0.9 * self.hparams.num_eval_samples:
+            logging.warning(r"Less than 90% of required eval samples supplied.")
 
+        # Slice data to subset
         num_eval_samples = min(self.hparams.num_eval_samples, len(pred_data), len(true_data))
+        true_data = true_data[:num_eval_samples]
+        pred_data = pred_data[:num_eval_samples]
         metrics[f"num_eval_samples"] = min(num_eval_samples, len(pred_data))
-        
-        # Distribution distance metrics
-        metrics.update(self.distribution_distance_metrics(true_data.samples[num_eval_samples], pred_data.samples[num_eval_samples]))
+
+        # Distribtuion distance metrics
+        metrics.update(
+            compute_distribution_distances(
+                self.unnormalize(true_data.samples),
+                self.unnormalize(pred_data.samples),
+                prefix=prefix
+                )
+        )
         logging.info("Distance metrics computed")
 
-        # Energy distance metrics
-        metrics.update(self.energy_distance_metrics(true_data.energy, pred_data.energy))
+        # Energy metrics
+        metrics.update(
+            compute_energy_distances(
+                true_data.energy,
+                pred_data.energy,
+                prefix=prefix,
+                )
+        )
+        metrics[f"{prefix}/mean_energy"] = pred_data.energy.mean().cpu()
         logging.info("Energy metrics computed")
 
         # Ramachandran metrics
-        metrics.update(self.compute_ramachandran_metrics(true_data, pred_data))
+        metrics.update(
+            self.compute_ramachandran_metrics(
+                true_data.samples,
+                pred_data.samples,
+                prefix=prefix
+                )
+        )
         logging.info("Ramachandran metrics computed")
 
         return metrics
@@ -422,37 +451,52 @@ class PeptideDataModule(BaseDataModule):
 
         metrics = {}
 
+        self.plot_ramachandran(true_data.samples, prefix=prefix + "ground_truth/rama")
+
         logging.info(f"Computing metrics for proposal data")
-        metrics.update(self.compute_all_metrics(true_data, proposal_data, prefix + "/proposal"))
+        proposal_data, symmetry_metrics = self.check_and_fix_symmetry(true_data, proposal_data, prefix + "proposal")
+        metrics.update(symmetry_metrics)
+        if len(proposal_data) == 0:
+            logging.warning("No proposal samples left after symmetry correction.")
+        else:
+            metrics.update(self.compute_all_metrics(true_data, proposal_data, prefix + "proposal"))
+            self.plot_ramachandran(proposal_data.samples, prefix=prefix + "proposal/rama")
+
         logging.info(f"Computing metrics for resampled data")
-        metrics.update(self.compute_all_metrics(true_data, resampled_data, prefix + "/resampled"))
+        resampled_data, symmetry_metrics = self.check_and_fix_symmetry(true_data, resampled_data, prefix + "resampled")
+        metrics.update(symmetry_metrics)
+        if len(resampled_data) == 0:
+            logging.warning("No resampled samples left after symmetry correction.")
+        else:
+            metrics.update(self.compute_all_metrics(true_data, resampled_data, prefix + "resampled"))
+            self.plot_ramachandran(resampled_data.samples, prefix=prefix + "resampled/rama")
 
         if jarzynski_data is not None:
             logging.info(f"Computing metrics for jarzynski data")
-            metrics.update(self.compute_metrics(true_data, jarzynski_data, prefix + "/jarzynski"))
+            jarzynski_data, symmetry_metrics = self.check_and_fix_symmetry(true_data, jarzynski_data, prefix + "jarzynski")
+            metrics.update(symmetry_metrics)
+            if len(jarzynski_data) == 0:
+                logging.warning("No jarzynski samples left after symmetry correction.")
+            else:
+                metrics.update(self.compute_metrics(true_data, jarzynski_data, prefix + "jarzynski"))
+                self.plot_ramachandran(jarzynski_data.samples, prefix=prefix + "jarzynski/rama")
 
+        logging.info(f"Plotting energies")
         self.plot_energies(
-            true_data.energy,
-            proposal_data.energy,
-            resampled_data.energy,
-            jarzynski_data.energy if jarzynski_data is not None else None,
-            prefix,
+            true_data.energy[self.hparams.num_eval_samples:],
+            proposal_data.energy if len(proposal_data) > 0 else None,
+            resampled_data.energy if len(resampled_data) > 0 else None,
+            jarzynski_data.energy if (jarzynski_data is not None and len(jarzynski_data) > 0) else None,
+            prefix=prefix,
         )
 
-        # TODO can I not repeat the interatomic distance computation?
-        self.plot_distances(
-            true_data.samples,
-            proposal_data.samples,
-            resampled_data.samples,
-            jarzynski_data.samples,
-            prefix,
+        logging.info(f"Plotting interatomic distances")
+        self.plot_atom_distances(
+            true_data.samples[self.hparams.num_eval_samples:],
+            proposal_data.samples if len(proposal_data) > 0 else None,
+            resampled_data.samples if len(resampled_data) > 0 else None,
+            jarzynski_data.samples if (jarzynski_data is not None and len(jarzynski_data) > 0) else None,
+            prefix=prefix,
         )
-
-        self.plot_ramachandran(true_data.samples, prefix=prefix + "ground_truth/rama")
-        self.plot_ramachandran(proposal_data.samples, prefix=prefix + "proposal/rama")
-        self.plot_ramachandran(resampled_data.samples, prefix=prefix + "resampled/rama")
-
-        if jarzynski_data is not None:
-            self.plot_ramachandran(jarzynski_data.samples, prefix=prefix + "jarzynski/rama")
 
         return metrics
