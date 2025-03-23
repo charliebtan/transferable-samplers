@@ -167,16 +167,16 @@ class PeptideDataModule(BaseDataModule):
         self.pdb = app.PDBFile(self.pdb_path)
     
         # Different system configs for different datasets
-        if self.n_particles != 42:
-            forcefield = openmm.app.ForceField("amber14-all.xml", "implicit/obc1.xml")
-            nonbondedMethod = openmm.app.CutoffNonPeriodic
-            nonbondedCutoff = 2.0 * openmm.unit.nanometer
-            temperature = 310
-        else:
+        if self.n_particles == 42:
             forcefield = openmm.app.ForceField("amber99sbildn.xml", "tip3p.xml", "amber99_obc.xml")
             nonbondedMethod = openmm.app.NoCutoff
             nonbondedCutoff = 0.9 * openmm.unit.nanometer
             temperature = 300
+        else:
+            forcefield = openmm.app.ForceField("amber14-all.xml", "implicit/obc1.xml")
+            nonbondedMethod = openmm.app.CutoffNonPeriodic
+            nonbondedCutoff = 2.0 * openmm.unit.nanometer
+            temperature = 310
 
         # Initalize forcefield system
         system = forcefield.createSystem(
