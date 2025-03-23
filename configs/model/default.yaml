@@ -23,6 +23,7 @@ jarzynski_sampler:
   num_timesteps: 10
   enabled: false
   ess_threshold: 0.0
+  input_energy_cutoff: null
 
 sampling_config:
   num_proposal_samples: 10_000
@@ -30,13 +31,12 @@ sampling_config:
   num_jarzynski_samples: 10_000
   num_eval_samples: 10_000
   batch_size: 10_000
-  energy_cutoff: null
   # Currently unused
   sampling_freq: 1
   jarzynski_freq: 1
   test_proposal_seed: 42
   save_samples_path: null
-  clip_logits: 0.002
+  clip_reweighting_logits: 0.002
 
 ema_decay: 0.999
 eval_ema: true

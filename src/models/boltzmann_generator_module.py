@@ -2,6 +2,7 @@ import logging
 import time
 from typing import Any, Dict, Optional, Tuple
 
+import hydra
 import matplotlib.pyplot as plt
 import numpy as np
 import ot as pot
@@ -15,7 +16,6 @@ from tqdm import tqdm
 from src.models.components.ema import EMA
 from src.models.components.jarzynski_sampler import JarzynskiSampler
 from src.models.components.utils import RunningMedian, resample
-from src.utils.tbg_utils import sampling_efficiency
 from src.utils.data_types import SamplesData
 
 logger = logging.getLogger(__name__)
@@ -257,6 +257,17 @@ class BoltzmannGeneratorLitModule(LightningModule):
         self.log(f"{prefix}/samples_walltime", time_duration)
         self.log(f"{prefix}/samples_per_second", len(proposal_samples) / time_duration)
 
+        # Save samples to disk
+        samples_dict = {
+            "prior_samples": prior_samples,
+            "proposal_samples": proposal_samples,
+            "proposal_log_p": proposal_log_p,
+        }
+        if output_dir is None:
+            output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
+        logging.info(f"Saving {len(proposal_samples)} samples to {output_dir}/{prefix}_samples.pt")
+        torch.save(samples_dict, f"{output_dir}/{prefix}_samples.pt")
+
         # Compute proposal center of mass std - TODO should this just be 1 / sqrt(N) ?
         coms = proposal_samples.view(proposal_samples.shape[0], -1, 3).mean(dim=1)
         proposal_com_std = coms.std()
@@ -275,32 +286,23 @@ class BoltzmannGeneratorLitModule(LightningModule):
         # Compute resampling index
         resampling_logits = proposal_samples_energy - proposal_log_p # TODO CoM
 
-        _, resampling_index = resample(proposal_samples, resampling_logits, return_index=True)
+        # Filter samples based on logit clipping
+        # This only affects the reweighted sampling metrics (not input to Jarzyinski)
+        if self.hparams.sampling_config.clip_reweighting_logits:
+            clipped_logits_mask = resampling_logits > torch.quantile(
+                resampling_logits, 1 - float(self.hparams.sampling_config.clip_reweighting_logits)
+            )
+            proposal_samples_clipped = proposal_samples[~clipped_logits_mask]
+            resampling_logits_clipped = resampling_logits[~clipped_logits_mask]
+            logging.info("Clipped logits for resampling")
+
+        _, resampling_index = resample(proposal_samples_clipped, resampling_logits_clipped, return_index=True)
 
         reweighted_data = SamplesData(
             proposal_samples[resampling_index],
             proposal_samples_energy[resampling_index],
+            logits=resampling_logits_clipped,
         )
-
-        # Filter proposal samples based on logit clipping
-        if self.hparams.sampling_config.clip_logits:
-            clipped_logits_mask = resampling_logits > torch.quantile(
-                resampling_logits, 1 - float(self.hparams.sampling_config.clip_logits)
-            )
-            resampling_logits = resampling_logits[~clipped_logits_mask]
-            proposal_samples = proposal_samples[~clipped_logits_mask]
-            proposal_samples_energy = proposal_samples_energy[~clipped_logits_mask]
-            logging.info("Clipped logits")
-
-        # Filter samples based on target energy cutoff
-        if self.hparams.sampling_config.energy_cutoff is not None:
-            filter_array = proposal_samples_energy < self.hparams.sampling_config.energy_cutoff
-            filtered_samples = proposal_samples[filter_array]
-            self.log(f"{prefix}/filtered_samples", torch.sum(~filter_array).float())
-            logging.info("Clipping energies")
-        else:
-            filtered_samples = proposal_samples
-            self.log(f"{prefix}/filtered_samples", 0.0)
 
         if self.jarzynski_sampler is not None and self.jarzynski_sampler.enabled:
 
@@ -310,18 +312,18 @@ class BoltzmannGeneratorLitModule(LightningModule):
             logging.info("Jarzynski sampling enabled")
 
             # Hack to get wandb logger into jarzynski sampler for plotting
-            self.jarzynski_sampler.wandb_logger = self.datamodule.get_wandb_logger(self.loggers)
+            self.jarzynski_sampler.wandb_logger = self.datamodule.wandb_logger
 
             num_jarzynski_samples = min(
-                self.hparams.sampling_config.num_jarzynski_samples, len(filtered_samples)
+                self.hparams.sampling_config.num_jarzynski_samples, len(proposal_samples)
             )
 
             # Generate jarzynski samples and record time
             torch.cuda.synchronize()
             start_time = time.time()
             jarzynski_samples, jarzynski_logits = self.jarzynski_sampler.sample(
-                filtered_samples[:num_jarzynski_samples]
-            )
+                proposal_samples[:num_jarzynski_samples]
+            ) # already returned resampled
             torch.cuda.synchronize()
             time_duration = time.time() - start_time
             self.log(f"{prefix}/jarzynski/samples_walltime", time_duration)
@@ -329,10 +331,21 @@ class BoltzmannGeneratorLitModule(LightningModule):
                 f"{prefix}/jarzynski/samples_per_second", len(jarzynski_samples) / time_duration
             )
 
+            # Save samples to disk
+            jarzynski_samples_dict = {
+                "jarzynski_samples": jarzynski_samples,
+                "jarzynski_logits": jarzynski_logits,
+            }
+            logging.info(
+                f"Saving {len(jarzynski_samples)} samples to {output_dir}/{prefix}_jarzynski_samples.pt"
+            )
+            torch.save(jarzynski_samples_dict, f"{output_dir}/{prefix}_jarzynski_samples.pt")
+
             # Datatype for easier metrics and plotting
             jarzynski_data = SamplesData(
                 jarzynski_samples,
                 -self.datamodule.energy(jarzynski_samples),
+                logits=jarzynski_logits,
             )
 
         else:

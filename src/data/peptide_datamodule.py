@@ -25,6 +25,7 @@ from src.data.components.distribution_distances import (
     compute_energy_distances,
 )
 from src.data.components.optimal_transport import torus_wasserstein
+from src.utils.tbg_utils import sampling_efficiency
 from src.models.components.utils import (
     check_symmetry_change,
     compute_chirality_sign,
@@ -397,6 +398,11 @@ class PeptideDataModule(BaseDataModule):
         if len(pred_data) < 0.9 * self.hparams.num_eval_samples:
             logging.warning(r"Less than 90% of required eval samples supplied.")
 
+        # Compute effective sample size
+        if pred_data.logits is not None:
+            ess = sampling_efficiency(pred_data.logits)
+            metrics[f"{prefix}/effective_sample_size"] = ess
+
         # Slice data to subset
         num_eval_samples = min(self.hparams.num_eval_samples, len(pred_data), len(true_data))
         true_data = true_data[:num_eval_samples]
@@ -451,6 +457,7 @@ class PeptideDataModule(BaseDataModule):
 
         metrics = {}
 
+        logging.info(f"Plotting rama for ground truth data")
         self.plot_ramachandran(true_data.samples, prefix=prefix + "ground_truth/rama")
 
         logging.info(f"Computing metrics for proposal data")
@@ -478,7 +485,7 @@ class PeptideDataModule(BaseDataModule):
             if len(jarzynski_data) == 0:
                 logging.warning("No jarzynski samples left after symmetry correction.")
             else:
-                metrics.update(self.compute_metrics(true_data, jarzynski_data, prefix + "jarzynski"))
+                metrics.update(self.compute_all_metrics(true_data, jarzynski_data, prefix + "jarzynski"))
                 self.plot_ramachandran(jarzynski_data.samples, prefix=prefix + "jarzynski/rama")
 
         logging.info(f"Plotting energies")

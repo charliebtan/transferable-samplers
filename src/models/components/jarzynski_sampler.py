@@ -21,6 +21,7 @@ class JarzynskiSampler(torch.nn.Module):
         ess_threshold: float = -1.0,
         enabled: bool = True,
         do_energy_plots: bool = False,
+        input_energy_cutoff: float = None,
     ):
         super().__init__()
         self.source_energy = source_energy
@@ -31,6 +32,7 @@ class JarzynskiSampler(torch.nn.Module):
         self.ess_threshold = ess_threshold
         self.enabled = enabled
         self.do_energy_plots = do_energy_plots
+        self.input_energy_cutoff = input_energy_cutoff
 
     def plot_stepwise_energy(self, target_energy_list, interpolation_energy_list, t_list):
 
@@ -194,9 +196,16 @@ class JarzynskiSampler(torch.nn.Module):
         return x_grad, t_grad
 
     @torch.no_grad()
-    def sample(self, samples_proposal):
+    def sample(self, proposal_samples):
+
         if not self.enabled:
             return None, None
+
+        # Filter samples based on target energy cutoff
+        if self.input_energy_cutoff is not None:
+            proposal_samples_energy = self.target_energy(proposal_samples)
+            proposal_samples = proposal_samples[proposal_samples_energy < self.input_energy_cutoff]
+            logging.info("Clipping energies")
 
         num_timesteps = self.num_timesteps
         timesteps = torch.linspace(0, 1, num_timesteps + 1)
@@ -207,7 +216,7 @@ class JarzynskiSampler(torch.nn.Module):
             else:
                 return self.langevin_eps
 
-        X = samples_proposal
+        X = proposal_samples
         A = torch.zeros(X.shape[0], device=X.device)  # the jarzynski weights
 
         A_list = [A]
@@ -315,7 +324,7 @@ class JarzynskiSampler(torch.nn.Module):
                 target_energy_list.append(np.concatenate(target_energy_batches))
                 interpolation_energy_list.append(np.concatenate(interpolation_energy_batches))
 
-            if ESS < self.ess_threshold:
+            if ESS < self.ess_threshold and not j + 1 == num_timesteps:
                 # qmc_rand = sampler.random(n=len(A))
                 # cum_prob = torch.cumsum(torch.softmax(A, dim=-1), dim=0)
                 # indexes = np.searchsorted(cum_prob, qmc_rand, side="left").flatten()
@@ -354,10 +363,13 @@ class JarzynskiSampler(torch.nn.Module):
 
             t_previous = t
 
-        # TODO resample before returning
+        # Final resampling
+        indexes = torch.multinomial(jarzynski_weights, len(A), replacement=True)
+        X = X[indexes]
+        logging.info(f"resampling @ step {j}")
 
         jarzynski_samples = X
         jarzynski_logits = A
-        assert jarzynski_samples.shape == samples_proposal.shape, "shape mismatch"
+        assert jarzynski_samples.shape == proposal_samples.shape, "shape mismatch"
         assert jarzynski_weights.dim() == 1, "jarzynski_weights should be a flat vector"
         return jarzynski_samples, jarzynski_logits

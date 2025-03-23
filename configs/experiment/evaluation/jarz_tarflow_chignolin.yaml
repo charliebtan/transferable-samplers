@@ -13,7 +13,6 @@ model:
     num_test_proposal_samples: 20_000
     num_jarzynski_samples: 20_000
     num_eval_samples: 10_000
-    energy_cutoff: -100.0
   net:
     channels: 512
     num_blocks: 8
@@ -23,6 +22,7 @@ model:
     num_timesteps: 100
     batch_size: 128 # set for 48gb
     enabled: True
+    input_energy_cutoff: -100.0
 
   data:
     - batch_size: 512
