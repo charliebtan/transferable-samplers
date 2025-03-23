@@ -1,0 +1,40 @@
+# @package _global_
+
+defaults:
+  - override /model: normalizing_flow
+  - override /data: chignolin
+  - override /trainer: ddp
+
+model:
+  net:
+    in_channels: 3
+    channels: 512
+    num_blocks: 8
+    layers_per_block: 8
+  optimizer:
+    lr: 1e-4
+    weight_decay: 4e-4
+
+  sampling_config:
+    num_proposal_samples: 20_000
+
+  data:
+    batch_size: 512
+    com_augmentation: True
+
+trainer:
+  check_val_every_n_epoch: 100000 # eval currently breaks training
+  max_epochs: 1_000
+  num_sanity_val_steps: 0 # eval currently breaks training
+  strategy: ddp_find_unused_parameters_true
+
+hydra:
+  run:
+    dir ${paths.log_dir}/${task_name}/runs/'${RUN_NAME}
+
+logger:
+  wandb:
+    id: ${RUN_NAME}
+
+callbacks:
+  model_checkpoint_time_every_n_epochs: 5
