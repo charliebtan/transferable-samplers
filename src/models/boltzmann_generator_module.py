@@ -247,7 +247,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         start_time = time.time()
 
         samples, log_p, prior_samples = generator(num_proposal_samples)
-
+        
         torch.cuda.synchronize()
         time_duration = time.time() - start_time
         self.log(f"{prefix}/samples_walltime", time_duration)
@@ -273,7 +273,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         self.log(f"{prefix}/mean_energy", sample_target_energy.mean(), sync_dist=True)
         logging.info("Energies computed")
 
-        coms = samples.view(samples.shape[0], -1, 3).mean(dim=1)
+        coms = samples.view(samples.shape[0], -1, self.datamodule.n_dimensions).mean(dim=1)
         proposal_com_std = coms.std()
         self.datamodule.proposal_com_std = proposal_com_std
         logging.info(f"data coms std: {self.datamodule.std}, proposal coms std: {proposal_com_std}")
