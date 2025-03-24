@@ -223,7 +223,7 @@ class MetaBlock(torch.nn.Module):
     ) -> tuple[torch.Tensor, torch.Tensor]:
         x_in = x[:, i : i + 1]  # get i-th patch but keep the sequence dimension
         x = self.proj_in(x_in) + pos_embed[i : i + 1]
-        
+
         if self.class_embed is not None:
             if y is not None:
                 x = x + self.class_embed[y]
@@ -267,7 +267,7 @@ class MetaBlock(torch.nn.Module):
     ) -> torch.Tensor:
         x = self.permutation(x)
         pos_embed = self.permutation(self.pos_embed, dim=0)
-        if cond is not None: 
+        if cond is not None:
             cond = self.permutation(cond)
 
         self.set_sample_mode(True)
@@ -347,11 +347,15 @@ class TarFlow(torch.nn.Module):
         self.in_channels = in_channels
         self.img_size = img_size
         self.cond_in_channels = cond_in_channels
-        self.cond_img_size = (img_size // in_channels) * cond_in_channels if cond_in_channels is not None else None
+        self.cond_img_size = (
+            (img_size // in_channels) * cond_in_channels if cond_in_channels is not None else None
+        )
         if self.in_channels != 1:
             assert not self.img_size % self.in_channels
 
-    def patchify(self, x: torch.Tensor, img_size: int | None = None, in_channels: int | None = None) -> torch.Tensor:
+    def patchify(
+        self, x: torch.Tensor, img_size: int | None = None, in_channels: int | None = None
+    ) -> torch.Tensor:
         """Convert an image (N,C',H,W) to a sequence of patches (N,T,C')"""
         # default to self.in_channels otherwise use passed in value
         in_channels = self.in_channels if in_channels is None else in_channels
@@ -384,9 +388,7 @@ class TarFlow(torch.nn.Module):
 
         if cond is not None:
             cond = self.patchify(
-                cond, 
-                img_size=self.cond_img_size, 
-                in_channels=self.cond_in_channels
+                cond, img_size=self.cond_img_size, in_channels=self.cond_in_channels
             )
 
         logdets = torch.zeros((), device=x.device)
@@ -423,9 +425,7 @@ class TarFlow(torch.nn.Module):
 
         if cond is not None:
             cond = self.patchify(
-                cond, 
-                img_size=self.cond_img_size, 
-                in_channels=self.cond_in_channels
+                cond, img_size=self.cond_img_size, in_channels=self.cond_in_channels
             )
 
         seq = [self.unpatchify(x)]
@@ -448,7 +448,9 @@ if __name__ == "__main__":
     channels = 64
     num_blocks = 3
     layers_per_block = 2
-    model = TarFlow(in_channels, img_size, patch_size, channels, num_blocks, layers_per_block, cond_in_channels)
+    model = TarFlow(
+        in_channels, img_size, patch_size, channels, num_blocks, layers_per_block, cond_in_channels
+    )
 
     x = torch.randn([128, img_size])
     cond = None
@@ -478,7 +480,9 @@ if __name__ == "__main__":
 
     print("Test for Conditional TarFlow")
     cond_in_channels = 4
-    model = TarFlow(in_channels, img_size, patch_size, channels, num_blocks, layers_per_block, cond_in_channels)
+    model = TarFlow(
+        in_channels, img_size, patch_size, channels, num_blocks, layers_per_block, cond_in_channels
+    )
 
     x = torch.randn([128, img_size])
     cond = torch.randn([128, img_size // in_channels * 4])
@@ -501,9 +505,10 @@ if __name__ == "__main__":
             x_recon, fwd_logdets = model(x_pred, cond_i)
             fwd_logdets = fwd_logdets * img_size  # rescale from mean to sum
 
-        rev_jac_true = torch.autograd.functional.jacobian(model.reverse, (x_i, cond_i), vectorize=True)
+        rev_jac_true = torch.autograd.functional.jacobian(
+            model.reverse, (x_i, cond_i), vectorize=True
+        )
         rev_logdets_true = torch.logdet(rev_jac_true[0].squeeze())
 
         assert torch.allclose(-fwd_logdets, rev_logdets_true)
     print("logdet test passed")
-
