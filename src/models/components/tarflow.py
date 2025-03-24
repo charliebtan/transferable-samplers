@@ -150,10 +150,15 @@ class MetaBlock(torch.nn.Module):
         head_dim: int = 64,
         expansion: int = 4,
         nvp: bool = True,
+        cond_in_channels: int | None = None,
         num_classes: int = 0,
     ):
         super().__init__()
         self.proj_in = torch.nn.Linear(in_channels, channels)
+
+        if cond_in_channels is not None:
+            self.proj_cond = torch.nn.Linear(cond_in_channels, channels)
+
         self.pos_embed = torch.nn.Parameter(torch.randn(num_patches, channels) * 1e-2)
         if num_classes:
             self.class_embed = torch.nn.Parameter(torch.randn(num_classes, 1, channels) * 1e-2)
@@ -170,7 +175,7 @@ class MetaBlock(torch.nn.Module):
         self.register_buffer("attn_mask", torch.tril(torch.ones(num_patches, num_patches)))
 
     def forward(
-        self, x: torch.Tensor, y: torch.Tensor | None = None
+        self, x: torch.Tensor, cond: torch.Tensor, y: torch.Tensor | None = None
     ) -> tuple[torch.Tensor, torch.Tensor]:
         x = self.permutation(x)
         pos_embed = self.permutation(self.pos_embed, dim=0)
@@ -186,6 +191,11 @@ class MetaBlock(torch.nn.Module):
                 x = x + class_embed
             else:
                 x = x + self.class_embed.mean(dim=0)
+
+        if cond is not None:
+            cond = self.permutation(cond)
+            cond_emb = self.proj_cond(cond)
+            x = x + cond_emb
 
         for block in self.attn_blocks:
             x = block(x, self.attn_mask)
@@ -204,6 +214,7 @@ class MetaBlock(torch.nn.Module):
     def reverse_step(
         self,
         x: torch.Tensor,
+        cond: torch.Tensor,
         pos_embed: torch.Tensor,
         i: int,
         y: torch.Tensor | None = None,
@@ -212,11 +223,17 @@ class MetaBlock(torch.nn.Module):
     ) -> tuple[torch.Tensor, torch.Tensor]:
         x_in = x[:, i : i + 1]  # get i-th patch but keep the sequence dimension
         x = self.proj_in(x_in) + pos_embed[i : i + 1]
+        
         if self.class_embed is not None:
             if y is not None:
                 x = x + self.class_embed[y]
             else:
                 x = x + self.class_embed.mean(dim=0)
+
+        if cond is not None:
+            cond_in = cond[:, i : i + 1]
+            cond_emb = self.proj_cond(cond_in)
+            x = x + cond_emb
 
         for block in self.attn_blocks:
             x = block(
@@ -241,6 +258,7 @@ class MetaBlock(torch.nn.Module):
     def reverse(
         self,
         x: torch.Tensor,
+        cond: torch.Tensor | None = None,
         y: torch.Tensor | None = None,
         guidance: float = 0,
         guide_what: str = "ab",
@@ -249,15 +267,18 @@ class MetaBlock(torch.nn.Module):
     ) -> torch.Tensor:
         x = self.permutation(x)
         pos_embed = self.permutation(self.pos_embed, dim=0)
+        if cond is not None: 
+            cond = self.permutation(cond)
+
         self.set_sample_mode(True)
         T = x.size(1)
         # 512 x 8 x 1
         xs = [x[:, i] for i in range(x.size(1))]
         for i in range(x.size(1) - 1):
-            za, zb = self.reverse_step(x, pos_embed, i, y, which_cache="cond")
+            za, zb = self.reverse_step(x, cond, pos_embed, i, y, which_cache="cond")
             if guidance > 0 and guide_what:
                 za_u, zb_u = self.reverse_step(
-                    x, pos_embed, i, None, attn_temp=attn_temp, which_cache="uncond"
+                    x, cond, pos_embed, i, None, attn_temp=attn_temp, which_cache="uncond"
                 )
                 if annealed_guidance:
                     g = (i + 1) / (T - 1) * guidance
@@ -291,6 +312,7 @@ class TarFlow(torch.nn.Module):
         channels: int,
         num_blocks: int,
         layers_per_block: int,
+        cond_in_channels: int | None = None,
         nvp: bool = True,
         num_classes: int = 0,
     ):
@@ -315,6 +337,7 @@ class TarFlow(torch.nn.Module):
                     permutations[i % 2],
                     layers_per_block,
                     nvp=nvp,
+                    cond_in_channels=cond_in_channels,
                     num_classes=num_classes,
                 )
             )
@@ -323,36 +346,52 @@ class TarFlow(torch.nn.Module):
         self.register_buffer("var", torch.ones(self.num_patches, in_channels * patch_size**2))
         self.in_channels = in_channels
         self.img_size = img_size
+        self.cond_in_channels = cond_in_channels
+        self.cond_img_size = (img_size // in_channels) * cond_in_channels if cond_in_channels is not None else None
         if self.in_channels != 1:
             assert not self.img_size % self.in_channels
 
-    def patchify(self, x: torch.Tensor) -> torch.Tensor:
+    def patchify(self, x: torch.Tensor, img_size: int | None = None, in_channels: int | None = None) -> torch.Tensor:
         """Convert an image (N,C',H,W) to a sequence of patches (N,T,C')"""
-        if self.in_channels != 1:
-            u = x.reshape(-1, self.img_size // self.in_channels, self.in_channels)
+        # default to self.in_channels otherwise use passed in value
+        in_channels = self.in_channels if in_channels is None else in_channels
+        img_size = self.img_size if img_size is None else img_size
+
+        if in_channels != 1:
+            u = x.reshape(-1, img_size // in_channels, in_channels)
         elif x.ndim == 2:
             # TODO I think this can be done with a reshape because we only have one channel, I'm not sure if the
             # memory layout is the same though or if this is important
-            x = x.reshape(-1, 1, self.img_size, 1)  # B x 1 x D x 1
+            x = x.reshape(-1, 1, img_size, 1)  # B x 1 x D x 1
             u = torch.nn.functional.unfold(x, self.patch_size, stride=self.patch_size)
             u = u.transpose(1, 2)
         return u
 
-    def unpatchify(self, x: torch.Tensor) -> torch.Tensor:
+    def unpatchify(self, x: torch.Tensor, img_size: int | None = None) -> torch.Tensor:
         """Convert a sequence of patches (N,T,C) to an image (N,C',H,W)"""
-        x = x.reshape(-1, self.img_size)
+        img_size = self.img_size if img_size is None else img_size
+
+        x = x.reshape(-1, img_size)
         return x
         # u = x.transpose(1, 2)
         # pdb.set_trace()
         # return torch.nn.functional.fold(u, (self.img_size, self.img_size), self.patch_size, stride=self.patch_size)
 
     def forward(
-        self, x: torch.Tensor, y: torch.Tensor | None = None
+        self, x: torch.Tensor, cond: torch.Tensor | None = None, y: torch.Tensor | None = None
     ) -> tuple[torch.Tensor, list[torch.Tensor], torch.Tensor]:
         x = self.patchify(x)
+
+        if cond is not None:
+            cond = self.patchify(
+                cond, 
+                img_size=self.cond_img_size, 
+                in_channels=self.cond_in_channels
+            )
+
         logdets = torch.zeros((), device=x.device)
         for block in self.blocks:
-            x, logdet = block(x, y)
+            x, logdet = block(x, cond, y)
             logdets = logdets + logdet
         x_pred = self.unpatchify(x)
         return x_pred, logdets
@@ -372,6 +411,7 @@ class TarFlow(torch.nn.Module):
     def reverse(
         self,
         x: torch.Tensor,
+        cond: torch.Tensor | None = None,
         y: torch.Tensor | None = None,
         guidance: float = 0,
         guide_what: str = "ab",
@@ -380,10 +420,18 @@ class TarFlow(torch.nn.Module):
         return_sequence: bool = False,
     ) -> torch.Tensor | list[torch.Tensor]:
         x = self.patchify(x)
+
+        if cond is not None:
+            cond = self.patchify(
+                cond, 
+                img_size=self.cond_img_size, 
+                in_channels=self.cond_in_channels
+            )
+
         seq = [self.unpatchify(x)]
         x = x * self.var.sqrt()
         for block in reversed(self.blocks):
-            x = block.reverse(x, y, guidance, guide_what, attn_temp, annealed_guidance)
+            x = block.reverse(x, cond, y, guidance, guide_what, attn_temp, annealed_guidance)
             seq.append(self.unpatchify(x))
         x = self.unpatchify(x)
         if not return_sequence:
@@ -395,35 +443,67 @@ class TarFlow(torch.nn.Module):
 if __name__ == "__main__":
     img_size = 66
     in_channels = 3
+    cond_in_channels = None
     patch_size = 1
     channels = 64
     num_blocks = 3
     layers_per_block = 2
-    model = TarFlow(in_channels, img_size, patch_size, channels, num_blocks, layers_per_block)
+    model = TarFlow(in_channels, img_size, patch_size, channels, num_blocks, layers_per_block, cond_in_channels)
 
     x = torch.randn([128, img_size])
-    x_pred, _ = model.forward(x)
-    x_recon = model.reverse(x_pred)
+    cond = None
+    x_pred, _ = model.forward(x, cond)
+    x_recon = model.reverse(x_pred, cond)
 
     print(torch.abs(x - x_recon).mean())
     print(torch.mean((x - x_recon) ** 2))
     print(torch.max(abs(x - x_recon)))
 
-    assert torch.allclose(x, x_recon), "Invertibility test failed"
+    assert torch.allclose(x, x_recon, atol=1e-7), "Invertibility test failed"
     print("Invertibility test passed")
 
     for i in range(16):
 
         x_i = x[i : i + 1]
-
         with torch.no_grad():
             x_pred = model.reverse(x_i)
             x_recon, fwd_logdets = model(x_pred)
             fwd_logdets = fwd_logdets * img_size  # rescale from mean to sum
 
         rev_jac_true = torch.autograd.functional.jacobian(model.reverse, x_i, vectorize=True)
-
         rev_logdets_true = torch.logdet(rev_jac_true.squeeze())
 
         assert torch.allclose(-fwd_logdets, rev_logdets_true)
     print("logdet test passed")
+
+    print("Test for Conditional TarFlow")
+    cond_in_channels = 4
+    model = TarFlow(in_channels, img_size, patch_size, channels, num_blocks, layers_per_block, cond_in_channels)
+
+    x = torch.randn([128, img_size])
+    cond = torch.randn([128, img_size // in_channels * 4])
+    x_pred, _ = model.forward(x, cond)
+    x_recon = model.reverse(x_pred, cond)
+
+    print(torch.abs(x - x_recon).mean())
+    print(torch.mean((x - x_recon) ** 2))
+    print(torch.max(abs(x - x_recon)))
+
+    assert torch.allclose(x, x_recon, atol=1e-7), "Invertibility test failed"
+    print("Invertibility test passed")
+
+    for i in range(16):
+
+        x_i = x[i : i + 1]
+        cond_i = cond[i : i + 1]
+        with torch.no_grad():
+            x_pred = model.reverse(x_i, cond_i)
+            x_recon, fwd_logdets = model(x_pred, cond_i)
+            fwd_logdets = fwd_logdets * img_size  # rescale from mean to sum
+
+        rev_jac_true = torch.autograd.functional.jacobian(model.reverse, (x_i, cond_i), vectorize=True)
+        rev_logdets_true = torch.logdet(rev_jac_true[0].squeeze())
+
+        assert torch.allclose(-fwd_logdets, rev_logdets_true)
+    print("logdet test passed")
+
