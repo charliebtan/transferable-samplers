@@ -101,6 +101,7 @@ class DW4DataModule(BaseDataModule):
         min_energy=-26,
         max_energy=0,
         ylim=(0, 0.2),
+        **kwargs,
     ):
         return super().get_dataset_fig(
             samples,
