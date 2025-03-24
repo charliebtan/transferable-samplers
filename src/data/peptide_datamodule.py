@@ -1,57 +1,34 @@
-import logging
 import os
 from typing import Any, Optional
 import wget
 import math
 
-import matplotlib.pyplot as plt
 import mdtraj as md
 import numpy as np
 import openmm
 import torch
 import torchvision
 from bgflow import OpenMMBridge, OpenMMEnergy
-from lightning.pytorch.loggers import WandbLogger
-from matplotlib.colors import LogNorm
-from openmm import app
 
 from src.data.base_datamodule import BaseDataModule
 from src.data.components.encodings import ATOM_TYPE_ENCODING_DICT, AA_TYPE_ENCODING_DICT
 from src.data.components.center_of_mass import CenterOfMassTransform
 from src.data.components.rotation import Random3DRotationTransform
 from src.data.components.transform_dataset import TransformDataset
-from src.data.components.distribution_distances import (
-    compute_distribution_distances,
-    compute_energy_distances,
-)
-from src.data.components.optimal_transport import torus_wasserstein
-from src.utils.tbg_utils import sampling_efficiency
-from src.models.components.utils import (
-    check_symmetry_change,
-    compute_chirality_sign,
-    find_chirality_centers,
-)
-from src.utils.data_types import SamplesData
-
-logger = logging.getLogger(__name__) # TODO what is actually going on with the logging
 
 class PeptideDataModule(BaseDataModule):
     def __init__(
         self,
-        data_dir: str = "data/al3",
-        npy_url: str = "https://osf.io/download/y7ntk/?view_only=1052300a21bd43c08f700016728aa96e",
-        pdb_url: str = "https://osf.io/download/y7ntk/?view_only=1052300a21bd43c08f700016728aa96e",
-        npy_filename: str = "AlaAlaAla_310K.npy",
-        pdb_filename: str = "AlaAlaAla_310K.pdb",
-        n_particles: int = 33,
-        n_dimensions: int = 3,
-        com_augmentation: bool = False,
-        dim: int = 99,
-        batch_size: int = 64,
-        num_workers: int = 0,
-        pin_memory: bool = False,
-        scaling: float = 1.0, # TODO
+        data_dir: str,
+        data_url: str,
+        pdb_url: str,
+        data_filename: str,
+        pdb_filename: str,
+        n_particles: int,
+        n_dimensions: int,
+        dim: int,
         make_iid: bool = False,
+        com_augmentation: bool = False,
         # TODO maybe make this all just *args?
         n_train_samples: int = 100_000, # First N trajectory samples
         n_val_samples: int = 20_000, # Following M trajectory samples
@@ -59,33 +36,20 @@ class PeptideDataModule(BaseDataModule):
         n_test_samples_small: int = 10_000, # Smaller subset for plotting etc
         hist_min_energy: float = -200.0, # TODO
         hist_max_energy: float = 400.0, # TODO
-        num_eval_samples: int = 10_000, # TODO
+        batch_size: int = 64,
+        num_workers: int = 0,
+        pin_memory: bool = False,
     ):
-        super().__init__(
-            n_particles=n_particles, # TODO why some done as hparams and others not?
-            n_dimensions=n_dimensions,
-            dim=dim,
-        )
+        super().__init__()
         assert dim == n_particles * n_dimensions
 
-        ### again why are these not hparams?
-
-        self.scaling = scaling
-
-        self.batch_size_per_device = batch_size
-
-        self.adj_list = None
-        self.atom_types = None
-
-        ###
-
-        self.npy_path = f"{self.hparams.data_dir}/{self.hparams.npy_filename}"
-        self.pdb_path = f"{self.hparams.data_dir}/{self.hparams.pdb_filename}"
+        self.data_path = f"{self.hparams.data_dir}/{self.hparams.data_filename}"
+        self.pdb_path = f"{self.hparams.data_dir}/{self.hparams.pdb_filename}" if self.hparams.pdb_filename else None
 
         # Setup transforms
-        transform_list = [Random3DRotationTransform(self.n_particles, self.n_dimensions)]
+        transform_list = [Random3DRotationTransform(self.hparams.n_particles, self.hparams.n_dimensions)]
         if self.hparams.com_augmentation:
-            transform_list.append(CenterOfMassTransform(self.n_particles, self.n_dimensions, 1 / math.sqrt(self.n_particles))) # TODO check these values
+            transform_list.append(CenterOfMassTransform(self.hparams.n_particles, self.hparams.n_dimensions, 1 / math.sqrt(self.hparams.n_particles))) # TODO check these values
         self.transforms = torchvision.transforms.Compose(transform_list)
 
     def prepare_data(self) -> None:
@@ -99,35 +63,31 @@ class PeptideDataModule(BaseDataModule):
 
         os.makedirs(self.hparams.data_dir, exist_ok=True)
 
-        def download(url, file_path):
-            logger.info(f"Downloading file from {url}")
-            wget.download(url, file_path)
-            logger.info(f"File downloaded and saved as {file_path}")
-
-        # Download npy file
-        if not os.path.exists(self.npy_path):
-            download(self.hparams.npy_url, self.npy_path)
+        # Download data file
+        if not os.path.exists(self.data_path):
+            wget.download(self.hparams.data_url, self.data_path)
 
         # Download pdb file
-        if not os.path.exists(self.pdb_path):
-            download(self.hparams.pdb_url, self.pdb_path)
+        if self.pdb_path and not os.path.exists(self.pdb_path):
+            wget.download(self.hparams.pdb_url, self.pdb_path)
 
     def setup_data(self):
 
-        # Load the data + tensorize
-        data = np.load(self.npy_path, allow_pickle=True)
-        data = data.reshape(-1, self.dim)
+        # Load the data
+        if self.data_path[:-2] == "npy":
+            data = np.load(self.data_path, allow_pickle=True)
+        elif self.data_path[:-2] == "h5":
+            data = md.load(self.data_path).xyz
+        else:
+            raise ValueError(f"Unknown file format for {self.data_path}")
+
+        # Reshape and tensorize
+        data = data.reshape(-1, self.hparams.dim)
         data = torch.tensor(data).float() / self.scaling
 
         if self.hparams.make_iid:
             rand_idx = torch.randperm(data.shape[0])
             data = data[rand_idx]
-
-        # TODO for updated results remove this slicing?
-        # if self.n_particles == 42:
-        #     data = data[:700000]
-        # elif self.n_particles == 33:
-        #     data = data[:300000]
 
         # Zero center of mass
         data = self.zero_center_of_mass(data)
@@ -162,12 +122,14 @@ class PeptideDataModule(BaseDataModule):
 
     def setup_potential(self):
 
-        logger.info(f"Loading pdb from {self.pdb_path}")
-        self.topology = md.load_topology(self.pdb_path)
-        self.pdb = app.PDBFile(self.pdb_path)
+        if self.hparams.pdb_path is not None:
+            self.topology = md.load_topology(self.pdb_path)
+            # self.pdb = app.PDBFile(self.pdb_path) # TODO delete?
+        else:
+            self.topology = md.load(self.data_path).topology.to_openmm()
     
         # Different system configs for different datasets
-        if self.n_particles == 42:
+        if self.hparams.n_particles == 42:
             forcefield = openmm.app.ForceField("amber99sbildn.xml", "tip3p.xml", "amber99_obc.xml")
             nonbondedMethod = openmm.app.NoCutoff
             nonbondedCutoff = 0.9 * openmm.unit.nanometer
@@ -180,7 +142,7 @@ class PeptideDataModule(BaseDataModule):
 
         # Initalize forcefield system
         system = forcefield.createSystem(
-            self.pdb.topology,
+            self.topology,
             nonbondedMethod = nonbondedMethod,
             nonbondedCutoff = nonbondedCutoff,
             constraints=None,
@@ -272,238 +234,4 @@ class PeptideDataModule(BaseDataModule):
         self.setup_potential()
         self.setup_atom_types()
         self.setup_adj_list()
-        self.setup_atom_encoding()
-
-    def get_phi_psi_vectors(self, samples):
-        samples = self.unnormalize(samples).cpu()
-        samples = samples.reshape(-1, self.n_particles, self.n_dimensions)
-        traj_samples = md.Trajectory(samples, topology=self.topology)
-        phis = md.compute_phi(traj_samples)[1]
-        psis = md.compute_psi(traj_samples)[1]
-        return phis, psis
-
-    def compute_ramachandran_metrics(self, true_samples, pred_samples, prefix=""):
-
-        phis_true, psis_true = self.get_phi_psi_vectors(true_samples)
-        x_true = torch.cat([torch.from_numpy(phis_true), torch.from_numpy(psis_true)], dim=1)
-
-        phis_pred, psis_pred = self.get_phi_psi_vectors(pred_samples)
-        x_pred = torch.cat([torch.from_numpy(phis_pred), torch.from_numpy(psis_pred)], dim=1)
-
-        metrics = compute_distribution_distances(x_true, x_pred, prefix=prefix)
-        metrics[prefix + "/torus_wasserstein"] = torus_wasserstein(x_true, x_pred)
-
-        return metrics
-
-    def plot_ramachandran(self, samples, prefix: str = "", wandb_logger: WandbLogger = None):
-
-        phis, psis = self.get_phi_psi_vectors(samples)
-
-        for i in range(phis.shape[1]):
-            print(f"Plotting Ramachandran {i} out of {phis.shape[1]}")
-            phi_tmp = phis[:, i]
-            psi_tmp = psis[:, i]
-            fig, ax = plt.subplots()
-            plot_range = [-np.pi, np.pi]
-            h, x_bins, y_bins, im = ax.hist2d(
-                phi_tmp,
-                psi_tmp,
-                100,
-                norm=LogNorm(),
-                range=[plot_range, plot_range],
-                rasterized=True,
-            )
-            ticks = np.array(
-                [np.exp(-6) * h.max(), np.exp(-4.0) * h.max(), np.exp(-2) * h.max(), h.max()]
-            )
-            ax.set_xlabel(r"$\varphi$", fontsize=45)
-            # ax.set_title("Boltzmann Generator", fontsize=45)
-            ax.set_ylabel(r"$\psi$", fontsize=45)
-            ax.xaxis.set_tick_params(labelsize=25)
-            ax.yaxis.set_tick_params(labelsize=25)
-            ax.yaxis.set_ticks([])
-            cbar = fig.colorbar(im, ticks=ticks)
-            # cbar.ax.set_yticklabels(np.abs(-np.log(ticks/h.max())), fontsize=25)
-            cbar.ax.set_yticklabels([6.0, 4.0, 2.0, 0.0], fontsize=25)
-
-            cbar.ax.invert_yaxis()
-            cbar.ax.set_ylabel(r"Free energy / $k_B T$", fontsize=35)
-            if wandb_logger is not None:
-                wandb_logger.log_image(f"{prefix}/ramachandran/{i}", [fig])
-
-            phi_tmp = phis[:, i]
-            psi_tmp = psis[:, i]
-            fig, ax = plt.subplots()
-            plot_range = [-np.pi, np.pi]
-            h, x_bins, y_bins, im = ax.hist2d(
-                phi_tmp,
-                psi_tmp,
-                100,
-                norm=LogNorm(),
-                range=[plot_range, plot_range],
-                rasterized=True,
-            )
-            ax.set_xlabel(r"$\varphi$", fontsize=45)
-            ax.set_ylabel(r"$\psi$", fontsize=45)
-            ax.xaxis.set_tick_params(labelsize=25)
-            ax.yaxis.set_tick_params(labelsize=25)
-            ax.yaxis.set_ticks([])
-            cbar = fig.colorbar(im)  # , ticks=ticks)
-            im.set_clim(vmax=samples.shape[0] // 20)
-            cbar.ax.set_ylabel(f"Count, max = {int(h.max())}", fontsize=18)
-            if wandb_logger is not None:
-                wandb_logger.log_image(f"{prefix}/ramachandran_simple/{i}", [fig])
-
-        return fig
-
-    def check_and_fix_symmetry(self, true_data, pred_data, prefix=""):
-
-        true_samples = true_data.samples
-        pred_samples = pred_data.samples
-    
-        chirality_centers = find_chirality_centers(self.adj_list, self.atom_types)
-        reference_signs = compute_chirality_sign(
-            true_samples.reshape(-1, self.n_particles, 3)[[1]], chirality_centers
-        )
-        pred_samples = pred_samples.reshape(-1, self.n_particles, 3)
-        symmetry_change = check_symmetry_change(
-            pred_samples, chirality_centers, reference_signs
-        )
-        pred_samples[symmetry_change] *= -1
-        correct_symmetry_rate = 1 - symmetry_change.sum() / len(symmetry_change)
-        symmetry_change = check_symmetry_change(
-            pred_samples, chirality_centers, reference_signs
-        )
-        uncorrectable_symmetry_rate = symmetry_change.sum() / len(symmetry_change)
-
-        pred_data = pred_data[~symmetry_change]
-
-        metrics = {
-            prefix + "/correct_symmetry_rate": correct_symmetry_rate,
-            prefix + "/uncorrectable_symmetry_rate": uncorrectable_symmetry_rate,
-        }
-
-        if uncorrectable_symmetry_rate > 0.1:
-            logging.warning(
-                f"Uncorrectable symmetry rate is {uncorrectable_symmetry_rate:.2f}, "
-            )
-
-        return pred_data, metrics
-
-    def compute_all_metrics(self, true_data, pred_data, prefix: str = ""):
-        """Computes all metrics between true and predicted data."""
-
-        metrics = {}
-
-        if len(pred_data) < 0.9 * self.hparams.num_eval_samples:
-            logging.warning(r"Less than 90% of required eval samples supplied.")
-
-        # Compute effective sample size
-        if pred_data.logits is not None:
-            ess = sampling_efficiency(pred_data.logits)
-            metrics[f"{prefix}/effective_sample_size"] = ess
-
-        # Slice data to subset
-        num_eval_samples = min(self.hparams.num_eval_samples, len(pred_data), len(true_data))
-        true_data = true_data[:num_eval_samples]
-        pred_data = pred_data[:num_eval_samples]
-        metrics[f"num_eval_samples"] = min(num_eval_samples, len(pred_data))
-
-        # Distribtuion distance metrics
-        metrics.update(
-            compute_distribution_distances(
-                self.unnormalize(true_data.samples),
-                self.unnormalize(pred_data.samples),
-                prefix=prefix
-                )
-        )
-        logging.info("Distance metrics computed")
-
-        # Energy metrics
-        metrics.update(
-            compute_energy_distances(
-                true_data.energy,
-                pred_data.energy,
-                prefix=prefix,
-                )
-        )
-        metrics[f"{prefix}/mean_energy"] = pred_data.energy.mean().cpu()
-        logging.info("Energy metrics computed")
-
-        # Ramachandran metrics
-        metrics.update(
-            self.compute_ramachandran_metrics(
-                true_data.samples,
-                pred_data.samples,
-                prefix=prefix
-                )
-        )
-        logging.info("Ramachandran metrics computed")
-
-        return metrics
-
-    def metrics_and_plots(
-        self,
-        true_data: SamplesData,
-        proposal_data: SamplesData,
-        resampled_data: SamplesData,
-        jarzynski_data: Optional[SamplesData] = None,
-        prefix: str = "",
-    ) -> None:
-        """Log metrics and plots at the end of an epoch."""
-
-        if len(prefix) > 0 and prefix[-1] != "/":
-            prefix += "/"
-
-        metrics = {}
-
-        logging.info(f"Plotting rama for ground truth data")
-        self.plot_ramachandran(true_data.samples, prefix=prefix + "ground_truth/rama")
-
-        logging.info(f"Computing metrics for proposal data")
-        proposal_data, symmetry_metrics = self.check_and_fix_symmetry(true_data, proposal_data, prefix + "proposal")
-        metrics.update(symmetry_metrics)
-        if len(proposal_data) == 0:
-            logging.warning("No proposal samples left after symmetry correction.")
-        else:
-            metrics.update(self.compute_all_metrics(true_data, proposal_data, prefix + "proposal"))
-            self.plot_ramachandran(proposal_data.samples, prefix=prefix + "proposal/rama")
-
-        logging.info(f"Computing metrics for resampled data")
-        resampled_data, symmetry_metrics = self.check_and_fix_symmetry(true_data, resampled_data, prefix + "resampled")
-        metrics.update(symmetry_metrics)
-        if len(resampled_data) == 0:
-            logging.warning("No resampled samples left after symmetry correction.")
-        else:
-            metrics.update(self.compute_all_metrics(true_data, resampled_data, prefix + "resampled"))
-            self.plot_ramachandran(resampled_data.samples, prefix=prefix + "resampled/rama")
-
-        if jarzynski_data is not None:
-            logging.info(f"Computing metrics for jarzynski data")
-            jarzynski_data, symmetry_metrics = self.check_and_fix_symmetry(true_data, jarzynski_data, prefix + "jarzynski")
-            metrics.update(symmetry_metrics)
-            if len(jarzynski_data) == 0:
-                logging.warning("No jarzynski samples left after symmetry correction.")
-            else:
-                metrics.update(self.compute_all_metrics(true_data, jarzynski_data, prefix + "jarzynski"))
-                self.plot_ramachandran(jarzynski_data.samples, prefix=prefix + "jarzynski/rama")
-
-        logging.info(f"Plotting energies")
-        self.plot_energies(
-            true_data.energy[self.hparams.num_eval_samples:],
-            proposal_data.energy if len(proposal_data) > 0 else None,
-            resampled_data.energy if len(resampled_data) > 0 else None,
-            jarzynski_data.energy if (jarzynski_data is not None and len(jarzynski_data) > 0) else None,
-            prefix=prefix,
-        )
-
-        logging.info(f"Plotting interatomic distances")
-        self.plot_atom_distances(
-            true_data.samples[self.hparams.num_eval_samples:],
-            proposal_data.samples if len(proposal_data) > 0 else None,
-            resampled_data.samples if len(resampled_data) > 0 else None,
-            jarzynski_data.samples if (jarzynski_data is not None and len(jarzynski_data) > 0) else None,
-            prefix=prefix,
-        )
-
-        return metrics
+        # self.setup_atom_encoding()

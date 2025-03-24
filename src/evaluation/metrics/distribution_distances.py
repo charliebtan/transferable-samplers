@@ -10,7 +10,7 @@ from .mmd import mix_rbf_mmd2
 from .optimal_transport import wasserstein
 
 
-def compute_energy_distances(pred, true, prefix=""):
+def energy_distances(pred, true, prefix=""):
     pred = pred.cpu().numpy()
     true = true.cpu().numpy()
     energy_w2 = math.sqrt(pot.emd2_1d(true, pred))
@@ -38,7 +38,7 @@ def compute_distances(pred, true):
     return mse, me, mae
 
 
-def compute_distribution_distances(pred: torch.Tensor, true: Union[torch.Tensor, list], prefix=""):
+def distribution_distances(pred: torch.Tensor, true: Union[torch.Tensor, list], prefix=""):
     """computes distances between distributions.
     pred: [batch, times, dims] tensor
     true: [batch, times, dims] tensor or list[batch[i], dims] of length times
@@ -57,8 +57,9 @@ def compute_distribution_distances(pred: torch.Tensor, true: Union[torch.Tensor,
         "Median_L1",
         "Eq-EMD2",
     ]
-    a = pred.cpu()
-    b = true.cpu()
+    a = pred.cpu().view(pred.shape[0], -1)
+    b = true.cpu().view(true.shape[0], -1)
+
     w1 = wasserstein(a, b, power=1)
     w2 = wasserstein(a, b, power=2)
 

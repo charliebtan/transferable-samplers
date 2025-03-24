@@ -1,7 +1,10 @@
-_target_: src.data.chignolin_datamodule.ChignolinDataModule
-data_dir: ${paths.data_dir}/chignolin/
-filename: "chignolin-0_all.h5"
-batch_size: 256 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
+_target_: src.data.peptide_datamodule.ChignolinDataModule
+data_dir: ${paths.data_dir}/chignolin
+data_url: https://osf.io/download/gn8jy/?view_only=af935a79a5e645b7aab5d37bc5eb3faa
+pdb_url: null
+data_filename: chignolin-0_all.h5
+pdb_filename: null
+batch_size: 64 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
 num_workers: 2
 pin_memory: False
 n_particles: 166

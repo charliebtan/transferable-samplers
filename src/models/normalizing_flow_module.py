@@ -52,7 +52,7 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
 
     def proposal_energy(self, x: torch.Tensor) -> torch.Tensor:
         x_pred, fwd_logdets = self.net(x)
-        fwd_logdets = fwd_logdets * self.datamodule.dim  # rescale from mean to sum
+        fwd_logdets = fwd_logdets * self.datamodule.hparams.dim  # rescale from mean to sum
         return -(-self.prior.energy(x_pred).view(-1) + fwd_logdets.view(-1))
 
     def energy_kl(self, x: torch.Tensor, model_log_p: torch.Tensor) -> torch.Tensor:
@@ -76,7 +76,7 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
         :return: A tuple containing the generated samples, the prior samples, and the log
             probability.
         """
-        self.prior = NormalDistribution(self.datamodule.dim)
+        self.prior = NormalDistribution(self.datamodule.hparams.dim)
 
         local_batch_size = batch_size // self.trainer.world_size
         prior_samples = self.prior.sample(local_batch_size).to(self.device)
@@ -87,7 +87,7 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
 
             x_pred = self.net.reverse(prior_samples)
             x_recon, fwd_logdets = self.net(x_pred)
-            fwd_logdets = fwd_logdets * self.datamodule.dim  # rescale from mean to sum
+            fwd_logdets = fwd_logdets * self.datamodule.hparams.dim  # rescale from mean to sum
 
             self.log("invert/mse", torch.mean((prior_samples - x_recon) ** 2), sync_dist=True)
             self.log("invert/max_abs", torch.max(abs(prior_samples - x_recon)), sync_dist=True)

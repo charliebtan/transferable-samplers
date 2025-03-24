@@ -4,8 +4,6 @@ from typing import Any, Dict, Optional, Tuple
 
 import hydra
 import matplotlib.pyplot as plt
-import numpy as np
-import ot as pot
 import torch
 import torchmetrics
 from bgflow import MeanFreeNormalDistribution, NormalDistribution
@@ -17,6 +15,14 @@ from src.models.components.ema import EMA
 from src.models.components.jarzynski_sampler import JarzynskiSampler
 from src.models.components.utils import RunningMedian, resample
 from src.utils.data_types import SamplesData
+
+from src.evaluation.metrics.distribution_distances import distribution_distances, energy_distances
+from src.evaluation.metrics.ess import sampling_efficiency
+from src.evaluation.metrics.symmetry import check_symmetry
+
+from src.evaluation.plots.plot_atom_distances import plot_atom_distances
+from src.evaluation.plots.plot_energies import plot_energies
+from src.evaluation.plots.plot_ramachandran import plot_ramachandran
 
 logger = logging.getLogger(__name__)
 
@@ -74,10 +80,10 @@ class BoltzmannGeneratorLitModule(LightningModule):
 
         if self.hparams.mean_free_prior:
             self.prior = MeanFreeNormalDistribution(
-                self.datamodule.dim, self.datamodule.n_particles, two_event_dims=False
+                self.datamodule.hparams.dim, self.datamodule.hparams.n_particles, two_event_dims=False
             )
         else:
-            self.prior = NormalDistribution(self.datamodule.dim)
+            self.prior = NormalDistribution(self.datamodule.hparams.dim)
         if self.hparams.stabilize_training:
             self.gradient_history = RunningMedian(100)
 
@@ -221,8 +227,6 @@ class BoltzmannGeneratorLitModule(LightningModule):
             self.evaluate(prefix)
         plt.close("all")
 
-
-
     @torch.no_grad()
     def evaluate(self, prefix: str = "val", proposal_generator=None, output_dir=None) -> None:
         """Generates samples from the proposal and runs SMC if enabled.
@@ -244,7 +248,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
             true_samples = self.datamodule.data_val
 
         true_data = SamplesData(
-            true_samples,
+            self.datamodule.as_original_pointcloud(true_samples),
             -self.datamodule.energy(true_samples),
         )
 
@@ -279,7 +283,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
 
         # Datatype for easier metrics and plotting
         proposal_data = SamplesData(
-            proposal_samples,
+            self.datamodule.as_original_pointcloud(proposal_samples),
             proposal_samples_energy,
         )
 
@@ -299,7 +303,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         _, resampling_index = resample(proposal_samples_clipped, resampling_logits_clipped, return_index=True)
 
         reweighted_data = SamplesData(
-            proposal_samples[resampling_index],
+            self.datamodule.as_original_pointcloud(proposal_samples[resampling_index]),
             proposal_samples_energy[resampling_index],
             logits=resampling_logits_clipped,
         )
@@ -343,7 +347,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
 
             # Datatype for easier metrics and plotting
             jarzynski_data = SamplesData(
-                jarzynski_samples,
+                self.datamodule.as_original_pointcloud(jarzynski_samples),
                 -self.datamodule.energy(jarzynski_samples),
                 logits=jarzynski_logits,
             )
@@ -352,7 +356,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
             jarzynski_data = None
 
         # log dataset metrics
-        metrics = self.datamodule.metrics_and_plots(
+        metrics = self.metrics_and_plots(
             true_data,
             proposal_data,
             reweighted_data,
@@ -360,6 +364,128 @@ class BoltzmannGeneratorLitModule(LightningModule):
             prefix=prefix,
         )
         self.log_dict(metrics)
+
+    def compute_all_metrics(self, true_data, pred_data, prefix: str = ""):
+        """Computes all metrics between true and predicted data."""
+
+        metrics = {}
+
+        if len(pred_data) < 0.9 * self.hparams.sampling_config.num_eval_samples:
+            logging.warning(r"Less than 90% of required eval samples supplied.")
+
+        # Compute effective sample size
+        if pred_data.logits is not None:
+            ess = sampling_efficiency(pred_data.logits)
+            metrics[f"{prefix}/effective_sample_size"] = ess
+
+        # Slice data to subset
+        num_eval_samples = min(self.hparams.sampling_config.num_eval_samples, len(pred_data), len(true_data))
+        true_data = true_data[:num_eval_samples]
+        pred_data = pred_data[:num_eval_samples]
+        metrics[f"num_eval_samples"] = min(num_eval_samples, len(pred_data))
+
+        # Distribtuion distance metrics
+        metrics.update(
+            distribution_distances(
+                true_data.samples,
+                pred_data.samples,
+                prefix=prefix
+                )
+        )
+        logging.info("Distance metrics computed")
+
+        # Energy metrics
+        metrics.update(
+            energy_distances(
+                true_data.energy,
+                pred_data.energy,
+                prefix=prefix,
+                )
+        )
+        metrics[f"{prefix}/mean_energy"] = pred_data.energy.mean().cpu()
+        logging.info("Energy metrics computed")
+
+        # Ramachandran metrics
+        metrics.update(
+            self.compute_ramachandran_metrics(
+                true_data.samples,
+                pred_data.samples,
+                prefix=prefix
+                )
+        )
+        logging.info("Ramachandran metrics computed")
+
+        return metrics
+
+    def metrics_and_plots(
+        self,
+        true_data: SamplesData,
+        proposal_data: SamplesData,
+        resampled_data: SamplesData,
+        jarzynski_data: Optional[SamplesData] = None,
+        prefix: str = "",
+    ) -> None:
+        """Log metrics and plots at the end of an epoch."""
+
+        if len(prefix) > 0 and prefix[-1] != "/":
+            prefix += "/"
+
+        metrics = {}
+
+        logging.info(f"Plotting rama for ground truth data")
+        plot_ramachandran(true_data.samples, self.datamodule.topology, prefix=prefix + "ground_truth/rama")
+
+        logging.info(f"Computing metrics for proposal data")
+        symmetry_metrics, symmetry_change = check_symmetry(true_data.samples, proposal_data.samples, self.datamodule.adj_list, self.datamodule.atom_types, prefix + "proposal")
+        proposal_data = proposal_data[~symmetry_change]
+
+        metrics.update(symmetry_metrics)
+        if len(proposal_data) == 0:
+            logging.warning("No proposal samples left after symmetry correction.")
+        else:
+            metrics.update(self.compute_all_metrics(true_data.samples, proposal_data.samples, prefix + "proposal"))
+            plot_ramachandran(proposal_data.samples, prefix=prefix + "proposal/rama")
+
+        logging.info(f"Computing metrics for resampled data")
+        symmetry_metrics, symmetry_change = check_symmetry(true_data.samples, resampled_data.samples, prefix + "resampled")
+        resampled_data = resampled_data[~symmetry_change]
+        metrics.update(symmetry_metrics)
+        if len(resampled_data) == 0:
+            logging.warning("No resampled samples left after symmetry correction.")
+        else:
+            metrics.update(self.compute_all_metrics(true_data, resampled_data, prefix + "resampled"))
+            plot_ramachandran(resampled_data.samples, prefix=prefix + "resampled/rama")
+
+        if jarzynski_data is not None:
+            logging.info(f"Computing metrics for jarzynski data")
+            symmetry_metrics, symmetry_change = check_symmetry(true_data.samples, jarzynski_data.samples, prefix + "jarzynski")
+            jarzynski_data = jarzynski_data[~symmetry_change]
+            metrics.update(symmetry_metrics)
+            if len(jarzynski_data) == 0:
+                logging.warning("No jarzynski samples left after symmetry correction.")
+            else:
+                metrics.update(self.compute_all_metrics(true_data, jarzynski_data, prefix + "jarzynski"))
+                plot_ramachandran(jarzynski_data.samples, prefix=prefix + "jarzynski/rama")
+
+        logging.info(f"Plotting energies")
+        plot_energies(
+            true_data.energy[self.hparams.sampling_config.num_eval_samples:],
+            proposal_data.energy if len(proposal_data) > 0 else None,
+            resampled_data.energy if len(resampled_data) > 0 else None,
+            jarzynski_data.energy if (jarzynski_data is not None and len(jarzynski_data) > 0) else None,
+            prefix=prefix,
+        )
+
+        logging.info(f"Plotting interatomic distances")
+        plot_atom_distances(
+            true_data.samples[self.hparams.sampling_config.num_eval_samples:],
+            proposal_data.samples if len(proposal_data) > 0 else None,
+            resampled_data.samples if len(resampled_data) > 0 else None,
+            jarzynski_data.samples if (jarzynski_data is not None and len(jarzynski_data) > 0) else None,
+            prefix=prefix,
+        )
+
+        return metrics
 
     def on_train_epoch_start(self) -> None:
         logging.info("Train epoch start")

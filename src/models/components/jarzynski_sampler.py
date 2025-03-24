@@ -7,7 +7,7 @@ import torch
 from matplotlib.colors import LogNorm
 from tqdm import tqdm
 
-from src.utils.tbg_utils import sampling_efficiency
+from src.evaluation.metrics.ess import sampling_efficiency
 
 
 class JarzynskiSampler(torch.nn.Module):
