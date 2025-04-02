@@ -1,7 +1,0 @@
-defaults:
-  - default
-  - net: egnn_dynamics_ad2_cat
-
-_target_: src.models.shortcut_module.ShortcutLitModule
-
-sampling_d_base: 2

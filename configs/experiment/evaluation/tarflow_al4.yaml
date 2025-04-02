@@ -1,0 +1,32 @@
+# @package _global_
+
+defaults:
+  - override /model: normalizing_flow
+  - override /data: al4
+
+ckpt_path: "/home/mila/b/bosejoey/scratch/fast-tbg/logs/train/multiruns/2025-01-21_19-56-57/1/checkpoints/epoch_999_cropped.ckpt"
+train: False
+
+model:
+  sampling_config:
+    batch_size: 10_000
+    num_test_proposal_samples: 100_000
+    num_smc_samples: 1_000_000
+    clip_reweighting_logits: 0.002
+  net:
+    in_channels: 3
+    channels: 384
+    num_blocks: 6
+    layers_per_block: 6
+  smc_sampler:
+    enabled: True
+    langevin_eps: 1e-7
+    num_timesteps: 100
+    batch_size: 1024 # set for 48gb
+    input_energy_cutoff: 50.0
+
+  data:
+    batch_size: 10_000
+    num_eval_samples: 10_000
+
+tags: [jarz]

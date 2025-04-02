@@ -3,6 +3,6 @@ data_dir: ${paths.data_dir}/DW4/
 batch_size: 512 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
 num_workers: 2
 pin_memory: True
-n_particles: 4
-n_dimensions: 2
+num_particles: 4
+num_dimensions: 2
 dim: 8

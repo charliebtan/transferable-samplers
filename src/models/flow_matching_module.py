@@ -227,7 +227,7 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
         if True and hasattr(self.hparams, "test_integrators"):
             self.test_integrators()
             return {}
-        results = super().evaluate(prefix=prefix, generator=generator, output_dir=output_dir)
+        results = super().evaluate(prefix=prefix, proposal_generator=generator, output_dir=output_dir)
 
         self.log(f"{prefix}/nfe", self.nfe / (max(self.num_integrations, 1e-4)))
         self.nfe = 0

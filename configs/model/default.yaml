@@ -1,41 +1,28 @@
 defaults:
   - scheduler: cosine
+  - optimizer: adam_w
 _target_: src.model.BoltzmannGeneratorLitModule
-
-optimizer:
-  _target_: torch.optim.AdamW
-  _partial_: true
-  lr: 0.0005
-  betas:
-    - 0.9
-    - 0.999
-  eps: 1e-8
-  weight_decay: 0.01
 
 # this does cosine annealing from max_lr to max_lr / div_factor / final_div_factor
 # if pct_start != 0.0 you warmup from max_lr / div_factor to max_lr too
 # normally you use this per-step but I've just got it per-epoch
-jarzynski_sampler:
-  _target_: src.models.components.jarzynski_sampler.JarzynskiSampler
+smc_sampler:
+  _target_: src.models.components.smc_sampler.SMCSampler
   _partial_: true
   batch_size: ${data.batch_size}
   langevin_eps: 0.1
   num_timesteps: 10
   enabled: false
   ess_threshold: 0.0
+  input_energy_cutoff: null
 
 sampling_config:
   num_proposal_samples: 10_000
   num_test_proposal_samples: 10_000
-  num_jarzynski_samples: 10_000
+  num_smc_samples: 10_000
   num_eval_samples: 10_000
   batch_size: 10_000
-  energy_cutoff: null
-  # Currently unused
-  sampling_freq: 1
-  jarzynski_freq: 1
-  test_proposal_seed: 42
-  save_samples_path: null
+  clip_reweighting_logits: 0.002
 
 ema_decay: 0.999
 eval_ema: true
@@ -43,5 +30,4 @@ eval_non_ema: false
 # compile model for faster training with pytorch 2.0
 compile: false
 mean_free_prior: true
-clip_logits: 0.002
 use_com_energy: false
