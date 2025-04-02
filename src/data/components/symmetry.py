@@ -2,9 +2,6 @@ import logging
 
 import torch
 
-# check if chirality is the same
-# if not --> mirror
-# if still not --> discard
 def find_chirality_centers(
     adj_list: torch.Tensor, atom_types: torch.Tensor, num_h_atoms: int = 2
 ) -> torch.Tensor:
@@ -57,47 +54,22 @@ def compute_chirality_sign(coords: torch.Tensor, chirality_centers: torch.Tensor
     )
     return torch.sign(perm_sign)
 
-def check_symmetry_change(
-    coords: torch.Tensor, chirality_centers: torch.Tensor, reference_signs: torch.Tensor
-) -> torch.Tensor:
+def check_symmetry_change(true_coords: torch.Tensor, pred_coords: torch.Tensor, adj_list, atom_types) -> torch.Tensor:
     """
     Check for a batch if the chirality changed wrt to some reference reference_signs.
     If the signs for two configurations are different for the same center, the chirality changed.
 
     Args:
-        coords: Tensor of atom coordinates
-        chirality_centers: List of chirality_centers
-        reference_signs: List of reference sign for the chirality_centers
+        true_coords: Tensor of atom coordinates
+        pred_coords: Tensor of atom coordinates
+        TODO
     Returns:
         Mask, where changes are True
     """
-    perm_sign = compute_chirality_sign(coords, chirality_centers)
-    return (perm_sign != reference_signs.to(coords)).any(dim=-1)
-
-def check_symmetry(true_samples, pred_samples, adj_list, atom_types, prefix=""):
-
     chirality_centers = find_chirality_centers(adj_list, atom_types)
+
     reference_signs = compute_chirality_sign(
-        true_samples[[1]], chirality_centers
+        true_coords[[1]], chirality_centers
     )
-    symmetry_change = check_symmetry_change(
-        pred_samples, chirality_centers, reference_signs
-    )
-    pred_samples[symmetry_change] *= -1
-    correct_symmetry_rate = 1 - symmetry_change.sum() / len(symmetry_change)
-    symmetry_change = check_symmetry_change(
-        pred_samples, chirality_centers, reference_signs
-    )
-    uncorrectable_symmetry_rate = symmetry_change.sum() / len(symmetry_change)
-
-    metrics = {
-        prefix + "/correct_symmetry_rate": correct_symmetry_rate,
-        prefix + "/uncorrectable_symmetry_rate": uncorrectable_symmetry_rate,
-    }
-
-    if uncorrectable_symmetry_rate > 0.1:
-        logging.warning(
-            f"Uncorrectable symmetry rate is {uncorrectable_symmetry_rate:.2f}, "
-        )
-
-    return metrics, symmetry_change
+    perm_sign = compute_chirality_sign(pred_coords, chirality_centers)
+    return (perm_sign != reference_signs.to(pred_coords)).any(dim=-1)

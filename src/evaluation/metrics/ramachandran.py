@@ -1,7 +1,7 @@
 import mdtraj as md
 import torch
 
-from src.evaluation.metrics import distribution_distances
+from src.evaluation.metrics.distribution_distances import distribution_distances
 from src.evaluation.metrics.optimal_transport import torus_wasserstein
 
 def get_phi_psi_vectors(samples, topology):
@@ -11,7 +11,7 @@ def get_phi_psi_vectors(samples, topology):
     psis = md.compute_psi(traj_samples)[1]
     return phis, psis
 
-def compute_ramachandran_metrics(true_samples, pred_samples, topology, prefix=""):
+def ramachandran_metrics(true_samples, pred_samples, topology, prefix=""):
 
     phis_true, psis_true = get_phi_psi_vectors(true_samples, topology)
     x_true = torch.cat([torch.from_numpy(phis_true), torch.from_numpy(psis_true)], dim=1)
@@ -23,4 +23,3 @@ def compute_ramachandran_metrics(true_samples, pred_samples, topology, prefix=""
     metrics[prefix + "/torus_wasserstein"] = torus_wasserstein(x_true, x_pred)
 
     return metrics
-

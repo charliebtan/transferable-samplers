@@ -1,5 +1,5 @@
 _target_: src.data.aldp_datamodule.ALDPDataModule
-data_dir: ${paths.data_dir}/aldp
+data_dir: ${paths.data_dir}aldp
 data_url: https://osf.io/download/y7ntk/?view_only=1052300a21bd43c08f700016728aa96e
 pdb_url: null
 data_filename: AD2_weighted.npy
@@ -10,3 +10,8 @@ pin_memory: False
 n_particles: 22
 n_dimensions: 3
 dim: 66
+
+energy_hist_config:
+  x_min: -100
+  x_max: -50
+  ylim: 0.2

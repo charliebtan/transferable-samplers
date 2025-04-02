@@ -1,5 +1,6 @@
 import os
-from typing import Any, Optional
+from typing import Any, Optional, Dict, Callable
+import logging
 import wget
 import math
 
@@ -15,6 +16,15 @@ from src.data.components.encodings import ATOM_TYPE_ENCODING_DICT, AA_TYPE_ENCOD
 from src.data.components.center_of_mass import CenterOfMassTransform
 from src.data.components.rotation import Random3DRotationTransform
 from src.data.components.transform_dataset import TransformDataset
+from src.data.components.data_types import SamplesData
+from src.data.components.symmetry import check_symmetry_change
+
+from src.evaluation.metrics.ramachandran import ramachandran_metrics
+from src.evaluation.metrics.distribution_distances import distribution_distances, energy_distances
+from src.evaluation.metrics.ess import sampling_efficiency
+from src.evaluation.plots.plot_atom_distances import plot_atom_distances
+from src.evaluation.plots.plot_energies import plot_energies
+from src.evaluation.plots.plot_ramachandran import plot_ramachandran
 
 class PeptideDataModule(BaseDataModule):
     def __init__(
@@ -34,11 +44,11 @@ class PeptideDataModule(BaseDataModule):
         n_val_samples: int = 20_000, # Following M trajectory samples
         n_test_samples: int = 100_000, # Random K trajectory samples from the rest
         n_test_samples_small: int = 10_000, # Smaller subset for plotting etc
-        hist_min_energy: float = -200.0, # TODO
-        hist_max_energy: float = 400.0, # TODO
         batch_size: int = 64,
         num_workers: int = 0,
         pin_memory: bool = False,
+        num_eval_samples: int = 10_000,
+        energy_hist_config: Optional[Dict[str, Any]] = None,
     ):
         super().__init__()
         assert dim == n_particles * n_dimensions
@@ -74,16 +84,16 @@ class PeptideDataModule(BaseDataModule):
     def setup_data(self):
 
         # Load the data
-        if self.data_path[:-2] == "npy":
+        if self.data_path[-3:] == "npy":
             data = np.load(self.data_path, allow_pickle=True)
-        elif self.data_path[:-2] == "h5":
+        elif self.data_path[-2:] == "h5":
             data = md.load(self.data_path).xyz
         else:
             raise ValueError(f"Unknown file format for {self.data_path}")
 
         # Reshape and tensorize
         data = data.reshape(-1, self.hparams.dim)
-        data = torch.tensor(data).float() / self.scaling
+        data = torch.tensor(data).float()
 
         if self.hparams.make_iid:
             rand_idx = torch.randperm(data.shape[0])
@@ -122,9 +132,8 @@ class PeptideDataModule(BaseDataModule):
 
     def setup_potential(self):
 
-        if self.hparams.pdb_path is not None:
+        if self.pdb_path is not None:
             self.topology = md.load_topology(self.pdb_path)
-            # self.pdb = app.PDBFile(self.pdb_path) # TODO delete?
         else:
             self.topology = md.load(self.data_path).topology.to_openmm()
     
@@ -235,3 +244,140 @@ class PeptideDataModule(BaseDataModule):
         self.setup_atom_types()
         self.setup_adj_list()
         # self.setup_atom_encoding()
+
+    def resolve_chirality(self, true_samples, pred_samples, prefix=""):
+
+        symmetry_change = check_symmetry_change(
+            true_samples, pred_samples, self.adj_list, self.atom_types
+        )
+        pred_samples[symmetry_change] *= -1
+        correct_symmetry_rate = 1 - symmetry_change.sum() / len(symmetry_change)
+        symmetry_change = check_symmetry_change(
+            true_samples, pred_samples, self.adj_list, self.atom_types
+        )
+        uncorrectable_symmetry_rate = symmetry_change.sum() / len(symmetry_change)
+
+        metrics = {
+            prefix + "/correct_symmetry_rate": correct_symmetry_rate,
+            prefix + "/uncorrectable_symmetry_rate": uncorrectable_symmetry_rate,
+        }
+
+        if uncorrectable_symmetry_rate > 0.1:
+            logging.warning(
+                f"Uncorrectable symmetry rate is {uncorrectable_symmetry_rate:.2f}, "
+            )
+
+        return metrics, symmetry_change
+
+    def compute_all_metrics(self, true_data, pred_data, prefix: str = ""):
+        """Computes all metrics between true and predicted data."""
+
+        metrics = {}
+
+        if len(pred_data) < 0.9 * self.hparams.num_eval_samples:
+            logging.warning(r"Less than 90% of required eval samples supplied.")
+
+        # Compute effective sample size
+        if pred_data.logits is not None:
+            ess = sampling_efficiency(pred_data.logits)
+            metrics[f"{prefix}/effective_sample_size"] = ess
+
+        # Slice data to subset
+        num_eval_samples = min(self.hparams.num_eval_samples, len(pred_data), len(true_data))
+        true_data = true_data[:num_eval_samples]
+        pred_data = pred_data[:num_eval_samples]
+        metrics[f"num_eval_samples"] = min(num_eval_samples, len(pred_data))
+
+        # Distribtuion distance metrics
+        metrics.update(
+            distribution_distances(
+                true_data.samples,
+                pred_data.samples,
+                prefix=prefix
+                )
+        )
+        logging.info("Distance metrics computed")
+
+        # Energy metrics
+        metrics.update(
+            energy_distances(
+                true_data.energy,
+                pred_data.energy,
+                prefix=prefix,
+                )
+        )
+        metrics[f"{prefix}/mean_energy"] = pred_data.energy.mean().cpu()
+        logging.info("Energy metrics computed")
+
+        # Ramachandran metrics
+        metrics.update(
+            ramachandran_metrics(
+                true_data.samples,
+                pred_data.samples,
+                self.topology,
+                prefix=prefix
+                )
+        )
+        logging.info("Ramachandran metrics computed")
+
+        return metrics
+
+    def metrics_and_plots(
+        self,
+        log_dict_fn: Callable,
+        log_image_fn: Callable,
+        true_data: SamplesData,
+        proposal_data: SamplesData,
+        resampled_data: SamplesData,
+        jarzynski_data: Optional[SamplesData] = None,
+        prefix: str = "",
+    ) -> None:
+        """Log metrics and plots at the end of an epoch."""
+
+        if len(prefix) > 0 and prefix[-1] != "/":
+            prefix += "/"
+
+        metrics = {}
+
+        plot_ramachandran(log_image_fn, true_data.samples, self.topology, prefix=prefix + "true")
+
+        for (data, name) in [[proposal_data, "proposal"], [resampled_data, "resampled"], [jarzynski_data, "jarzynski"]]:
+
+            if data is None and name == "jarzynski":
+                continue
+
+            if len(data) == 0:
+                logging.warning(f"No {name} samples present.")
+
+            symmetry_metrics, symmetry_change = self.resolve_chirality(true_data.samples, data.samples, prefix + name)
+            data = data[~symmetry_change]
+            metrics.update(symmetry_metrics)
+
+            if len(data) == 0:
+                logging.warning(f"No {name} samples left after symmetry correction.")
+            else:
+                metrics.update(self.compute_all_metrics(true_data, data, prefix + name))
+                plot_ramachandran(log_image_fn, data.samples, self.topology, prefix=prefix + name)
+
+        logging.info(f"Plotting energies")
+        plot_energies(
+            log_image_fn,
+            true_data.energy[self.hparams.num_eval_samples:],
+            proposal_data.energy if len(proposal_data) > 0 else None,
+            resampled_data.energy if len(resampled_data) > 0 else None,
+            jarzynski_data.energy if (jarzynski_data is not None and len(jarzynski_data) > 0) else None,
+            **self.hparams.energy_hist_config,
+            prefix=prefix,
+        )
+
+        logging.info(f"Plotting interatomic distances")
+        plot_atom_distances(
+            log_image_fn,
+            true_data.samples[self.hparams.num_eval_samples:],
+            proposal_data.samples if len(proposal_data) > 0 else None,
+            resampled_data.samples if len(resampled_data) > 0 else None,
+            jarzynski_data.samples if (jarzynski_data is not None and len(jarzynski_data) > 0) else None,
+            prefix=prefix,
+        )
+
+        return metrics

@@ -1,5 +1,5 @@
 _target_: src.data.peptide_datamodule.PeptideDataModule
-data_dir: ${paths.data_dir}/al6
+data_dir: ${paths.data_dir}al6
 data_url: https://osf.io/download/6x4wk/?view_only=af935a79a5e645b7aab5d37bc5eb3faa
 pdb_url: https://osf.io/download/stfbq/?view_only=af935a79a5e645b7aab5d37bc5eb3faa
 data_filename: AAAAAA.npy
@@ -10,3 +10,8 @@ pin_memory: False
 n_particles: 63
 n_dimensions: 3
 dim: 189
+
+energy_hist_config:
+  x_min: -130
+  x_max: -30
+  ylim: 0.1

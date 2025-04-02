@@ -8,22 +8,25 @@ matplotlib.rcParams["mathtext.fontset"] = "stix"
 matplotlib.rcParams["font.family"] = "STIXGeneral"
 
 def plot_energies(
+    log_image_fn,
     test_samples_energy,
     proposal_samples_energy,
     resampled_samples_energy,
     jarzynski_samples_energy,
+    x_min=None,
+    x_max=None,
     ylim=None,
-    min_energy=None,
-    max_energy=None,
     prefix="",
-    wandb_logger: WandbLogger = None,
 ):
 
     fig, ax = plt.subplots(figsize=(4, 3), dpi=300, constrained_layout=True)
     fig.patch.set_facecolor("white")
 
-    energy_cropper = lambda x: torch.clamp(x, max=max_energy - 0.1) if max_energy else lambda x: x
-    bin_edges = np.linspace(min_energy, max_energy, 100)
+    energy_cropper = lambda x: torch.clamp(x, max=x_max - 0.1) if x_max else lambda x: x
+    if x_min is not None and x_max is not None:
+        bin_edges = np.linspace(x_min, x_max, 100)
+    else:
+        bin_edges = None
 
     ax.hist(
         energy_cropper(test_samples_energy.cpu()),
@@ -89,7 +92,4 @@ def plot_energies(
 
     fig.canvas.draw()
 
-    wandb_logger.log_image(f"{prefix}generated_samples", [fig])
-
-
-
+    log_image_fn(fig, f"{prefix}energies")

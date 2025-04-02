@@ -9,7 +9,9 @@ from src.evaluation.metrics.ramachandran import get_phi_psi_vectors
 matplotlib.rcParams["mathtext.fontset"] = "stix"
 matplotlib.rcParams["font.family"] = "STIXGeneral"
 
-def plot_ramachandran(samples, topology, prefix: str = "", wandb_logger: WandbLogger = None):
+def plot_ramachandran(log_image_fn, samples, topology, prefix: str = ""):
+
+    prefix += "/rama"
 
     phis, psis = get_phi_psi_vectors(samples, topology)
 
@@ -42,8 +44,7 @@ def plot_ramachandran(samples, topology, prefix: str = "", wandb_logger: WandbLo
 
         cbar.ax.invert_yaxis()
         cbar.ax.set_ylabel(r"Free energy / $k_B T$", fontsize=35)
-        if wandb_logger is not None:
-            wandb_logger.log_image(f"{prefix}/ramachandran/{i}", [fig])
+        log_image_fn(fig, f"{prefix}/ramachandran/{i}")
 
         phi_tmp = phis[:, i]
         psi_tmp = psis[:, i]
@@ -65,5 +66,4 @@ def plot_ramachandran(samples, topology, prefix: str = "", wandb_logger: WandbLo
         cbar = fig.colorbar(im)  # , ticks=ticks)
         im.set_clim(vmax=samples.shape[0] // 20)
         cbar.ax.set_ylabel(f"Count, max = {int(h.max())}", fontsize=18)
-        if wandb_logger is not None:
-            wandb_logger.log_image(f"{prefix}/ramachandran_simple/{i}", [fig])
+        log_image_fn(fig, f"{prefix}/ramachandran_simple/{i}")

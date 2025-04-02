@@ -1,5 +1,5 @@
 _target_: src.data.peptide_datamodule.PeptideDataModule
-data_dir: ${paths.data_dir}/al4
+data_dir: ${paths.data_dir}al4
 data_url: https://osf.io/download/xdnbh/?view_only=af935a79a5e645b7aab5d37bc5eb3faa
 pdb_url: https://osf.io/download/6787bdf1d1f32b2b8c341a82/?view_only=af935a79a5e645b7aab5d37bc5eb3faa
 data_filename: AceAlaAlaAlaNme_300K.npy
@@ -10,3 +10,8 @@ pin_memory: False
 n_particles: 42
 n_dimensions: 3
 dim: 126
+
+energy_hist_config:
+  x_min: -20
+  x_max: 80
+  ylim: 0.1

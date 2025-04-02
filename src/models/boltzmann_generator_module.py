@@ -8,21 +8,15 @@ import torch
 import torchmetrics
 from bgflow import MeanFreeNormalDistribution, NormalDistribution
 from lightning import LightningDataModule, LightningModule
+from lightning.pytorch.loggers import WandbLogger
 from torchmetrics import MeanMetric
 from tqdm import tqdm
 
 from src.models.components.ema import EMA
 from src.models.components.jarzynski_sampler import JarzynskiSampler
 from src.models.components.utils import RunningMedian, resample
-from src.utils.data_types import SamplesData
 
-from src.evaluation.metrics.distribution_distances import distribution_distances, energy_distances
-from src.evaluation.metrics.ess import sampling_efficiency
-from src.evaluation.metrics.symmetry import check_symmetry
-
-from src.evaluation.plots.plot_atom_distances import plot_atom_distances
-from src.evaluation.plots.plot_energies import plot_energies
-from src.evaluation.plots.plot_ramachandran import plot_ramachandran
+from src.data.components.data_types import SamplesData
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +67,6 @@ class BoltzmannGeneratorLitModule(LightningModule):
         self.criterion = torch.nn.MSELoss(reduction="mean")
 
         # metric objects for calculating and averaging accuracy across batches
-
         self.train_metrics = torchmetrics.MetricCollection({"loss": MeanMetric()}, prefix="train/")
         self.val_metrics = self.train_metrics.clone(prefix="val/")
         self.test_metrics = self.train_metrics.clone(prefix="test/")
@@ -84,10 +77,17 @@ class BoltzmannGeneratorLitModule(LightningModule):
             )
         else:
             self.prior = NormalDistribution(self.datamodule.hparams.dim)
-        if self.hparams.stabilize_training:
-            self.gradient_history = RunningMedian(100)
 
-        self.target_target_energy = None
+    def log_image(self, img: torch.Tensor, title: str = None) -> None:
+        """Log an image to the logger.
+
+        :param img: The image to log.
+        :param title: The title of the image.
+        """
+        if self.loggers is not None:
+            for logger in self.loggers:
+                if isinstance(logger, WandbLogger):
+                    logger.log_image(title, [img])
 
     def training_step(
         self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
@@ -356,7 +356,9 @@ class BoltzmannGeneratorLitModule(LightningModule):
             jarzynski_data = None
 
         # log dataset metrics
-        metrics = self.metrics_and_plots(
+        metrics = self.datamodule.metrics_and_plots(
+            self.log_dict,
+            self.log_image,
             true_data,
             proposal_data,
             reweighted_data,
@@ -364,128 +366,6 @@ class BoltzmannGeneratorLitModule(LightningModule):
             prefix=prefix,
         )
         self.log_dict(metrics)
-
-    def compute_all_metrics(self, true_data, pred_data, prefix: str = ""):
-        """Computes all metrics between true and predicted data."""
-
-        metrics = {}
-
-        if len(pred_data) < 0.9 * self.hparams.sampling_config.num_eval_samples:
-            logging.warning(r"Less than 90% of required eval samples supplied.")
-
-        # Compute effective sample size
-        if pred_data.logits is not None:
-            ess = sampling_efficiency(pred_data.logits)
-            metrics[f"{prefix}/effective_sample_size"] = ess
-
-        # Slice data to subset
-        num_eval_samples = min(self.hparams.sampling_config.num_eval_samples, len(pred_data), len(true_data))
-        true_data = true_data[:num_eval_samples]
-        pred_data = pred_data[:num_eval_samples]
-        metrics[f"num_eval_samples"] = min(num_eval_samples, len(pred_data))
-
-        # Distribtuion distance metrics
-        metrics.update(
-            distribution_distances(
-                true_data.samples,
-                pred_data.samples,
-                prefix=prefix
-                )
-        )
-        logging.info("Distance metrics computed")
-
-        # Energy metrics
-        metrics.update(
-            energy_distances(
-                true_data.energy,
-                pred_data.energy,
-                prefix=prefix,
-                )
-        )
-        metrics[f"{prefix}/mean_energy"] = pred_data.energy.mean().cpu()
-        logging.info("Energy metrics computed")
-
-        # Ramachandran metrics
-        metrics.update(
-            self.compute_ramachandran_metrics(
-                true_data.samples,
-                pred_data.samples,
-                prefix=prefix
-                )
-        )
-        logging.info("Ramachandran metrics computed")
-
-        return metrics
-
-    def metrics_and_plots(
-        self,
-        true_data: SamplesData,
-        proposal_data: SamplesData,
-        resampled_data: SamplesData,
-        jarzynski_data: Optional[SamplesData] = None,
-        prefix: str = "",
-    ) -> None:
-        """Log metrics and plots at the end of an epoch."""
-
-        if len(prefix) > 0 and prefix[-1] != "/":
-            prefix += "/"
-
-        metrics = {}
-
-        logging.info(f"Plotting rama for ground truth data")
-        plot_ramachandran(true_data.samples, self.datamodule.topology, prefix=prefix + "ground_truth/rama")
-
-        logging.info(f"Computing metrics for proposal data")
-        symmetry_metrics, symmetry_change = check_symmetry(true_data.samples, proposal_data.samples, self.datamodule.adj_list, self.datamodule.atom_types, prefix + "proposal")
-        proposal_data = proposal_data[~symmetry_change]
-
-        metrics.update(symmetry_metrics)
-        if len(proposal_data) == 0:
-            logging.warning("No proposal samples left after symmetry correction.")
-        else:
-            metrics.update(self.compute_all_metrics(true_data.samples, proposal_data.samples, prefix + "proposal"))
-            plot_ramachandran(proposal_data.samples, prefix=prefix + "proposal/rama")
-
-        logging.info(f"Computing metrics for resampled data")
-        symmetry_metrics, symmetry_change = check_symmetry(true_data.samples, resampled_data.samples, prefix + "resampled")
-        resampled_data = resampled_data[~symmetry_change]
-        metrics.update(symmetry_metrics)
-        if len(resampled_data) == 0:
-            logging.warning("No resampled samples left after symmetry correction.")
-        else:
-            metrics.update(self.compute_all_metrics(true_data, resampled_data, prefix + "resampled"))
-            plot_ramachandran(resampled_data.samples, prefix=prefix + "resampled/rama")
-
-        if jarzynski_data is not None:
-            logging.info(f"Computing metrics for jarzynski data")
-            symmetry_metrics, symmetry_change = check_symmetry(true_data.samples, jarzynski_data.samples, prefix + "jarzynski")
-            jarzynski_data = jarzynski_data[~symmetry_change]
-            metrics.update(symmetry_metrics)
-            if len(jarzynski_data) == 0:
-                logging.warning("No jarzynski samples left after symmetry correction.")
-            else:
-                metrics.update(self.compute_all_metrics(true_data, jarzynski_data, prefix + "jarzynski"))
-                plot_ramachandran(jarzynski_data.samples, prefix=prefix + "jarzynski/rama")
-
-        logging.info(f"Plotting energies")
-        plot_energies(
-            true_data.energy[self.hparams.sampling_config.num_eval_samples:],
-            proposal_data.energy if len(proposal_data) > 0 else None,
-            resampled_data.energy if len(resampled_data) > 0 else None,
-            jarzynski_data.energy if (jarzynski_data is not None and len(jarzynski_data) > 0) else None,
-            prefix=prefix,
-        )
-
-        logging.info(f"Plotting interatomic distances")
-        plot_atom_distances(
-            true_data.samples[self.hparams.sampling_config.num_eval_samples:],
-            proposal_data.samples if len(proposal_data) > 0 else None,
-            resampled_data.samples if len(resampled_data) > 0 else None,
-            jarzynski_data.samples if (jarzynski_data is not None and len(jarzynski_data) > 0) else None,
-            prefix=prefix,
-        )
-
-        return metrics
 
     def on_train_epoch_start(self) -> None:
         logging.info("Train epoch start")
@@ -532,24 +412,6 @@ class BoltzmannGeneratorLitModule(LightningModule):
             )
             self.zero_grad()
             return
-
-        if not self.hparams.stabilize_training:
-            return
-        self.gradient_history.update(global_norm.item())
-        running_global_norm = self.gradient_history.compute()
-        if global_norm > 20 * running_global_norm:
-            logger.warning(
-                f"detected large_gradient {global_norm} which is more than 20 times the running median {running_global_norm}. not updating model parameters"
-            )
-            self.zero_grad()
-        elif global_norm > 5 * running_global_norm:
-            logger.warning(
-                f"detected large_gradient {global_norm} which is more than 5 "
-                f"times the running median {running_global_norm}. clipping"
-                "gradients"
-            )
-            norm = torch.nn.utils.clip_grad_norm_(self.parameters(), 5 * running_global_norm)
-            self.log("clipped_gradient_norm", norm, on_step=True, prog_bar=True)
 
     # https://github.com/Lightning-AI/pytorch-lightning/issues/1462
     def on_before_optimizer_step(self, optimizer, *args, **kwargs) -> None:

@@ -23,6 +23,7 @@ def interatomic_dist(x):
     return dist.flatten()
 
 def plot_atom_distances(
+    log_image_fn,
     true_samples,
     proposal_samples,
     resampled_samples,
@@ -108,4 +109,4 @@ def plot_atom_distances(
 
     fig.canvas.draw()
 
-    wandb_logger.log_image(f"{prefix}generated_samples", [fig])
+    log_image_fn(fig, f"{prefix}/interatomic_distances")
