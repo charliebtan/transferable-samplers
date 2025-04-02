@@ -1,16 +1,7 @@
 defaults:
   - scheduler: cosine
+  - optimizer: adam_w
 _target_: src.model.BoltzmannGeneratorLitModule
-
-optimizer:
-  _target_: torch.optim.AdamW
-  _partial_: true
-  lr: 0.0005
-  betas:
-    - 0.9
-    - 0.999
-  eps: 1e-8
-  weight_decay: 0.01
 
 # this does cosine annealing from max_lr to max_lr / div_factor / final_div_factor
 # if pct_start != 0.0 you warmup from max_lr / div_factor to max_lr too
@@ -31,11 +22,6 @@ sampling_config:
   num_jarzynski_samples: 10_000
   num_eval_samples: 10_000
   batch_size: 10_000
-  # Currently unused
-  sampling_freq: 1
-  jarzynski_freq: 1
-  test_proposal_seed: 42
-  save_samples_path: null
   clip_reweighting_logits: 0.002
 
 ema_decay: 0.999

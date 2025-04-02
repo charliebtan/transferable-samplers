@@ -35,6 +35,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         compile: bool,
         mean_free_prior: bool = True,
         stabilize_training: bool = False,
+        use_com_adjustment: bool = False,
         *args,
         **kwargs,
     ) -> None:
@@ -61,6 +62,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         self.jarzynski_sampler = jarzynski_sampler(
             source_energy=self.proposal_energy,
             target_energy=self.datamodule.energy,
+            log_image_fn=self.log_image,
         )
 
         # loss function
@@ -248,7 +250,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
             true_samples = self.datamodule.data_val
 
         true_data = SamplesData(
-            self.datamodule.as_original_pointcloud(true_samples),
+            self.datamodule.as_pointcloud(self.datamodule.unnormalize(true_samples)),
             -self.datamodule.energy(true_samples),
         )
 
@@ -273,17 +275,21 @@ class BoltzmannGeneratorLitModule(LightningModule):
         torch.save(samples_dict, f"{output_dir}/{prefix}_samples.pt")
 
         # Compute proposal center of mass std - TODO should this just be 1 / sqrt(N) ?
-        coms = proposal_samples.view(proposal_samples.shape[0], -1, 3).mean(dim=1)
+        coms = self.datamodule.center_of_mass(proposal_samples).mean(dim=1)
         proposal_com_std = coms.std()
+        self.proposal_com_std = proposal_com_std
         self.log(f"{prefix}/proposal_com_std", proposal_com_std, sync_dist=True)
-        self.datamodule.proposal_com_std = proposal_com_std
+
+        # Apply CoM adjustment to energy, this must be done here for compatibility with CNFs
+        if self.hparams.sampling_config.use_com_adjustment:
+            proposal_log_p = proposal_log_p - self.com_energy_adjustment(proposal_samples)
 
         # Compute energy
         proposal_samples_energy = -self.datamodule.energy(proposal_samples)
 
         # Datatype for easier metrics and plotting
         proposal_data = SamplesData(
-            self.datamodule.as_original_pointcloud(proposal_samples),
+            self.datamodule.as_pointcloud(self.datamodule.unnormalize(proposal_samples)),
             proposal_samples_energy,
         )
 
@@ -303,7 +309,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         _, resampling_index = resample(proposal_samples_clipped, resampling_logits_clipped, return_index=True)
 
         reweighted_data = SamplesData(
-            self.datamodule.as_original_pointcloud(proposal_samples[resampling_index]),
+            self.datamodule.as_pointcloud(self.datamodule.unnormalize(proposal_samples[resampling_index])),
             proposal_samples_energy[resampling_index],
             logits=resampling_logits_clipped,
         )
@@ -314,9 +320,6 @@ class BoltzmannGeneratorLitModule(LightningModule):
             self.jarzynski_sampler.use_com_energy = self.hparams.use_com_energy
 
             logging.info("Jarzynski sampling enabled")
-
-            # Hack to get wandb logger into jarzynski sampler for plotting
-            self.jarzynski_sampler.wandb_logger = self.datamodule.wandb_logger
 
             num_jarzynski_samples = min(
                 self.hparams.sampling_config.num_jarzynski_samples, len(proposal_samples)
@@ -347,7 +350,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
 
             # Datatype for easier metrics and plotting
             jarzynski_data = SamplesData(
-                self.datamodule.as_original_pointcloud(jarzynski_samples),
+                self.datamodule.as_pointcloud(self.datamodule.unnormalize(jarzynski_samples)),
                 -self.datamodule.energy(jarzynski_samples),
                 logits=jarzynski_logits,
             )

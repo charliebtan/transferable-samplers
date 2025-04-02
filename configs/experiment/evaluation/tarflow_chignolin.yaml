@@ -12,7 +12,7 @@ model:
     batch_size: 1_024
     num_test_proposal_samples: 20_000
     num_jarzynski_samples: 20_000
-    num_eval_samples: 10_000
+    clip_reweighting_logits: 0.002
   net:
     channels: 512
     num_blocks: 8
@@ -25,6 +25,7 @@ model:
     input_energy_cutoff: -100.0
 
   data:
-    - batch_size: 512
+    batch_size: 512
+    num_eval_samples: 10_000
 
 tags: [jarz]

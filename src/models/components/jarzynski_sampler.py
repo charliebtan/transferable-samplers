@@ -1,3 +1,4 @@
+from typing import Callable
 import logging
 import math
 
@@ -13,19 +14,21 @@ from src.evaluation.metrics.ess import sampling_efficiency
 class JarzynskiSampler(torch.nn.Module):
     def __init__(
         self,
-        source_energy,
-        target_energy,
-        batch_size: int = 1000,
-        langevin_eps: float = 0.4,
-        num_timesteps: int = 1000,
+        source_energy: Callable,
+        target_energy: Callable,
+        log_image_fn: Callable,
+        batch_size: int = 128,
+        langevin_eps: float = 1e-7,
+        num_timesteps: int = 100,
         ess_threshold: float = -1.0,
-        enabled: bool = True,
+        enabled: bool = False,
         do_energy_plots: bool = False,
         input_energy_cutoff: float = None,
     ):
         super().__init__()
         self.source_energy = source_energy
         self.target_energy = target_energy
+        self.log_image_fn = log_image_fn
         self.batch_size = batch_size
         self.langevin_eps = langevin_eps
         self.num_timesteps = num_timesteps
@@ -53,7 +56,7 @@ class JarzynskiSampler(torch.nn.Module):
         axs[1].set_ylabel("Interpolation energy", fontsize=12)
 
         plt.tight_layout()
-        self.wandb_logger.log_image(f"langevin/energies", [fig])
+        self.log_image_fn(fig, "langevin/energies")
         plt.close()
 
     def plot_stepwise_energy_hist(self, target_energy_list, interpolation_energy_list, t_list):
@@ -107,7 +110,7 @@ class JarzynskiSampler(torch.nn.Module):
         fig.colorbar(im, ax=axs[1], label="Log Marginal Density")
 
         plt.tight_layout()
-        self.wandb_logger.log_image(f"langevin/energy_histograms", [fig])
+        self.log_image_fn(fig, "langevin/energy_histograms")
         plt.close()
 
     def plot_dX_t_norm(self, dX_t_norm_list, t_list):
@@ -123,7 +126,7 @@ class JarzynskiSampler(torch.nn.Module):
         axs.set_xlabel("Time", fontsize=12)
         axs.set_ylabel("||dX_t||", fontsize=12)
         plt.tight_layout()
-        self.wandb_logger.log_image(f"langevin/dX_t_norm", [fig])
+        self.log_image_fn(fig, "langevin/dX_t_norm")
         plt.close()
 
     def plot_weights(self, A_list, ESS_list, t_list):
@@ -142,7 +145,7 @@ class JarzynskiSampler(torch.nn.Module):
         axs[1].set_yscale("log")
 
         plt.tight_layout()
-        self.wandb_logger.log_image(f"langevin/weights", [fig])
+        self.log_image_fn(fig, "langevin/weights")
         plt.close()
 
     def plot_eps(self, eps_list, t_list):
@@ -152,12 +155,12 @@ class JarzynskiSampler(torch.nn.Module):
         ax.set_xlabel("Time", fontsize=12)
         ax.set_ylabel("Eps", fontsize=12)
         plt.tight_layout()
-        self.wandb_logger.log_image(f"langevin/eps", [fig])
+        self.log_image_fn(fig, "langevin/eps")
         plt.close()
 
     def linear_energy_interpolation(self, x, t):
         source_energy = self.source_energy(x)
-        target_energy = self.target_energy(x, use_com_energy=self.use_com_energy)
+        target_energy = self.target_energy(x)
         target_energy = target_energy.reshape(-1)
         assert source_energy.shape == (
             x.shape[0],
