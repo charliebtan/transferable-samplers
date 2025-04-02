@@ -27,7 +27,7 @@ def plot_atom_distances(
     true_samples,
     proposal_samples,
     resampled_samples,
-    jarzynski_samples,
+    smc_samples,
     ylim=None,
     prefix="",
     wandb_logger: WandbLogger = None,
@@ -47,10 +47,10 @@ def plot_atom_distances(
         min_dist = min(min_dist, resampled_samples_dist.min())
         max_dist = max(max_dist, resampled_samples_dist.max())
 
-    if jarzynski_samples is not None:
-        jarzynski_samples_dist = interatomic_dist(jarzynski_samples).cpu()
-        min_dist = min(min_dist, jarzynski_samples_dist.min())
-        max_dist = max(max_dist, jarzynski_samples_dist.max())
+    if smc_samples is not None:
+        smc_samples_dist = interatomic_dist(smc_samples).cpu()
+        min_dist = min(min_dist, smc_samples_dist.min())
+        max_dist = max(max_dist, smc_samples_dist.max())
 
     fig, ax = plt.subplots(figsize=(4, 3), dpi=300, constrained_layout=True)
     fig.patch.set_facecolor("white")
@@ -88,9 +88,9 @@ def plot_atom_distances(
             color="b",
             label="Proposal (reweighted)",
         )
-    if jarzynski_samples is not None:
+    if smc_samples is not None:
         ax.hist(
-            jarzynski_samples_dist,
+            smc_samples_dist,
             bins=bin_edges,
             density=True,
             alpha=0.4,

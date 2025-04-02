@@ -12,7 +12,7 @@ def plot_energies(
     test_samples_energy,
     proposal_samples_energy,
     resampled_samples_energy,
-    jarzynski_samples_energy,
+    smc_samples_energy,
     x_min=None,
     x_max=None,
     ylim=None,
@@ -60,9 +60,9 @@ def plot_energies(
             color="b",
             label="Proposal (reweighted)",
         )
-    if jarzynski_samples_energy is not None:
+    if smc_samples_energy is not None:
         ax.hist(
-            energy_cropper(jarzynski_samples_energy.cpu()),
+            energy_cropper(smc_samples_energy.cpu()),
             bins=bin_edges,
             density=True,
             alpha=0.4,

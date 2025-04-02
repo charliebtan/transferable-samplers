@@ -11,7 +11,7 @@ from tqdm import tqdm
 from src.evaluation.metrics.ess import sampling_efficiency
 
 
-class JarzynskiSampler(torch.nn.Module):
+class SMCSampler(torch.nn.Module):
     def __init__(
         self,
         source_energy: Callable,
@@ -220,7 +220,7 @@ class JarzynskiSampler(torch.nn.Module):
                 return self.langevin_eps
 
         X = proposal_samples
-        A = torch.zeros(X.shape[0], device=X.device)  # the jarzynski weights
+        A = torch.zeros(X.shape[0], device=X.device)  # the smc weights
 
         A_list = [A]
         ESS_list = [1.0]
@@ -294,7 +294,7 @@ class JarzynskiSampler(torch.nn.Module):
             A = torch.cat(A_batches, dim=0)
 
             assert A.dim() == 1, "A should be a flat vector"
-            jarzynski_weights = torch.softmax(A, dim=-1)
+            smc_weights = torch.softmax(A, dim=-1)
 
             if X.isnan().any() or A.isnan().any() or not (j + 1) % 100 or j + 1 == num_timesteps:
 
@@ -331,7 +331,7 @@ class JarzynskiSampler(torch.nn.Module):
                 # qmc_rand = sampler.random(n=len(A))
                 # cum_prob = torch.cumsum(torch.softmax(A, dim=-1), dim=0)
                 # indexes = np.searchsorted(cum_prob, qmc_rand, side="left").flatten()
-                indexes = torch.multinomial(jarzynski_weights, len(A), replacement=True)
+                indexes = torch.multinomial(smc_weights, len(A), replacement=True)
                 X = X[indexes]
                 A = torch.zeros_like(A)
                 logging.info(f"resampling @ step {j}")
@@ -367,12 +367,12 @@ class JarzynskiSampler(torch.nn.Module):
             t_previous = t
 
         # Final resampling
-        indexes = torch.multinomial(jarzynski_weights, len(A), replacement=True)
+        indexes = torch.multinomial(smc_weights, len(A), replacement=True)
         X = X[indexes]
         logging.info(f"resampling @ step {j}")
 
-        jarzynski_samples = X
-        jarzynski_logits = A
-        assert jarzynski_samples.shape == proposal_samples.shape, "shape mismatch"
-        assert jarzynski_weights.dim() == 1, "jarzynski_weights should be a flat vector"
-        return jarzynski_samples, jarzynski_logits
+        smc_samples = X
+        smc_logits = A
+        assert smc_samples.shape == proposal_samples.shape, "shape mismatch"
+        assert smc_weights.dim() == 1, "smc_weights should be a flat vector"
+        return smc_samples, smc_logits

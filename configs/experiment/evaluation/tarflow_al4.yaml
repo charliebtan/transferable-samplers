@@ -11,14 +11,14 @@ model:
   sampling_config:
     batch_size: 10_000
     num_test_proposal_samples: 100_000
-    num_jarzynski_samples: 1_000_000
+    num_smc_samples: 1_000_000
     clip_reweighting_logits: 0.002
   net:
     in_channels: 3
     channels: 384
     num_blocks: 6
     layers_per_block: 6
-  jarzynski_sampler:
+  smc_sampler:
     enabled: True
     langevin_eps: 1e-7
     num_timesteps: 100

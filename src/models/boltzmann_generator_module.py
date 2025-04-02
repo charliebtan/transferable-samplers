@@ -13,7 +13,7 @@ from torchmetrics import MeanMetric
 from tqdm import tqdm
 
 from src.models.components.ema import EMA
-from src.models.components.jarzynski_sampler import JarzynskiSampler
+from src.models.components.smc_sampler import SMCSampler
 from src.models.components.utils import RunningMedian, resample
 
 from src.data.components.data_types import SamplesData
@@ -29,7 +29,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         optimizer: torch.optim.Optimizer,
         scheduler: torch.optim.lr_scheduler,
         datamodule: LightningDataModule,
-        jarzynski_sampler: JarzynskiSampler,
+        smc_sampler: SMCSampler,
         sampling_config,
         ema_decay: float,
         compile: bool,
@@ -59,7 +59,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
 
         self.datamodule = datamodule
 
-        self.jarzynski_sampler = jarzynski_sampler(
+        self.smc_sampler = smc_sampler(
             source_energy=self.proposal_energy,
             target_energy=self.datamodule.energy,
             log_image_fn=self.log_image,
@@ -314,49 +314,49 @@ class BoltzmannGeneratorLitModule(LightningModule):
             logits=resampling_logits_clipped,
         )
 
-        if self.jarzynski_sampler is not None and self.jarzynski_sampler.enabled:
+        if self.smc_sampler is not None and self.smc_sampler.enabled:
 
             # TODO remove this once refactored
-            self.jarzynski_sampler.use_com_energy = self.hparams.use_com_energy
+            self.smc_sampler.use_com_energy = self.hparams.use_com_energy
 
-            logging.info("Jarzynski sampling enabled")
+            logging.info("SMC sampling enabled")
 
-            num_jarzynski_samples = min(
-                self.hparams.sampling_config.num_jarzynski_samples, len(proposal_samples)
+            num_smc_samples = min(
+                self.hparams.sampling_config.num_smc_samples, len(proposal_samples)
             )
 
-            # Generate jarzynski samples and record time
+            # Generate smc samples and record time
             torch.cuda.synchronize()
             start_time = time.time()
-            jarzynski_samples, jarzynski_logits = self.jarzynski_sampler.sample(
-                proposal_samples[:num_jarzynski_samples]
+            smc_samples, smc_logits = self.smc_sampler.sample(
+                proposal_samples[:num_smc_samples]
             ) # already returned resampled
             torch.cuda.synchronize()
             time_duration = time.time() - start_time
-            self.log(f"{prefix}/jarzynski/samples_walltime", time_duration)
+            self.log(f"{prefix}/smc/samples_walltime", time_duration)
             self.log(
-                f"{prefix}/jarzynski/samples_per_second", len(jarzynski_samples) / time_duration
+                f"{prefix}/smc/samples_per_second", len(smc_samples) / time_duration
             )
 
             # Save samples to disk
-            jarzynski_samples_dict = {
-                "jarzynski_samples": jarzynski_samples,
-                "jarzynski_logits": jarzynski_logits,
+            smc_samples_dict = {
+                "smc_samples": smc_samples,
+                "smc_logits": smc_logits,
             }
             logging.info(
-                f"Saving {len(jarzynski_samples)} samples to {output_dir}/{prefix}_jarzynski_samples.pt"
+                f"Saving {len(smc_samples)} samples to {output_dir}/{prefix}_smc_samples.pt"
             )
-            torch.save(jarzynski_samples_dict, f"{output_dir}/{prefix}_jarzynski_samples.pt")
+            torch.save(smc_samples_dict, f"{output_dir}/{prefix}_smc_samples.pt")
 
             # Datatype for easier metrics and plotting
-            jarzynski_data = SamplesData(
-                self.datamodule.as_pointcloud(self.datamodule.unnormalize(jarzynski_samples)),
-                -self.datamodule.energy(jarzynski_samples),
-                logits=jarzynski_logits,
+            smc_data = SamplesData(
+                self.datamodule.as_pointcloud(self.datamodule.unnormalize(smc_samples)),
+                -self.datamodule.energy(smc_samples),
+                logits=smc_logits,
             )
 
         else:
-            jarzynski_data = None
+            smc_data = None
 
         # log dataset metrics
         metrics = self.datamodule.metrics_and_plots(
@@ -365,7 +365,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
             true_data,
             proposal_data,
             reweighted_data,
-            jarzynski_data,
+            smc_data,
             prefix=prefix,
         )
         self.log_dict(metrics)

@@ -329,7 +329,7 @@ class PeptideDataModule(BaseDataModule):
         true_data: SamplesData,
         proposal_data: SamplesData,
         resampled_data: SamplesData,
-        jarzynski_data: Optional[SamplesData] = None,
+        smc_data: Optional[SamplesData] = None,
         prefix: str = "",
     ) -> None:
         """Log metrics and plots at the end of an epoch."""
@@ -341,9 +341,9 @@ class PeptideDataModule(BaseDataModule):
 
         plot_ramachandran(log_image_fn, true_data.samples, self.topology, prefix=prefix + "true")
 
-        for (data, name) in [[proposal_data, "proposal"], [resampled_data, "resampled"], [jarzynski_data, "jarzynski"]]:
+        for (data, name) in [[proposal_data, "proposal"], [resampled_data, "resampled"], [smc_data, "smc"]]:
 
-            if data is None and name == "jarzynski":
+            if data is None and name == "smc":
                 continue
 
             if len(data) == 0:
@@ -365,7 +365,7 @@ class PeptideDataModule(BaseDataModule):
             true_data.energy[self.hparams.num_eval_samples:],
             proposal_data.energy if len(proposal_data) > 0 else None,
             resampled_data.energy if len(resampled_data) > 0 else None,
-            jarzynski_data.energy if (jarzynski_data is not None and len(jarzynski_data) > 0) else None,
+            smc_data.energy if (smc_data is not None and len(smc_data) > 0) else None,
             **self.hparams.energy_hist_config,
             prefix=prefix,
         )
@@ -376,7 +376,7 @@ class PeptideDataModule(BaseDataModule):
             true_data.samples[self.hparams.num_eval_samples:],
             proposal_data.samples if len(proposal_data) > 0 else None,
             resampled_data.samples if len(resampled_data) > 0 else None,
-            jarzynski_data.samples if (jarzynski_data is not None and len(jarzynski_data) > 0) else None,
+            smc_data.samples if (smc_data is not None and len(smc_data) > 0) else None,
             prefix=prefix,
         )
 

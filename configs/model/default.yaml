@@ -6,8 +6,8 @@ _target_: src.model.BoltzmannGeneratorLitModule
 # this does cosine annealing from max_lr to max_lr / div_factor / final_div_factor
 # if pct_start != 0.0 you warmup from max_lr / div_factor to max_lr too
 # normally you use this per-step but I've just got it per-epoch
-jarzynski_sampler:
-  _target_: src.models.components.jarzynski_sampler.JarzynskiSampler
+smc_sampler:
+  _target_: src.models.components.smc_sampler.SMCSampler
   _partial_: true
   batch_size: ${data.batch_size}
   langevin_eps: 0.1
@@ -19,7 +19,7 @@ jarzynski_sampler:
 sampling_config:
   num_proposal_samples: 10_000
   num_test_proposal_samples: 10_000
-  num_jarzynski_samples: 10_000
+  num_smc_samples: 10_000
   num_eval_samples: 10_000
   batch_size: 10_000
   clip_reweighting_logits: 0.002
