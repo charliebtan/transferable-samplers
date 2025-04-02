@@ -7,6 +7,7 @@ import math
 import mdtraj as md
 import numpy as np
 import openmm
+import openmm.app
 import torch
 import torchvision
 from bgflow import OpenMMBridge, OpenMMEnergy
@@ -134,6 +135,7 @@ class PeptideDataModule(BaseDataModule):
 
         if self.pdb_path is not None:
             self.topology = md.load_topology(self.pdb_path)
+            self.pdb = openmm.app.PDBFile(self.pdb_path)
         else:
             self.topology = md.load(self.data_path).topology.to_openmm()
     
@@ -151,7 +153,7 @@ class PeptideDataModule(BaseDataModule):
 
         # Initalize forcefield system
         system = forcefield.createSystem(
-            self.topology,
+            self.pdb.topology,
             nonbondedMethod = nonbondedMethod,
             nonbondedCutoff = nonbondedCutoff,
             constraints=None,

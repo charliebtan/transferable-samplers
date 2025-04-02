@@ -18,9 +18,9 @@ model:
   sampling_config:
     num_proposal_samples: 20_000
 
-  data:
-    batch_size: 512
-    com_augmentation: True
+data:
+  batch_size: 512
+  com_augmentation: True
 
 trainer:
   check_val_every_n_epoch: 100000 # eval currently breaks training
