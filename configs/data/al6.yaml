@@ -7,8 +7,8 @@ pdb_filename: AAAAAA.pdb
 batch_size: 512 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
 num_workers: 2
 pin_memory: False
-n_particles: 63
-n_dimensions: 3
+num_particles: 63
+num_dimensions: 3
 dim: 189
 
 energy_hist_config:

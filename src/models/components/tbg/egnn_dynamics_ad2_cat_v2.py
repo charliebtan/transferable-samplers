@@ -11,8 +11,8 @@ from src.models.components.tbg.utils import remove_mean
 class EGNN_dynamics_AD2_cat_v2(nn.Module):
     def __init__(
         self,
-        n_particles,
-        n_dimensions,
+        num_particles,
+        num_dimensions,
         hidden_nf=64,
         act_fn=torch.nn.SiLU(),
         n_layers=5,  # changed to match AD2_classical_train_tgb_full.py
@@ -23,8 +23,8 @@ class EGNN_dynamics_AD2_cat_v2(nn.Module):
         M=128,
     ):
         super().__init__()
-        self._n_particles = n_particles
-        self._n_dimensions = n_dimensions
+        self._num_particles = num_particles
+        self._num_dimensions = num_dimensions
         # Initial one hot encoding of the different element types
         self.h_initial = self.get_h_initial()
 
@@ -49,13 +49,13 @@ class EGNN_dynamics_AD2_cat_v2(nn.Module):
         self.h_init = None
 
     def get_h_initial(self):
-        if self._n_particles == 22:
+        if self._num_particles == 22:
             atom_types = np.arange(22)
             atom_types[[1, 2, 3]] = 2
             atom_types[[19, 20, 21]] = 20
             atom_types[[11, 12, 13]] = 12
             return torch.nn.functional.one_hot(torch.tensor(atom_types))
-        if self._n_particles == 33:
+        if self._num_particles == 33:
             atom_types = np.arange(33)
             atom_types[[1, 2, 3]] = 2
             atom_types[[9, 10, 11]] = 10
@@ -63,7 +63,7 @@ class EGNN_dynamics_AD2_cat_v2(nn.Module):
             atom_types[[29, 30, 31]] = 31
             h_initial = torch.nn.functional.one_hot(torch.tensor(atom_types))
             return h_initial
-        if self._n_particles == 42:
+        if self._num_particles == 42:
             atom_types = np.arange(42)
             atom_types[[1, 2, 3]] = 2
             atom_types[[11, 12, 13]] = 12
@@ -82,27 +82,27 @@ class EGNN_dynamics_AD2_cat_v2(nn.Module):
             t = t.repeat(n_batch)
         # t is always shape (n_batch, 1)
         t = t.flatten()
-        # t = t.repeat(1, self._n_particles)
-        # t = t.reshape(n_batch * self._n_particles)
+        # t = t.repeat(1, self._num_particles)
+        # t = t.reshape(n_batch * self._num_particles)
 
-        edges = self._cast_edges2batch(self.edges, n_batch, self._n_particles, device=x.device)
+        edges = self._cast_edges2batch(self.edges, n_batch, self._num_particles, device=x.device)
         edges = [edges[0], edges[1]]
 
         # Changed by Leon
-        x = x.reshape(n_batch * self._n_particles, self._n_dimensions)
+        x = x.reshape(n_batch * self._num_particles, self._num_dimensions)
         edge_attr = torch.sum((x[edges[0]] - x[edges[1]]) ** 2, dim=1, keepdim=True)
         _, x_final = self.egnn(self.h_initial.to(x), x, t, edges, edge_attr=edge_attr)
         vel = x_final - x
 
-        vel = vel.view(n_batch, self._n_particles, self._n_dimensions)
+        vel = vel.view(n_batch, self._num_particles, self._num_dimensions)
         vel = remove_mean(vel)
         self.counter += 1
-        return vel.view(n_batch, self._n_particles * self._n_dimensions)
+        return vel.view(n_batch, self._num_particles * self._num_dimensions)
 
     def _create_edges(self):
         rows, cols = [], []
-        for i in range(self._n_particles):
-            for j in range(i + 1, self._n_particles):
+        for i in range(self._num_particles):
+            for j in range(i + 1, self._num_particles):
                 rows.append(i)
                 cols.append(j)
                 rows.append(j)

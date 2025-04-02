@@ -57,7 +57,7 @@ class ALDPDataModule(PeptideDataModule):
         self.data_train = TransformDataset(train_data, transform=self.transforms) 
 
         # Split val and test data
-        self.data_val, self.data_test = test_data[:self.hparams.n_val_samples], test_data[self.hparams.n_val_samples:]
+        self.data_val, self.data_test = test_data[:self.hparams.num_val_samples], test_data[self.hparams.num_val_samples:]
 
         # Randomized ordering of val samples
         val_rng = np.random.default_rng(0)
@@ -65,10 +65,10 @@ class ALDPDataModule(PeptideDataModule):
 
         # Randomized ordering / subset of test samples
         test_rng = np.random.default_rng(1)
-        self.data_test = torch.tensor(test_rng.permutation(self.data_test))[self.hparams.n_test_samples:]
+        self.data_test = torch.tensor(test_rng.permutation(self.data_test))[self.hparams.num_test_samples:]
 
         # Smaller subset for plotting 
-        self.data_test_small = self.data_test[:self.hparams.n_test_samples_small]
+        self.data_test_small = self.data_test[:self.hparams.num_test_samples_small]
 
     def setup_potential(self):
 

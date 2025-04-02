@@ -7,6 +7,6 @@ pdb_filename: null
 batch_size: 64 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
 num_workers: 2
 pin_memory: False
-n_particles: 166
-n_dimensions: 3
+num_particles: 166
+num_dimensions: 3
 dim: 498

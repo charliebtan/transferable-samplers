@@ -73,7 +73,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
 
         if self.hparams.mean_free_prior:
             self.prior = MeanFreeNormalDistribution(
-                self.datamodule.hparams.dim, self.datamodule.hparams.n_particles, two_event_dims=False
+                self.datamodule.hparams.dim, self.datamodule.hparams.num_particles, two_event_dims=False
             )
         else:
             self.prior = NormalDistribution(self.datamodule.hparams.dim)

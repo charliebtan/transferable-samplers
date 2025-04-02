@@ -117,7 +117,7 @@ class BaseDataModule(LightningDataModule):
 
     def zero_center_of_mass(self, x):
         assert x.shape[-1] == self.hparams.dim
-        x = x.view(-1, self.hparams.n_particles, self.hparams.n_dimensions)
+        x = x.view(-1, self.hparams.num_particles, self.hparams.num_dimensions)
         x = x - x.mean(axis=1, keepdims=True)
         x = x.view(-1, self.hparams.dim)
         return x
@@ -126,7 +126,7 @@ class BaseDataModule(LightningDataModule):
         assert x.shape[-1] == self.hparams.dim
         assert self.std is not None, "Standard deviation should be computed first"
         assert self.std.numel() == 1, "Standard deviation should be scalar"
-        x = x.view(-1, self.hparams.n_particles, self.hparams.n_dimensions)
+        x = x.view(-1, self.hparams.num_particles, self.hparams.num_dimensions)
         x = x - x.mean(axis=1, keepdims=True)
         x = x / self.std
         x = x.view(-1, self.hparams.dim)
@@ -141,7 +141,7 @@ class BaseDataModule(LightningDataModule):
 
     def as_original_pointcloud(self, x: torch.Tensor) -> torch.Tensor:
         x = self.unnormalize(x)
-        return x.view(-1, self.hparams.n_particles, self.hparams.n_dimensions)
+        return x.view(-1, self.hparams.num_particles, self.hparams.num_dimensions)
 
     def energy(self, x, use_com_energy=False):
 
@@ -152,7 +152,7 @@ class BaseDataModule(LightningDataModule):
             sigma = self.proposal_com_std
 
             # self.std is the std dev of com augmentation in normalised scale
-            com = x.view(-1, self.hparams.n_particles, self.hparams.n_dimensions).mean(axis=1)
+            com = x.view(-1, self.hparams.num_particles, self.hparams.num_dimensions).mean(axis=1)
             com_norm = com.norm(dim=-1)
             com_energy = com_norm**2 / (2 * sigma**2) - torch.log(
                 com_norm**2 / (math.sqrt(2) * sigma**3 * scipy.special.gamma(3 / 2))

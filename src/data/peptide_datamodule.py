@@ -34,16 +34,16 @@ class PeptideDataModule(BaseDataModule):
         pdb_url: str,
         data_filename: str,
         pdb_filename: str,
-        n_particles: int,
-        n_dimensions: int,
+        num_particles: int,
+        num_dimensions: int,
         dim: int,
         make_iid: bool = False,
         com_augmentation: bool = False,
         # TODO maybe make this all just *args?
-        n_train_samples: int = 100_000, # First N trajectory samples
-        n_val_samples: int = 20_000, # Following M trajectory samples
-        n_test_samples: int = 100_000, # Random K trajectory samples from the rest
-        n_test_samples_small: int = 10_000, # Smaller subset for plotting etc
+        num_train_samples: int = 100_000, # First N trajectory samples
+        num_val_samples: int = 20_000, # Following M trajectory samples
+        num_test_samples: int = 100_000, # Random K trajectory samples from the rest
+        num_test_samples_small: int = 10_000, # Smaller subset for plotting etc
         batch_size: int = 64,
         num_workers: int = 0,
         pin_memory: bool = False,
@@ -51,15 +51,15 @@ class PeptideDataModule(BaseDataModule):
         energy_hist_config: Optional[Dict[str, Any]] = None,
     ):
         super().__init__()
-        assert dim == n_particles * n_dimensions
+        assert dim == num_particles * num_dimensions
 
         self.data_path = f"{self.hparams.data_dir}/{self.hparams.data_filename}"
         self.pdb_path = f"{self.hparams.data_dir}/{self.hparams.pdb_filename}" if self.hparams.pdb_filename else None
 
         # Setup transforms
-        transform_list = [Random3DRotationTransform(self.hparams.n_particles, self.hparams.n_dimensions)]
+        transform_list = [Random3DRotationTransform(self.hparams.num_particles, self.hparams.num_dimensions)]
         if self.hparams.com_augmentation:
-            transform_list.append(CenterOfMassTransform(self.hparams.n_particles, self.hparams.n_dimensions, 1 / math.sqrt(self.hparams.n_particles))) # TODO check these values
+            transform_list.append(CenterOfMassTransform(self.hparams.num_particles, self.hparams.num_dimensions, 1 / math.sqrt(self.hparams.num_particles))) # TODO check these values
         self.transforms = torchvision.transforms.Compose(transform_list)
 
     def prepare_data(self) -> None:
@@ -103,8 +103,8 @@ class PeptideDataModule(BaseDataModule):
         data = self.zero_center_of_mass(data)
 
         # Split data
-        train_data = data[:self.hparams.n_train_samples]
-        test_data = data[self.hparams.n_train_samples:]
+        train_data = data[:self.hparams.num_train_samples]
+        test_data = data[self.hparams.num_train_samples:]
 
         # Compute std on only train data
         self.std = train_data.std()
@@ -117,7 +117,7 @@ class PeptideDataModule(BaseDataModule):
         self.data_train = TransformDataset(train_data, transform=self.transforms) 
 
         # Split val and test data
-        self.data_val, self.data_test = test_data[:self.hparams.n_val_samples], test_data[self.hparams.n_val_samples:]
+        self.data_val, self.data_test = test_data[:self.hparams.num_val_samples], test_data[self.hparams.num_val_samples:]
 
         # Randomized ordering of val samples
         val_rng = np.random.default_rng(0)
@@ -125,10 +125,10 @@ class PeptideDataModule(BaseDataModule):
 
         # Randomized ordering / subset of test samples
         test_rng = np.random.default_rng(1)
-        self.data_test = torch.tensor(test_rng.permutation(self.data_test))[self.hparams.n_test_samples:]
+        self.data_test = torch.tensor(test_rng.permutation(self.data_test))[self.hparams.num_test_samples:]
 
         # Smaller subset for plotting 
-        self.data_test_small = self.data_test[:self.hparams.n_test_samples_small]
+        self.data_test_small = self.data_test[:self.hparams.num_test_samples_small]
 
     def setup_potential(self):
 
@@ -138,7 +138,7 @@ class PeptideDataModule(BaseDataModule):
             self.topology = md.load(self.data_path).topology.to_openmm()
     
         # Different system configs for different datasets
-        if self.hparams.n_particles == 42:
+        if self.hparams.num_particles == 42:
             forcefield = openmm.app.ForceField("amber99sbildn.xml", "tip3p.xml", "amber99_obc.xml")
             nonbondedMethod = openmm.app.NoCutoff
             nonbondedCutoff = 0.9 * openmm.unit.nanometer

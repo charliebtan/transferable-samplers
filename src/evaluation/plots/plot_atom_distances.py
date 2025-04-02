@@ -9,14 +9,14 @@ matplotlib.rcParams["font.family"] = "STIXGeneral"
 
 def interatomic_dist(x):
     
-    n_particles = x.shape[1]
+    num_particles = x.shape[1]
 
     # Compute the pairwise interatomic distances
     # removes duplicates and diagonal
     distances = x[:, None, :, :] - x[:, :, None, :]
     distances = distances[
         :,
-        torch.triu(torch.ones((n_particles, n_particles)), diagonal=1) == 1,
+        torch.triu(torch.ones((num_particles, num_particles)), diagonal=1) == 1,
     ]
     dist = torch.linalg.norm(distances, dim=-1)
 
