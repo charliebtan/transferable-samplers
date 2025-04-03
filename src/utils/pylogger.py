@@ -1,5 +1,6 @@
 import logging
-from typing import Mapping, Optional
+from collections.abc import Mapping
+from typing import Optional
 
 from lightning_utilities.core.rank_zero import rank_prefixed_message, rank_zero_only
 

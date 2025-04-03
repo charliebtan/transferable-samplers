@@ -1,5 +1,6 @@
 import torch
 
+
 class TransformDataset(torch.utils.data.Dataset):
     def __init__(self, data: torch.Tensor, transform=None):
         self.data = data

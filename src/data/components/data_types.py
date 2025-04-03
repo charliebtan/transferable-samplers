@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 import torch
 
+
 @dataclass
 class SamplesData:
     samples: torch.Tensor
@@ -17,4 +18,8 @@ class SamplesData:
         return len(self.samples)
 
     def __getitem__(self, index):
-        return SamplesData(self.samples[index], self.energy[index], self.logits[index] if self.logits is not None else None)
+        return SamplesData(
+            self.samples[index],
+            self.energy[index],
+            self.logits[index] if self.logits is not None else None,
+        )

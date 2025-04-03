@@ -1,10 +1,9 @@
-import math
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
-from lightning import LightningDataModule
 import torch
+from lightning import LightningDataModule
 from torch.utils.data import DataLoader
-import scipy
+
 
 class BaseDataModule(LightningDataModule):
     def __init__(
@@ -100,14 +99,14 @@ class BaseDataModule(LightningDataModule):
         """
         pass
 
-    def state_dict(self) -> Dict[Any, Any]:
+    def state_dict(self) -> dict[Any, Any]:
         """Called when saving a checkpoint. Implement to generate and save the datamodule state.
 
         :return: A dictionary containing the datamodule state that you want to save.
         """
         return {}
 
-    def load_state_dict(self, state_dict: Dict[str, Any]) -> None:
+    def load_state_dict(self, state_dict: dict[str, Any]) -> None:
         """Called when loading a checkpoint. Implement to reload datamodule state given datamodule
         `state_dict()`.
 
@@ -152,6 +151,7 @@ class BaseDataModule(LightningDataModule):
         x = self.unnormalize(x)
         energy = self.potential.energy(x).flatten()
         return energy
+
 
 if __name__ == "__main__":
     _ = BaseDataModule()

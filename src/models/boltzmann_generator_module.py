@@ -1,6 +1,6 @@
 import logging
 import time
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Optional
 
 import hydra
 import matplotlib.pyplot as plt
@@ -12,17 +12,15 @@ from lightning.pytorch.loggers import WandbLogger
 from torchmetrics import MeanMetric
 from tqdm import tqdm
 
+from src.data.components.data_types import SamplesData
 from src.models.components.ema import EMA
 from src.models.components.smc_sampler import SMCSampler
-from src.models.components.utils import RunningMedian, resample
-
-from src.data.components.data_types import SamplesData
+from src.models.components.utils import resample
 
 logger = logging.getLogger(__name__)
 
 
 class BoltzmannGeneratorLitModule(LightningModule):
-
     def __init__(
         self,
         net: torch.nn.Module,
@@ -75,7 +73,9 @@ class BoltzmannGeneratorLitModule(LightningModule):
 
         if self.hparams.mean_free_prior:
             self.prior = MeanFreeNormalDistribution(
-                self.datamodule.hparams.dim, self.datamodule.hparams.num_particles, two_event_dims=False
+                self.datamodule.hparams.dim,
+                self.datamodule.hparams.num_particles,
+                two_event_dims=False,
             )
         else:
             self.prior = NormalDistribution(self.datamodule.hparams.dim)
@@ -91,9 +91,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
                 if isinstance(logger, WandbLogger):
                     logger.log_image(title, [img])
 
-    def training_step(
-        self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
-    ) -> torch.Tensor:
+    def training_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> torch.Tensor:
         """Perform a single training step on a batch of data from the training set.
 
         :param batch: A batch of data (a tuple) containing the input tensor of images and target
@@ -118,7 +116,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         if self.hparams.compile and stage == "fit":
             self.net = torch.compile(self.net)
 
-    def configure_optimizers(self) -> Dict[str, Any]:
+    def configure_optimizers(self) -> dict[str, Any]:
         """Choose what optimizers and learning-rate schedulers to use in your optimization.
         Normally you'd need one. But in the case of GANs or similar you might have multiple.
 
@@ -154,7 +152,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
 
     def batched_generate_samples(
         self, total_size: int, batch_size: Optional[int] = None, dummy_ll: bool = False
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         if batch_size is None:
             batch_size = self.hparams.sampling_config.batch_size
         samples = []
@@ -177,7 +175,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
 
     def generate_samples(
         self, batch_size: int, n_timesteps: int = None
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Generate samples from the model.
 
         :param batch_size: The batch size to use for generating samples.
@@ -191,7 +189,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
     @torch.no_grad()
     def eval_step(
         self,
-        batch: Tuple[torch.Tensor, torch.Tensor],
+        batch: tuple[torch.Tensor, torch.Tensor],
         batch_idx: int,
         prefix: str = "val",
     ) -> None:
@@ -202,13 +200,13 @@ class BoltzmannGeneratorLitModule(LightningModule):
             elif prefix == "test":
                 self.test_metrics.update(loss)
 
-    def validation_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
+    def validation_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
         """Perform a single validation step on a batch of data from the validation set.
         :param batch_idx: The index of the current batch.
         """
         self.eval_step(batch, batch_idx, prefix="val")
 
-    def test_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
+    def test_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
         """Perform a single test step on a batch of data from the test set.
         :param batch_idx: The index of the current batch.
         """
@@ -294,13 +292,14 @@ class BoltzmannGeneratorLitModule(LightningModule):
         )
 
         # Compute resampling index
-        resampling_logits = proposal_samples_energy - proposal_log_p # TODO CoM
+        resampling_logits = proposal_samples_energy - proposal_log_p  # TODO CoM
 
-        # Filter samples based on logit clipping
+        # Filter samples based on logit clipping
         # This only affects the reweighted sampling metrics (not input to Jarzyinski)
         if self.hparams.sampling_config.clip_reweighting_logits:
             clipped_logits_mask = resampling_logits > torch.quantile(
-                resampling_logits, 1 - float(self.hparams.sampling_config.clip_reweighting_logits)
+                resampling_logits,
+                1 - float(self.hparams.sampling_config.clip_reweighting_logits),
             )
             proposal_samples_clipped = proposal_samples[~clipped_logits_mask]
             resampling_logits_clipped = resampling_logits[~clipped_logits_mask]
@@ -315,37 +314,30 @@ class BoltzmannGeneratorLitModule(LightningModule):
         )
 
         if self.smc_sampler is not None and self.smc_sampler.enabled:
-
             # TODO remove this once refactored
             self.smc_sampler.use_com_energy = self.hparams.use_com_energy
 
             logging.info("SMC sampling enabled")
 
-            num_smc_samples = min(
-                self.hparams.sampling_config.num_smc_samples, len(proposal_samples)
-            )
+            num_smc_samples = min(self.hparams.sampling_config.num_smc_samples, len(proposal_samples))
 
             # Generate smc samples and record time
             torch.cuda.synchronize()
             start_time = time.time()
             smc_samples, smc_logits = self.smc_sampler.sample(
                 proposal_samples[:num_smc_samples]
-            ) # already returned resampled
+            )  # already returned resampled
             torch.cuda.synchronize()
             time_duration = time.time() - start_time
             self.log(f"{prefix}/smc/samples_walltime", time_duration)
-            self.log(
-                f"{prefix}/smc/samples_per_second", len(smc_samples) / time_duration
-            )
+            self.log(f"{prefix}/smc/samples_per_second", len(smc_samples) / time_duration)
 
             # Save samples to disk
             smc_samples_dict = {
                 "smc_samples": smc_samples,
                 "smc_logits": smc_logits,
             }
-            logging.info(
-                f"Saving {len(smc_samples)} samples to {output_dir}/{prefix}_smc_samples.pt"
-            )
+            logging.info(f"Saving {len(smc_samples)} samples to {output_dir}/{prefix}_smc_samples.pt")
             torch.save(smc_samples_dict, f"{output_dir}/{prefix}_smc_samples.pt")
 
             # Datatype for easier metrics and plotting
@@ -395,24 +387,19 @@ class BoltzmannGeneratorLitModule(LightningModule):
         logging.info("Test epoch end")
 
     def on_after_backward(self) -> None:
-
         valid_gradients = True
         flat_grads = torch.cat([p.grad.view(-1) for p in self.parameters() if p.grad is not None])
         global_norm = torch.norm(flat_grads, p=2)
-        for name, param in self.named_parameters():
+        for _name, param in self.named_parameters():
             if param.grad is not None:
-                valid_gradients = not (
-                    torch.isnan(param.grad).any() or torch.isinf(param.grad).any()
-                )
+                valid_gradients = not (torch.isnan(param.grad).any() or torch.isinf(param.grad).any())
 
                 if not valid_gradients:
                     break
 
         self.log("global_gradient_norm", global_norm, on_step=True, prog_bar=True)
         if not valid_gradients:
-            logger.warning(
-                "detected inf or nan values in gradients. not updating model parameters"
-            )
+            logger.warning("detected inf or nan values in gradients. not updating model parameters")
             self.zero_grad()
             return
 
@@ -434,6 +421,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
     def proposal_energy(self, x: torch.Tensor) -> torch.Tensor:
         # x is considered to be a sample from the proposal distribution
         raise NotImplementedError
+
 
 if __name__ == "__main__":
     _ = BoltzmannGeneratorLitModule(None, None, None, None)

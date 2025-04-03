@@ -10,13 +10,7 @@ def gaussian(x, n):
 def rademacher(x, n):
     shape = list(x.size())
     shape[0] *= n
-    return (
-        torch.randint(
-            low=0, high=2, size=shape, dtype=x.dtype, layout=x.layout, device=x.device
-        ).float()
-        * 2
-        - 1.0
-    )
+    return torch.randint(low=0, high=2, size=shape, dtype=x.dtype, layout=x.layout, device=x.device).float() * 2 - 1.0
 
 
 class TorchdynWrapper(torch.nn.Module):
@@ -24,7 +18,12 @@ class TorchdynWrapper(torch.nn.Module):
     in likelihood over time."""
 
     def __init__(
-        self, model, d_base: int = None, div_estimator="exact", logp_tol_scale=1.0, n_eps=1
+        self,
+        model,
+        d_base: int = None,
+        div_estimator="exact",
+        logp_tol_scale=1.0,
+        n_eps=1,
     ):
         super().__init__()
         self.model = model
@@ -47,9 +46,7 @@ class TorchdynWrapper(torch.nn.Module):
             elif div_estimator == "hutch_rademacher":
                 self.eps_fn = rademacher
             else:
-                raise NotImplementedError(
-                    f"likelihood estimator {div_estimator} is not implemented"
-                )
+                raise NotImplementedError(f"likelihood estimator {div_estimator} is not implemented")
 
     def div_fn_hutch(self, t, x):
         """Hutchingson's trace estimator for the divergence of the vector field.

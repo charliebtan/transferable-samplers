@@ -1,8 +1,7 @@
 import logging
 import math
-from typing import Tuple
-import scipy
 
+import scipy
 import torch
 from bgflow import NormalDistribution
 
@@ -40,7 +39,7 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
         x1 = batch
         x0, dlogp = self.net(x1)
 
-        if self.hparams.force_gaussian_loss: # TODO can we remove this now?
+        if self.hparams.force_gaussian_loss:  # TODO can we remove this now?
             loss = (0.5 * x0.pow(2)).mean() - dlogp.mean()
         else:
             loss = self.prior.energy(x0).mean() - dlogp.mean()
@@ -53,7 +52,6 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
         return loss
 
     def com_energy_adjustment(self, x: torch.Tensor) -> torch.Tensor:
-
         logging.info("Applying CoM adjustment")
 
         assert self.proposal_com_std is not None, "Center of mass std should be set"
@@ -69,7 +67,6 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
         return com_energy
 
     def proposal_energy(self, x: torch.Tensor) -> torch.Tensor:
-
         x_pred, fwd_logdets = self.net(x)
         fwd_logdets = fwd_logdets * self.datamodule.hparams.dim  # rescale from mean to sum
 
@@ -93,7 +90,7 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
         batch_size: int,
         n_timesteps: int = None,
         dummy_ll=False,
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Generate samples from the model.
 
         :param batch_size: The batch size to use for generating samples.
@@ -110,16 +107,25 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
         prior_log_p = -self.prior.energy(prior_samples)
 
         with torch.no_grad():
-
             x_pred = self.net.reverse(prior_samples)
             x_recon, fwd_logdets = self.net(x_pred)
             fwd_logdets = fwd_logdets * self.datamodule.hparams.dim  # rescale from mean to sum
 
             self.log("invert/mse", torch.mean((prior_samples - x_recon) ** 2), sync_dist=True)
-            self.log("invert/max_abs", torch.max(abs(prior_samples - x_recon)), sync_dist=True)
-            self.log("invert/mean_abs", torch.mean(abs(prior_samples - x_recon)), sync_dist=True)
             self.log(
-                "invert/median_abs", torch.median(abs(prior_samples - x_recon)), sync_dist=True
+                "invert/max_abs",
+                torch.max(abs(prior_samples - x_recon)),
+                sync_dist=True,
+            )
+            self.log(
+                "invert/mean_abs",
+                torch.mean(abs(prior_samples - x_recon)),
+                sync_dist=True,
+            )
+            self.log(
+                "invert/median_abs",
+                torch.median(abs(prior_samples - x_recon)),
+                sync_dist=True,
             )
             cutoff = 0.01
             self.log(

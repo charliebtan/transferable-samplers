@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any
 
 from lightning_utilities.core.rank_zero import rank_zero_only
 from omegaconf import OmegaConf
@@ -9,7 +9,7 @@ log = pylogger.RankedLogger(__name__, rank_zero_only=True)
 
 
 @rank_zero_only
-def log_hyperparameters(object_dict: Dict[str, Any], resolve: bool = True) -> None:
+def log_hyperparameters(object_dict: dict[str, Any], resolve: bool = True) -> None:
     """Controls which config parts are saved by Lightning loggers.
 
     Additionally saves:
@@ -33,12 +33,8 @@ def log_hyperparameters(object_dict: Dict[str, Any], resolve: bool = True) -> No
 
     # save number of model parameters
     hparams["model/params/total"] = sum(p.numel() for p in model.parameters())
-    hparams["model/params/trainable"] = sum(
-        p.numel() for p in model.parameters() if p.requires_grad
-    )
-    hparams["model/params/non_trainable"] = sum(
-        p.numel() for p in model.parameters() if not p.requires_grad
-    )
+    hparams["model/params/trainable"] = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    hparams["model/params/non_trainable"] = sum(p.numel() for p in model.parameters() if not p.requires_grad)
 
     hparams["data"] = cfg["data"]
     hparams["trainer"] = cfg["trainer"]

@@ -1,5 +1,5 @@
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 import rich
 import rich.syntax
@@ -47,9 +47,7 @@ def print_config_tree(
         (
             queue.append(field)
             if field in cfg
-            else log.warning(
-                f"Field '{field}' not found in config. Skipping '{field}' config printing..."
-            )
+            else log.warning(f"Field '{field}' not found in config. Skipping '{field}' config printing...")
         )
 
     # add all the other fields to queue (not specified in `print_order`)

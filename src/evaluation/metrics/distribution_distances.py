@@ -72,6 +72,7 @@ def distribution_distances(pred: torch.Tensor, true: Union[torch.Tensor, list], 
 
     return dict(zip(NAMES, dists))
 
+
 def find_rigid_alignment(A, B):
     """
     See: https://en.wikipedia.org/wiki/Kabsch_algorithm

@@ -31,9 +31,7 @@ class EGNN_dynamics_AD2_cat(nn.Module):
         self._num_dimensions = num_dimensions
         if num_particles >= 53:
             self.data_dir = data_dir
-            self.atom_types_encoding = np.load(
-                f"{self.data_dir}/{atom_encoding_filename}", allow_pickle=True
-            ).item()
+            self.atom_types_encoding = np.load(f"{self.data_dir}/{atom_encoding_filename}", allow_pickle=True).item()
             self.pdb_path = f"{self.data_dir}/{pdb_filename}"
             self.topology = md.load_topology(self.pdb_path)
         # Initial one hot encoding of the different element types
@@ -88,7 +86,6 @@ class EGNN_dynamics_AD2_cat(nn.Module):
             return self.get_hidden()
 
     def get_hidden(self):
-        n_encodings = 78
         amino_dict = {
             "ALA": 0,
             "ARG": 1,
@@ -115,7 +112,6 @@ class EGNN_dynamics_AD2_cat(nn.Module):
         amino_idx = []
         amino_types = []
         for i, amino in enumerate(self.topology.residues):
-
             for atom_name in amino.atoms:
                 amino_idx.append(i)
                 amino_types.append(amino_dict[amino.name])
@@ -132,9 +128,7 @@ class EGNN_dynamics_AD2_cat(nn.Module):
                 if atom_name.name[:2] == "OE" or atom_name.name[:2] == "OD":
                     atom_name.name = atom_name.name[:-1]
                 atom_types.append(atom_name.name)
-        atom_types_dict = np.array(
-            [self.atom_types_encoding[atom_type] for atom_type in atom_types]
-        )
+        atom_types_dict = np.array([self.atom_types_encoding[atom_type] for atom_type in atom_types])
         atom_onehot = torch.nn.functional.one_hot(
             torch.tensor(atom_types_dict), num_classes=len(self.atom_types_encoding)
         )
@@ -142,9 +136,7 @@ class EGNN_dynamics_AD2_cat(nn.Module):
             num_classes = 5
         elif self._num_particles == 63:
             num_classes = 6
-        amino_idx_onehot = torch.nn.functional.one_hot(
-            torch.tensor(amino_idx), num_classes=num_classes
-        )
+        amino_idx_onehot = torch.nn.functional.one_hot(torch.tensor(amino_idx), num_classes=num_classes)
         amino_types_onehot = torch.nn.functional.one_hot(torch.tensor(amino_types), num_classes=20)
 
         h_initial = torch.cat([amino_idx_onehot, amino_types_onehot, atom_onehot], dim=1)
