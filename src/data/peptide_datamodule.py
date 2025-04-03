@@ -14,11 +14,11 @@ from bgflow import OpenMMBridge, OpenMMEnergy
 
 from src.data.base_datamodule import BaseDataModule
 from src.data.components.center_of_mass import CenterOfMassTransform
-from src.data.components.data_types import SamplesData
+from src.data.components.data_types import PeptideEncodings, SamplesData
 from src.data.components.encodings import AA_TYPE_ENCODING_DICT, ATOM_TYPE_ENCODING_DICT
 from src.data.components.rotation import Random3DRotationTransform
 from src.data.components.symmetry import check_symmetry_change
-from src.data.components.transform_dataset import TransformDataset
+from src.data.components.transform_dataset import PeptideDataset
 from src.evaluation.metrics.distribution_distances import (
     distribution_distances,
     energy_distances,
@@ -91,57 +91,6 @@ class PeptideDataModule(BaseDataModule):
         if self.pdb_path and not os.path.exists(self.pdb_path):
             wget.download(self.hparams.pdb_url, self.pdb_path)
 
-    def setup_data(self):
-        # Load the data
-        if self.data_path[-3:] == "npy":
-            data = np.load(self.data_path, allow_pickle=True)
-        elif self.data_path[-2:] == "h5":
-            data = md.load(self.data_path).xyz
-        else:
-            raise ValueError(f"Unknown file format for {self.data_path}")
-
-        # Reshape and tensorize
-        data = data.reshape(-1, self.hparams.dim)
-        data = torch.tensor(data).float()
-
-        if self.hparams.make_iid:
-            rand_idx = torch.randperm(data.shape[0])
-            data = data[rand_idx]
-
-        # Zero center of mass
-        data = self.zero_center_of_mass(data)
-
-        # Split data
-        train_data = data[: self.hparams.num_train_samples]
-        test_data = data[self.hparams.num_train_samples :]
-
-        # Compute std on only train data
-        self.std = train_data.std()
-
-        # Standardize the data
-        train_data = self.normalize(train_data)
-        test_data = self.normalize(test_data)
-
-        # Create training dataset with transforms applied
-        self.data_train = TransformDataset(train_data, transform=self.transforms)
-
-        # Split val and test data
-        self.data_val, self.data_test = (
-            test_data[: self.hparams.num_val_samples],
-            test_data[self.hparams.num_val_samples :],
-        )
-
-        # Randomized ordering of val samples
-        val_rng = np.random.default_rng(0)
-        self.data_val = torch.tensor(val_rng.permutation(self.data_val))
-
-        # Randomized ordering / subset of test samples
-        test_rng = np.random.default_rng(1)
-        self.data_test = torch.tensor(test_rng.permutation(self.data_test))[self.hparams.num_test_samples :]
-
-        # Smaller subset for plotting
-        self.data_test_small = self.data_test[: self.hparams.num_test_samples_small]
-
     def setup_potential(self):
         if self.pdb_path is not None:
             self.topology = md.load_topology(self.pdb_path)
@@ -179,21 +128,6 @@ class PeptideDataModule(BaseDataModule):
         # Initialize potential
         self.potential = OpenMMEnergy(bridge=OpenMMBridge(system, integrator, platform_name="CUDA"))
 
-    def setup_atom_types(self):
-        atom_dict = {"C": 0, "H": 1, "N": 2, "O": 3, "S": 4}
-        atom_types = []
-        for atom_name in self.topology.atoms:
-            atom_types.append(atom_name.name[0])
-        self.atom_types = torch.from_numpy(np.array([atom_dict[atom_type] for atom_type in atom_types]))
-
-    def setup_adj_list(self):
-        self.adj_list = torch.from_numpy(
-            np.array(
-                [(b.atom1.index, b.atom2.index) for b in self.topology.bonds],
-                dtype=np.int32,
-            )
-        )
-
     def setup_atom_encoding(self):
         aa_pos_encoding = []
         aa_type_encoding = []
@@ -224,9 +158,85 @@ class PeptideDataModule(BaseDataModule):
 
                 atom_type_encoding.append(ATOM_TYPE_ENCODING_DICT[atom.name])
 
-        self.atom_type_encoding = np.array(atom_type_encoding)
-        self.aa_pos_encoding = np.array(aa_pos_encoding)
-        self.aa_type_encoding = np.array(aa_type_encoding)
+        self.atom_type_encoding = torch.tensor(atom_type_encoding)
+        self.aa_pos_encoding = torch.tensor(aa_pos_encoding)
+        self.aa_type_encoding = torch.tensor(aa_type_encoding)
+
+        self.encodings = PeptideEncodings(
+            self.atom_type_encoding,
+            self.aa_pos_encoding,
+            self.aa_type_encoding,
+        )
+
+    def setup_data(self):
+        # Load the data
+        if self.data_path[-3:] == "npy":
+            data = np.load(self.data_path, allow_pickle=True)
+        elif self.data_path[-2:] == "h5":
+            data = md.load(self.data_path).xyz
+        else:
+            raise ValueError(f"Unknown file format for {self.data_path}")
+
+        # Reshape and tensorize
+        data = data.reshape(-1, self.hparams.dim)
+        data = torch.tensor(data).float()
+
+        if self.hparams.make_iid:
+            rand_idx = torch.randperm(data.shape[0])
+            data = data[rand_idx]
+
+        # Zero center of mass
+        data = self.zero_center_of_mass(data)
+
+        # Split data
+        train_data = data[: self.hparams.num_train_samples]
+        test_data = data[self.hparams.num_train_samples :]
+
+        # Compute std on only train data
+        self.std = train_data.std()
+
+        # Standardize the data
+        train_data = self.normalize(train_data)
+        test_data = self.normalize(test_data)
+
+        # Create training dataset with transforms applied
+        self.data_train = PeptideDataset(train_data, transform=self.transforms, encodings=self.encodings)
+
+        # Split val and test data
+        self.data_val, self.data_test = (
+            test_data[: self.hparams.num_val_samples],
+            test_data[self.hparams.num_val_samples :],
+        )
+
+        # Randomized ordering of val samples
+        val_rng = np.random.default_rng(0)
+        self.data_val = torch.tensor(val_rng.permutation(self.data_val))
+
+        # Randomized ordering / subset of test samples
+        test_rng = np.random.default_rng(1)
+        self.data_test = torch.tensor(test_rng.permutation(self.data_test))[self.hparams.num_test_samples :]
+
+        # Smaller subset for plotting
+        self.data_test_small = self.data_test[: self.hparams.num_test_samples_small]
+
+        # I actually thought better to apply transforms to val and test data too
+        self.dat_val = PeptideDataset(self.data_val, transform=self.transforms, encodings=self.encodings)
+        self.data_test = PeptideDataset(self.data_test, transform=self.transforms, encodings=self.encodings)
+
+    def setup_atom_types(self):
+        atom_dict = {"C": 0, "H": 1, "N": 2, "O": 3, "S": 4}
+        atom_types = []
+        for atom_name in self.topology.atoms:
+            atom_types.append(atom_name.name[0])
+        self.atom_types = torch.from_numpy(np.array([atom_dict[atom_type] for atom_type in atom_types]))
+
+    def setup_adj_list(self):
+        self.adj_list = torch.from_numpy(
+            np.array(
+                [(b.atom1.index, b.atom2.index) for b in self.topology.bonds],
+                dtype=np.int32,
+            )
+        )
 
     def setup(self, stage: Optional[str] = None) -> None:
         """Load data. Set variables: `self.data_train`, `self.data_val`, `self.data_test`.
@@ -247,11 +257,11 @@ class PeptideDataModule(BaseDataModule):
                 )
             self.batch_size_per_device = self.hparams.batch_size // self.trainer.world_size
 
-        self.setup_data()
         self.setup_potential()
+        self.setup_atom_encoding()
+        self.setup_data()
         self.setup_atom_types()
         self.setup_adj_list()
-        # self.setup_atom_encoding()
 
     def resolve_chirality(self, true_samples, pred_samples, prefix=""):
         symmetry_change = check_symmetry_change(true_samples, pred_samples, self.adj_list, self.atom_types)
