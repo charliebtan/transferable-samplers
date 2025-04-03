@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from bgmol.datasets import AImplicitUnconstrained
 
-from src.data.components.transform_dataset import PeptideDataset
+from src.data.components.peptide_dataset import PeptideDataset
 from src.data.peptide_datamodule import PeptideDataModule
 
 

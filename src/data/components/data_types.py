@@ -23,16 +23,3 @@ class SamplesData:
             self.energy[index],
             self.logits[index] if self.logits is not None else None,
         )
-
-
-@dataclass
-class PeptideEncodings:
-    atom_type: torch.Tensor
-    aa_pos: torch.Tensor
-    aa_type: torch.Tensor
-
-    def __post_init__(self):
-        assert len(self.atom_type) == len(self.aa_pos) == len(self.aa_type)
-
-    def __len__(self):
-        return len(self.atom_type)

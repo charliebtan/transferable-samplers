@@ -14,11 +14,11 @@ from bgflow import OpenMMBridge, OpenMMEnergy
 
 from src.data.base_datamodule import BaseDataModule
 from src.data.components.center_of_mass import CenterOfMassTransform
-from src.data.components.data_types import PeptideEncodings, SamplesData
+from src.data.components.data_types import SamplesData
 from src.data.components.encodings import AA_TYPE_ENCODING_DICT, ATOM_TYPE_ENCODING_DICT
+from src.data.components.peptide_dataset import PeptideDataset
 from src.data.components.rotation import Random3DRotationTransform
 from src.data.components.symmetry import check_symmetry_change
-from src.data.components.transform_dataset import PeptideDataset
 from src.evaluation.metrics.distribution_distances import (
     distribution_distances,
     energy_distances,
@@ -162,11 +162,11 @@ class PeptideDataModule(BaseDataModule):
         self.aa_pos_encoding = torch.tensor(aa_pos_encoding)
         self.aa_type_encoding = torch.tensor(aa_type_encoding)
 
-        self.encodings = PeptideEncodings(
-            self.atom_type_encoding,
-            self.aa_pos_encoding,
-            self.aa_type_encoding,
-        )
+        self.encodings = {
+            "atom_type": self.atom_type_encoding,
+            "aa_pos": self.aa_pos_encoding,
+            "aa_type": self.aa_type_encoding,
+        }
 
     def setup_data(self):
         # Load the data
@@ -220,7 +220,7 @@ class PeptideDataModule(BaseDataModule):
         self.data_test_small = self.data_test[: self.hparams.num_test_samples_small]
 
         # I actually thought better to apply transforms to val and test data too
-        self.dat_val = PeptideDataset(self.data_val, transform=self.transforms, encodings=self.encodings)
+        self.data_val = PeptideDataset(self.data_val, transform=self.transforms, encodings=self.encodings)
         self.data_test = PeptideDataset(self.data_test, transform=self.transforms, encodings=self.encodings)
 
     def setup_atom_types(self):
