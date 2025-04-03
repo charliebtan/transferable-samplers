@@ -31,6 +31,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         sampling_config,
         ema_decay: float,
         compile: bool,
+        transferable: bool = False,
         mean_free_prior: bool = True,
         stabilize_training: bool = False,
         use_com_adjustment: bool = False,
