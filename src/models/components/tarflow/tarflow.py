@@ -228,7 +228,6 @@ class MetaBlock(torch.nn.Module):
         attn_temp: float = 1.0,
         which_cache: str = "cond",
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        mask = mask[:, i : i + 1]
         x_in = x[:, i : i + 1]  # get i-th patch but keep the sequence dimension
         x = self.proj_in(x_in) + pos_embed[i : i + 1]
 
@@ -243,7 +242,10 @@ class MetaBlock(torch.nn.Module):
             cond_emb = self.proj_cond(cond_in)
             x = x + cond_emb
 
-        x = mask * x
+        if mask is not None:
+            mask = mask[:, i : i + 1]
+            x = mask * x
+
         for block in self.attn_blocks:
             x = block(x, attn_temp=attn_temp, which_cache=which_cache)  # here we use kv caching, so no attn_mask
         x = self.proj_out(x)
@@ -468,15 +470,9 @@ if __name__ == "__main__":
     print("logdet test passed")
 
     print("\nTest for Conditional TarFlow")
-    from embed import ConditionalEmbedder
 
     cond_in_channels = channels
-    embedder = ConditionalEmbedder(channels=channels)
-    atom_type = torch.randint(low=0, high=54, size=(128, img_size // in_channels))
-    residue_type = torch.randint(low=0, high=20, size=(128, img_size // in_channels))
-    residue_pos = torch.randint(low=0, high=23, size=(128, img_size // in_channels))
-
-    cond = embedder(atom_type, residue_type, residue_pos)
+    cond = torch.randn(128, img_size // in_channels, channels)
     cond = cond.reshape(-1, cond.shape[1] * cond.shape[2])
     assert cond.shape == (128, img_size // in_channels * channels)
 
@@ -502,6 +498,63 @@ if __name__ == "__main__":
             fwd_logdets = fwd_logdets * img_size  # rescale from mean to sum
 
         rev_jac_true = torch.autograd.functional.jacobian(model.reverse, (x_i, cond_i), vectorize=True)
+        rev_logdets_true = torch.logdet(rev_jac_true[0].squeeze())
+
+        logdets_diff = torch.mean(abs(-fwd_logdets - rev_logdets_true))
+        assert torch.allclose(-fwd_logdets, rev_logdets_true, atol=1e-7), print(f"Log Dets Diff: {logdets_diff}")
+    print("logdet test passed")
+
+    print("\nTest for Conditional TarFlow w/ Mask")
+    from torch.nn.functional import pad
+
+    img_size1 = 33
+    img_size2 = 66
+    bs = 16
+
+    img_size = max(img_size1, img_size2)
+    in_channels = 3
+    cond_in_channels = channels
+    patch_size = 1
+    channels = 64
+    num_blocks = 3
+    layers_per_block = 2
+
+    x1 = torch.randn([bs // 2, img_size1])
+    x2 = torch.randn([bs // 2, img_size2])
+
+    x1 = pad(x1, (0, img_size - img_size1), "constant", 0)
+    x2 = pad(x2, (0, img_size - img_size2), "constant", 0)
+
+    x = torch.concat([x1, x2], axis=0)
+    mask = torch.where(x == 0, 0, 1).type(torch.float32)
+    mask = mask.reshape(-1, img_size // in_channels, in_channels)
+    mask = mask.mean(-1, keepdims=True)
+
+    cond = torch.randn(bs, img_size // in_channels, channels)
+    cond = cond.reshape(-1, cond.shape[1] * cond.shape[2])
+
+    model = TarFlow(in_channels, img_size, patch_size, channels, num_blocks, layers_per_block, cond_in_channels)
+
+    x_pred, _ = model.forward(x, cond, mask)
+    x_recon = model.reverse(x_pred, cond, mask)
+
+    print(torch.abs(x - x_recon).mean())
+    print(torch.mean((x - x_recon) ** 2))
+    print(torch.max(abs(x - x_recon)))
+
+    assert torch.allclose(x, x_recon, atol=1e-7), "Invertibility test failed"
+    print("Invertibility test passed")
+
+    for i in range(16):
+        x_i = x[i : i + 1]
+        cond_i = cond[i : i + 1]
+        mask_i = mask[i : i + 1]
+        with torch.no_grad():
+            x_pred = model.reverse(x_i, cond_i, mask_i)
+            x_recon, fwd_logdets = model(x_pred, cond_i, mask_i)
+            fwd_logdets = fwd_logdets * img_size  # rescale from mean to sum
+
+        rev_jac_true = torch.autograd.functional.jacobian(model.reverse, (x_i, cond_i, mask_i), vectorize=True)
         rev_logdets_true = torch.logdet(rev_jac_true[0].squeeze())
 
         logdets_diff = torch.mean(abs(-fwd_logdets - rev_logdets_true))
