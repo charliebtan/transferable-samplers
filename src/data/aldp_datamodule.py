@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from bgmol.datasets import AImplicitUnconstrained
 
-from src.data.components.transform_dataset import TransformDataset
+from src.data.components.peptide_dataset import PeptideDataset
 from src.data.peptide_datamodule import PeptideDataModule
 
 
@@ -54,7 +54,7 @@ class ALDPDataModule(PeptideDataModule):
         test_data = self.normalize(test_data)
 
         # Create training dataset with transforms applied
-        self.data_train = TransformDataset(train_data, transform=self.transforms)
+        self.data_train = PeptideDataset(train_data, transform=self.transforms)
 
         # Split val and test data
         self.data_val, self.data_test = (
