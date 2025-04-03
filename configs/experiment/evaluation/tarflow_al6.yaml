@@ -11,7 +11,7 @@ model:
   sampling_config:
     batch_size: 10_000
     num_test_proposal_samples: 100_000
-    num_smc_samples: 1_000_000
+    num_smc_samples: 100_000
     clip_reweighting_logits: 0.002
   net:
     in_channels: 3
