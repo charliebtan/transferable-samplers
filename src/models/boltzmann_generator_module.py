@@ -242,10 +242,10 @@ class BoltzmannGeneratorLitModule(LightningModule):
 
         if prefix.startswith("test"):
             num_proposal_samples = self.hparams.sampling_config.num_test_proposal_samples
-            true_samples = self.datamodule.data_test
+            true_samples, encodings = self.datamodule.data_test.data, self.datamodule.data_test.encodings  # noqa: F841
         else:
             num_proposal_samples = self.hparams.sampling_config.num_proposal_samples
-            true_samples = self.datamodule.data_val
+            true_samples, encodings = self.datamodule.data_val.data, self.datamodule.data_val.encodings  # noqa: F841
 
         true_data = SamplesData(
             self.datamodule.as_pointcloud(self.datamodule.unnormalize(true_samples)),

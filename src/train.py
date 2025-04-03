@@ -11,10 +11,10 @@ from omegaconf import DictConfig
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
-from src.utils.instantiators import instantiate_callbacks, instantiate_loggers # ruff: noqa: E402
-from src.utils.logging_utils import log_hyperparameters # ruff: noqa: E402
-from src.utils.pylogger import RankedLogger # ruff: noqa: E402
-from src.utils.utils import extras, get_metric_value, task_wrapper # ruff: noqa: E402
+from src.utils.instantiators import instantiate_callbacks, instantiate_loggers  # noqa: E402
+from src.utils.logging_utils import log_hyperparameters  # noqa: E402
+from src.utils.pylogger import RankedLogger  # noqa: E402
+from src.utils.utils import extras, get_metric_value, task_wrapper  # noqa: E402
 
 torch.set_float32_matmul_precision("high")  # high at minimum!
 torch.backends.cuda.matmul.allow_tf32 = False

@@ -33,7 +33,7 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
         self,
         batch: torch.Tensor,
     ) -> torch.Tensor:
-        x1 = batch
+        x1, encodings = batch
         x0, dlogp = self.net(x1)
 
         if self.hparams.force_gaussian_loss:  # TODO can we remove this now?

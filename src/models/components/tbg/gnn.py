@@ -27,7 +27,7 @@ class GNN(nn.Module):
         self.embedding_out = nn.Linear(self.hidden_nf, out_node_nf)
         for i in range(0, n_layers):
             self.add_module(
-                "gcl_%d" % i,
+                f"gcl_{i}",
                 GCL(
                     self.hidden_nf,
                     self.hidden_nf,
@@ -45,9 +45,7 @@ class GNN(nn.Module):
         # Edit Emiel: Remove velocity as input
         h = self.embedding(h)
         for i in range(0, self.n_layers):
-            h, _ = self._modules["gcl_%d" % i](
-                h, edges, edge_attr=edge_attr, node_mask=node_mask, edge_mask=edge_mask
-            )
+            h, _ = self._modules[f"gcl_{i}"](h, edges, edge_attr=edge_attr, node_mask=node_mask, edge_mask=edge_mask)
         h = self.embedding_out(h)
 
         # Important, the bias of the last linear might be non-zero
