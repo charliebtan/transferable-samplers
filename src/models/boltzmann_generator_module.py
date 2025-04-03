@@ -6,7 +6,7 @@ import hydra
 import matplotlib.pyplot as plt
 import torch
 import torchmetrics
-from bgflow import MeanFreeNormalDistribution, NormalDistribution
+from bgflow import NormalDistribution
 from lightning import LightningDataModule, LightningModule
 from lightning.pytorch.loggers import WandbLogger
 from torchmetrics import MeanMetric
@@ -28,11 +28,9 @@ class BoltzmannGeneratorLitModule(LightningModule):
         scheduler: torch.optim.lr_scheduler,
         datamodule: LightningDataModule,
         smc_sampler: SMCSampler,
-        sampling_config,
+        sampling_config: dict,
         ema_decay: float,
         compile: bool,
-        mean_free_prior: bool = True,
-        stabilize_training: bool = False,
         use_com_adjustment: bool = False,
         *args,
         **kwargs,
@@ -71,14 +69,9 @@ class BoltzmannGeneratorLitModule(LightningModule):
         self.val_metrics = self.train_metrics.clone(prefix="val/")
         self.test_metrics = self.train_metrics.clone(prefix="test/")
 
-        if self.hparams.mean_free_prior:
-            self.prior = MeanFreeNormalDistribution(
-                self.datamodule.hparams.dim,
-                self.datamodule.hparams.num_particles,
-                two_event_dims=False,
-            )
-        else:
-            self.prior = NormalDistribution(self.datamodule.hparams.dim)
+        self.prior = NormalDistribution(
+            self.datamodule.hparams.dim  # for transferable this will be the dim of the largest peptide
+        )
 
     def log_image(self, img: torch.Tensor, title: str = None) -> None:
         """Log an image to the logger.

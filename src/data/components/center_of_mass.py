@@ -2,15 +2,14 @@ import torch
 
 
 class CenterOfMassTransform(torch.nn.Module):
-    def __init__(self, num_particles, dim, std):
+    def __init__(self, num_dimensions, std):
         super().__init__()
-        self.num_particles = num_particles
-        self.dim = dim
+        self.num_dimensions = num_dimensions
         self.std = std
 
     def forward(self, data):
         assert len(data.shape) == 1, "only process single molecules"
-        data = data.reshape(self.num_particles, self.dim)
+        data = data.reshape(-1, self.num_dimensions)
         # Calculate the current center of mass
         center_of_mass = data.mean(dim=0)
 
@@ -22,7 +21,7 @@ class CenterOfMassTransform(torch.nn.Module):
         data = data + (new_center_of_mass - center_of_mass)
 
         # Reshape back to original shape
-        data = data.reshape(self.num_particles * self.dim)
+        data = data.reshape(-1)
         return data
 
 

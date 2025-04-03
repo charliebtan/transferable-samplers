@@ -1,3 +1,5 @@
+import torch
+
 ATOM_TYPE_ENCODING_DICT = {
     "C": 0,
     "CA": 1,
@@ -77,3 +79,46 @@ AA_TYPE_ENCODING_DICT = {
     "TYR": 18,
     "VAL": 19,
 }
+
+
+def get_atom_encoding(topology):
+    aa_pos_encoding = []
+    aa_type_encoding = []
+    atom_type_encoding = []
+
+    for i, aa in enumerate(topology.residues):
+        for atom in aa.atoms:
+            aa_pos_encoding.append(i)
+            aa_type_encoding.append(AA_TYPE_ENCODING_DICT[aa.name])
+
+            # TODO double check this with Leon
+            # Standarize side-chain H atom encoding
+            if atom.name[0] == "H" and atom.name[-1] in ("1", "2", "3"):
+                # For these AA the H-X-N atoms are not interchangable
+                if aa.name in ("HIS", "PHE", "TRP", "TYR") and atom.name[:2] in (
+                    "HE",
+                    "HD",
+                    "HZ",
+                    "HH",
+                ):
+                    pass
+                else:
+                    atom.name = atom.name[:-1]
+
+            # Standarize side-chain O atom encoding
+            if atom.name[:2] == "OE" or atom.name[:2] == "OD":
+                atom.name = atom.name[:-1]
+
+            atom_type_encoding.append(ATOM_TYPE_ENCODING_DICT[atom.name])
+
+    atom_type_encoding = torch.tensor(atom_type_encoding)
+    aa_pos_encoding = torch.tensor(aa_pos_encoding)
+    aa_type_encoding = torch.tensor(aa_type_encoding)
+
+    encodings = {
+        "atom_type": atom_type_encoding,
+        "aa_pos": aa_pos_encoding,
+        "aa_type": aa_type_encoding,
+    }
+
+    return encodings
