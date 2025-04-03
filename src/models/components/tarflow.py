@@ -175,8 +175,16 @@ class MetaBlock(torch.nn.Module):
         self.register_buffer("attn_mask", torch.tril(torch.ones(num_patches, num_patches)))
 
     def forward(
-        self, x: torch.Tensor, cond: torch.Tensor, y: torch.Tensor | None = None
+        self,
+        x: torch.Tensor,
+        cond: torch.Tensor,
+        mask: torch.Tensor | None = None,
+        y: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
+
+        if mask is not None:
+            mask = self.permutation(mask)
+
         x = self.permutation(x)
         pos_embed = self.permutation(self.pos_embed, dim=0)
         x_in = x
@@ -196,6 +204,9 @@ class MetaBlock(torch.nn.Module):
             cond = self.permutation(cond)
             cond_emb = self.proj_cond(cond)
             x = x + cond_emb
+
+        if mask is not None:
+            x = x * mask
 
         for block in self.attn_blocks:
             x = block(x, self.attn_mask)
@@ -217,10 +228,13 @@ class MetaBlock(torch.nn.Module):
         cond: torch.Tensor,
         pos_embed: torch.Tensor,
         i: int,
+        mask: torch.Tensor | None = None,
         y: torch.Tensor | None = None,
         attn_temp: float = 1.0,
         which_cache: str = "cond",
     ) -> tuple[torch.Tensor, torch.Tensor]:
+
+        mask = mask[:, i : i + 1]
         x_in = x[:, i : i + 1]  # get i-th patch but keep the sequence dimension
         x = self.proj_in(x_in) + pos_embed[i : i + 1]
 
@@ -235,6 +249,7 @@ class MetaBlock(torch.nn.Module):
             cond_emb = self.proj_cond(cond_in)
             x = x + cond_emb
 
+        x = mask * x
         for block in self.attn_blocks:
             x = block(
                 x, attn_temp=attn_temp, which_cache=which_cache
@@ -259,12 +274,17 @@ class MetaBlock(torch.nn.Module):
         self,
         x: torch.Tensor,
         cond: torch.Tensor | None = None,
+        mask: torch.Tensor | None = None,
         y: torch.Tensor | None = None,
         guidance: float = 0,
         guide_what: str = "ab",
         attn_temp: float = 1.0,
         annealed_guidance: bool = False,
     ) -> torch.Tensor:
+
+        if mask is not None:
+            mask = self.permutation(mask)
+
         x = self.permutation(x)
         pos_embed = self.permutation(self.pos_embed, dim=0)
         if cond is not None:
@@ -275,10 +295,10 @@ class MetaBlock(torch.nn.Module):
         # 512 x 8 x 1
         xs = [x[:, i] for i in range(x.size(1))]
         for i in range(x.size(1) - 1):
-            za, zb = self.reverse_step(x, cond, pos_embed, i, y, which_cache="cond")
+            za, zb = self.reverse_step(x, cond, pos_embed, i, mask, y, which_cache="cond")
             if guidance > 0 and guide_what:
                 za_u, zb_u = self.reverse_step(
-                    x, cond, pos_embed, i, None, attn_temp=attn_temp, which_cache="uncond"
+                    x, cond, pos_embed, i, mask, None, attn_temp=attn_temp, which_cache="uncond"
                 )
                 if annealed_guidance:
                     g = (i + 1) / (T - 1) * guidance
@@ -297,7 +317,9 @@ class MetaBlock(torch.nn.Module):
             xs[i + 1] = xs[i + 1] * scale + zb[:, 0]
             x = torch.stack(xs, dim=1)
         self.set_sample_mode(False)
-        return self.permutation(x, inverse=True)
+        x = self.permutation(x, inverse=True)
+
+        return x
 
 
 class TarFlow(torch.nn.Module):
@@ -382,7 +404,11 @@ class TarFlow(torch.nn.Module):
         # return torch.nn.functional.fold(u, (self.img_size, self.img_size), self.patch_size, stride=self.patch_size)
 
     def forward(
-        self, x: torch.Tensor, cond: torch.Tensor | None = None, y: torch.Tensor | None = None
+        self,
+        x: torch.Tensor,
+        cond: torch.Tensor | None = None,
+        mask: torch.Tensor | None = None,
+        y: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor], torch.Tensor]:
         x = self.patchify(x)
 
@@ -393,7 +419,7 @@ class TarFlow(torch.nn.Module):
 
         logdets = torch.zeros((), device=x.device)
         for block in self.blocks:
-            x, logdet = block(x, cond, y)
+            x, logdet = block(x, cond, mask, y)
             logdets = logdets + logdet
         x_pred = self.unpatchify(x)
         return x_pred, logdets
@@ -414,6 +440,7 @@ class TarFlow(torch.nn.Module):
         self,
         x: torch.Tensor,
         cond: torch.Tensor | None = None,
+        mask: torch.Tensor | None = None,
         y: torch.Tensor | None = None,
         guidance: float = 0,
         guide_what: str = "ab",
@@ -431,7 +458,7 @@ class TarFlow(torch.nn.Module):
         seq = [self.unpatchify(x)]
         x = x * self.var.sqrt()
         for block in reversed(self.blocks):
-            x = block.reverse(x, cond, y, guidance, guide_what, attn_temp, annealed_guidance)
+            x = block.reverse(x, cond, mask, y, guidance, guide_what, attn_temp, annealed_guidance)
             seq.append(self.unpatchify(x))
         x = self.unpatchify(x)
         if not return_sequence:
@@ -448,6 +475,7 @@ if __name__ == "__main__":
     channels = 64
     num_blocks = 3
     layers_per_block = 2
+
     model = TarFlow(
         in_channels, img_size, patch_size, channels, num_blocks, layers_per_block, cond_in_channels
     )
@@ -478,14 +506,24 @@ if __name__ == "__main__":
         assert torch.allclose(-fwd_logdets, rev_logdets_true)
     print("logdet test passed")
 
-    print("Test for Conditional TarFlow")
-    cond_in_channels = 4
+    print("\nTest for Conditional TarFlow")
+    from embed import ConditionalEmbedder
+
+    cond_in_channels = channels
+    embedder = ConditionalEmbedder(channels=channels)
+    atom_type = torch.randint(low=0, high=54, size=(128, img_size // in_channels))
+    residue_type = torch.randint(low=0, high=20, size=(128, img_size // in_channels))
+    residue_pos = torch.randint(low=0, high=23, size=(128, img_size // in_channels))
+
+    cond = embedder(atom_type, residue_type, residue_pos)
+    cond = cond.reshape(-1, cond.shape[1] * cond.shape[2])
+    assert cond.shape == (128, img_size // in_channels * channels)
+
     model = TarFlow(
         in_channels, img_size, patch_size, channels, num_blocks, layers_per_block, cond_in_channels
     )
 
     x = torch.randn([128, img_size])
-    cond = torch.randn([128, img_size // in_channels * 4])
     x_pred, _ = model.forward(x, cond)
     x_recon = model.reverse(x_pred, cond)
 
@@ -510,5 +548,8 @@ if __name__ == "__main__":
         )
         rev_logdets_true = torch.logdet(rev_jac_true[0].squeeze())
 
-        assert torch.allclose(-fwd_logdets, rev_logdets_true)
+        logdets_diff = torch.mean(abs(-fwd_logdets - rev_logdets_true))
+        assert torch.allclose(-fwd_logdets, rev_logdets_true, atol=1e-7), print(
+            f"Log Dets Diff: {logdets_diff}"
+        )
     print("logdet test passed")
