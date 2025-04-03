@@ -34,9 +34,9 @@ class ALDPDataModule(PeptideDataModule):
 
     def setup_atom_encoding(self):
         self.encodings = {
-            "atom_type": torch.empty([]),
-            "aa_pos": torch.empty([]),
-            "aa_type": torch.empty([]),
+            "atom_type": torch.zeros((0,)),
+            "aa_pos": torch.zeros((0,)),
+            "aa_type": torch.zeros((0,)),
         }
 
     def setup_data(self):
