@@ -199,9 +199,6 @@ class PeptideDataModule(BaseDataModule):
         train_data = self.normalize(train_data)
         test_data = self.normalize(test_data)
 
-        # Create training dataset with transforms applied
-        self.data_train = PeptideDataset(train_data, transform=self.transforms, encodings=self.encodings)
-
         # Split val and test data
         self.data_val, self.data_test = (
             test_data[: self.hparams.num_val_samples],
@@ -216,8 +213,8 @@ class PeptideDataModule(BaseDataModule):
         test_rng = np.random.default_rng(1)
         self.data_test = torch.tensor(test_rng.permutation(self.data_test))[self.hparams.num_test_samples :]
 
-        # Smaller subset for plotting
-        self.data_test_small = self.data_test[: self.hparams.num_test_samples_small]
+        # Create training dataset with transforms applied
+        self.data_train = PeptideDataset(train_data, transform=self.transforms, encodings=self.encodings)
 
         # I actually thought better to apply transforms to val and test data too
         self.data_val = PeptideDataset(self.data_val, transform=self.transforms, encodings=self.encodings)
