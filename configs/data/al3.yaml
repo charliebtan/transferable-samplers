@@ -1,8 +1,17 @@
-_target_: src.data.alp_datamodule.ALPDataModule
-data_dir: ${paths.data_dir}/alanine/
+_target_: src.data.peptide_datamodule.PeptideDataModule
+data_dir: ${paths.data_dir}al3
+data_url: https://osf.io/download/gn8jy/?view_only=af935a79a5e645b7aab5d37bc5eb3faa
+pdb_url: https://osf.io/download/q6zfs/?view_only=af935a79a5e645b7aab5d37bc5eb3faa
+data_filename: AlaAlaAla_310K.npy
+pdb_filename: AlaAlaAla_310K.pdb
 batch_size: 512 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
 num_workers: 2
 pin_memory: False
-n_particles: 33
-n_dimensions: 3
+num_particles: 33
+num_dimensions: 3
 dim: 99
+
+energy_hist_config:
+  x_min: -200
+  x_max: -100
+  ylim: 0.1

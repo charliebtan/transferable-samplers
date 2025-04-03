@@ -10,8 +10,8 @@ from src.models.components.tbg.utils import remove_mean
 class EGNN_dynamics(nn.Module):
     def __init__(
         self,
-        n_particles,
-        n_dimensions,
+        num_particles,
+        num_dimensions,
         hidden_nf=64,
         act_fn=torch.nn.SiLU(),
         n_layers=5,
@@ -34,8 +34,8 @@ class EGNN_dynamics(nn.Module):
             agg=agg,
         )
 
-        self._n_particles = n_particles
-        self._n_dimensions = n_dimensions
+        self._num_particles = num_particles
+        self._num_dimensions = num_dimensions
         self.edges = self._create_edges()
         self._edges_dict = {}
         # Count function calls
@@ -55,29 +55,29 @@ class EGNN_dynamics(nn.Module):
             d_base = d_base.repeat(x.shape[0], 1)
 
         n_batch = x.shape[0]
-        edges = self._cast_edges2batch(self.edges, n_batch, self._n_particles, device=x.device)
+        edges = self._cast_edges2batch(self.edges, n_batch, self._num_particles, device=x.device)
         edges = [edges[0], edges[1]]
         # Changed by Leon
-        x = x.reshape(n_batch * self._n_particles, self._n_dimensions).clone()
-        h = torch.ones(n_batch, self._n_particles, 2, device=x.device)
+        x = x.reshape(n_batch * self._num_particles, self._num_dimensions).clone()
+        h = torch.ones(n_batch, self._num_particles, 2, device=x.device)
 
         td = torch.cat([t, d_base], dim=-1)
         h = h * td.unsqueeze(1)
-        h = h.reshape(n_batch * self._n_particles, 2)
+        h = h.reshape(n_batch * self._num_particles, 2)
         edge_attr = torch.sum((x[edges[0]] - x[edges[1]]) ** 2, dim=1, keepdim=True)
         _, x_final = self.egnn(h, x, edges, edge_attr=edge_attr)
         vel = x_final - x
 
-        vel = vel.view(n_batch, self._n_particles, self._n_dimensions)
+        vel = vel.view(n_batch, self._num_particles, self._num_dimensions)
         vel = remove_mean(vel)
         # Changed by Leon
         self.counter += 1
-        return vel.view(n_batch, self._n_particles * self._n_dimensions)
+        return vel.view(n_batch, self._num_particles * self._num_dimensions)
 
     def _create_edges(self):
         rows, cols = [], []
-        for i in range(self._n_particles):
-            for j in range(i + 1, self._n_particles):
+        for i in range(self._num_particles):
+            for j in range(i + 1, self._num_particles):
                 rows.append(i)
                 cols.append(j)
                 rows.append(j)

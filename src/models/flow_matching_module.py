@@ -1,10 +1,9 @@
 import copy
 import logging
-from typing import Optional, Tuple
+from typing import Optional
 
 import torch
 from torchdyn.core import NeuralODE
-from tqdm import tqdm
 
 from src.models.boltzmann_generator_module import BoltzmannGeneratorLitModule
 from src.models.components.wrappers import TorchdynWrapper, torch_wrapper
@@ -83,7 +82,12 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
 
     def test_integrators(self) -> torch.Tensor:
         x = self.prior.sample(self.hparams.sampling_config.batch_size).to(self.device)
-        integrators = ["exact", "exact_no_functional", "hutch_rademacher", "hutch_gaussian"]
+        integrators = [
+            "exact",
+            "exact_no_functional",
+            "hutch_rademacher",
+            "hutch_gaussian",
+        ]
         logger.info("Testing integrators")
         self.hparams.div_estimator = "exact"
         self.nfe = 0
@@ -100,15 +104,14 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
                 self.log_dict(
                     {
                         f"test_integrators/{integrator}_{n}/x_err": torch.norm(base_x - x),
-                        f"test_integrators/{integrator}_{n}/dlog_p_err": torch.norm(
-                            base_dlog_p - dlog_p
-                        ),
-                        f"test_integrators/{integrator}_{n}/nfe": self.nfe
-                        / (max(self.num_integrations, 1e-4)),
+                        f"test_integrators/{integrator}_{n}/dlog_p_err": torch.norm(base_dlog_p - dlog_p),
+                        f"test_integrators/{integrator}_{n}/nfe": self.nfe / (max(self.num_integrations, 1e-4)),
                     }
                 )
                 logger.info(
-                    f"estimator: {integrator} n: {n}, x_err: {torch.norm(base_x - x)}, dlog_p_err: {torch.norm(base_dlog_p - dlog_p)}, nfe: {self.nfe / max(self.num_integrations, 1e-4)}"
+                    f"estimator: {integrator} n: {n}, x_err: {torch.norm(base_x - x)}, "
+                    f"dlog_p_err: {torch.norm(base_dlog_p - dlog_p)}, "
+                    f"nfe: {self.nfe / max(self.num_integrations, 1e-4)}"
                 )
                 self.nfe = 0
 
@@ -162,7 +165,6 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
         step: int,
         batch_size: int,
     ):
-
         vt = self.net(t, x, d_base=None)
 
         # if t.dim() == 0:
@@ -190,7 +192,6 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
         return x_next, dlogp
 
     def sde_integrate(self, x0: torch.Tensor, reverse=False) -> torch.Tensor:
-
         batch_size = x0.shape[0]
         time_range = 1.0
         start_time = 1.0 if reverse else 0.0
@@ -199,9 +200,7 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
             num_integration_steps = 1000
         else:
             num_integration_steps = self.num_integrations
-        times = torch.linspace(start_time, end_time, num_integration_steps + 1, device=x0.device)[
-            :-1
-        ]
+        times = torch.linspace(start_time, end_time, num_integration_steps + 1, device=x0.device)[:-1]
         x = x0
 
         x0.requires_grad = True
@@ -209,16 +208,14 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
         dlogp_sum = 0
 
         for step, t in enumerate(times):
-            x, dlogp = self.euler_maruyama_step(
-                t, x, time_range / num_integration_steps, step, batch_size
-            )
+            x, dlogp = self.euler_maruyama_step(t, x, time_range / num_integration_steps, step, batch_size)
             dlogp_sum += dlogp
             samples.append(x)
 
         samples = torch.stack(samples)
         return x, dlogp_sum
 
-    def proposal_energy(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def proposal_energy(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         x, dlogp = self.flow(x, reverse=True)
         return -(-self.prior.energy(x).view(-1) - dlogp.view(-1))
 
@@ -227,7 +224,7 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
         if True and hasattr(self.hparams, "test_integrators"):
             self.test_integrators()
             return {}
-        results = super().evaluate(prefix=prefix, generator=generator, output_dir=output_dir)
+        results = super().evaluate(prefix=prefix, proposal_generator=generator, output_dir=output_dir)
 
         self.log(f"{prefix}/nfe", self.nfe / (max(self.num_integrations, 1e-4)))
         self.nfe = 0
@@ -239,7 +236,7 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
         self,
         batch_size: int,
         dummy_ll: bool = False,
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Generate samples from the model.
 
         :param batch_size: The batch size to use for generating samples.
@@ -268,7 +265,7 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
     @torch.no_grad()
     def batched_generate_samples_no_ll(
         self, total_size: int, batch_size: Optional[int] = None
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         return super().batched_generate_samples(total_size, batch_size, dummy_ll=True)
 
 

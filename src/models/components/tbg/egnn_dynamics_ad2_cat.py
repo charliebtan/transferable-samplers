@@ -12,8 +12,8 @@ from src.models.components.tbg.utils import remove_mean
 class EGNN_dynamics_AD2_cat(nn.Module):
     def __init__(
         self,
-        n_particles,
-        n_dimensions,
+        num_particles,
+        num_dimensions,
         hidden_nf=64,
         act_fn=torch.nn.SiLU(),
         n_layers=5,  # changed to match AD2_classical_train_tgb_full.py
@@ -27,13 +27,11 @@ class EGNN_dynamics_AD2_cat(nn.Module):
         M=128,
     ):
         super().__init__()
-        self._n_particles = n_particles
-        self._n_dimensions = n_dimensions
-        if n_particles >= 53:
+        self._num_particles = num_particles
+        self._num_dimensions = num_dimensions
+        if num_particles >= 53:
             self.data_dir = data_dir
-            self.atom_types_encoding = np.load(
-                f"{self.data_dir}/{atom_encoding_filename}", allow_pickle=True
-            ).item()
+            self.atom_types_encoding = np.load(f"{self.data_dir}/{atom_encoding_filename}", allow_pickle=True).item()
             self.pdb_path = f"{self.data_dir}/{pdb_filename}"
             self.topology = md.load_topology(self.pdb_path)
         # Initial one hot encoding of the different element types
@@ -61,13 +59,13 @@ class EGNN_dynamics_AD2_cat(nn.Module):
         self.M = M
 
     def get_h_initial(self):
-        if self._n_particles == 22:
+        if self._num_particles == 22:
             atom_types = np.arange(22)
             atom_types[[1, 2, 3]] = 2
             atom_types[[19, 20, 21]] = 20
             atom_types[[11, 12, 13]] = 12
             return torch.nn.functional.one_hot(torch.tensor(atom_types))
-        if self._n_particles == 33:
+        if self._num_particles == 33:
             atom_types = np.arange(33)
             atom_types[[1, 2, 3]] = 2
             atom_types[[9, 10, 11]] = 10
@@ -75,7 +73,7 @@ class EGNN_dynamics_AD2_cat(nn.Module):
             atom_types[[29, 30, 31]] = 31
             h_initial = torch.nn.functional.one_hot(torch.tensor(atom_types))
             return h_initial
-        if self._n_particles == 42:
+        if self._num_particles == 42:
             atom_types = np.arange(42)
             atom_types[[1, 2, 3]] = 2
             atom_types[[11, 12, 13]] = 12
@@ -84,11 +82,10 @@ class EGNN_dynamics_AD2_cat(nn.Module):
             atom_types[[39, 40, 41]] = 40
             h_initial = torch.nn.functional.one_hot(torch.tensor(atom_types))
             return h_initial
-        if self._n_particles >= 53:
+        if self._num_particles >= 53:
             return self.get_hidden()
 
     def get_hidden(self):
-        n_encodings = 78
         amino_dict = {
             "ALA": 0,
             "ARG": 1,
@@ -115,7 +112,6 @@ class EGNN_dynamics_AD2_cat(nn.Module):
         amino_idx = []
         amino_types = []
         for i, amino in enumerate(self.topology.residues):
-
             for atom_name in amino.atoms:
                 amino_idx.append(i)
                 amino_types.append(amino_dict[amino.name])
@@ -132,19 +128,15 @@ class EGNN_dynamics_AD2_cat(nn.Module):
                 if atom_name.name[:2] == "OE" or atom_name.name[:2] == "OD":
                     atom_name.name = atom_name.name[:-1]
                 atom_types.append(atom_name.name)
-        atom_types_dict = np.array(
-            [self.atom_types_encoding[atom_type] for atom_type in atom_types]
-        )
+        atom_types_dict = np.array([self.atom_types_encoding[atom_type] for atom_type in atom_types])
         atom_onehot = torch.nn.functional.one_hot(
             torch.tensor(atom_types_dict), num_classes=len(self.atom_types_encoding)
         )
-        if self._n_particles == 53:
+        if self._num_particles == 53:
             num_classes = 5
-        elif self._n_particles == 63:
+        elif self._num_particles == 63:
             num_classes = 6
-        amino_idx_onehot = torch.nn.functional.one_hot(
-            torch.tensor(amino_idx), num_classes=num_classes
-        )
+        amino_idx_onehot = torch.nn.functional.one_hot(torch.tensor(amino_idx), num_classes=num_classes)
         amino_types_onehot = torch.nn.functional.one_hot(torch.tensor(amino_types), num_classes=20)
 
         h_initial = torch.cat([amino_idx_onehot, amino_types_onehot, atom_onehot], dim=1)
@@ -163,39 +155,39 @@ class EGNN_dynamics_AD2_cat(nn.Module):
             d_base = d_base.repeat(x.shape[0], 1)
 
         n_batch = x.shape[0]
-        edges = self._cast_edges2batch(self.edges, n_batch, self._n_particles, device=x.device)
+        edges = self._cast_edges2batch(self.edges, n_batch, self._num_particles, device=x.device)
         edges = [edges[0], edges[1]]
 
         # Changed by Leon
-        x = x.reshape(n_batch * self._n_particles, self._n_dimensions).clone()
+        x = x.reshape(n_batch * self._num_particles, self._num_dimensions).clone()
         h = self.h_initial.to(x.device).reshape(1, -1)
         h = h.repeat(n_batch, 1)
-        h = h.reshape(n_batch * self._n_particles, -1)
+        h = h.reshape(n_batch * self._num_particles, -1)
 
         if t.shape != (n_batch, 1):
             t = t.repeat(n_batch)
-        t = t.repeat(1, self._n_particles)
-        t = t.reshape(n_batch * self._n_particles, 1)
+        t = t.repeat(1, self._num_particles)
+        t = t.reshape(n_batch * self._num_particles, 1)
 
         if d_base.shape != (n_batch, 1):
             d_base = d_base.repeat(n_batch)
-        d_base = d_base.repeat(1, self._n_particles)
-        d_base = d_base.reshape(n_batch * self._n_particles, 1)
+        d_base = d_base.repeat(1, self._num_particles)
+        d_base = d_base.reshape(n_batch * self._num_particles, 1)
 
         h = torch.cat([h, t, d_base], dim=-1)
         edge_attr = torch.sum((x[edges[0]] - x[edges[1]]) ** 2, dim=1, keepdim=True)
         _, x_final = self.egnn(h, x, edges, edge_attr=edge_attr)
         vel = x_final - x
 
-        vel = vel.view(n_batch, self._n_particles, self._n_dimensions)
+        vel = vel.view(n_batch, self._num_particles, self._num_dimensions)
         vel = remove_mean(vel)
         self.counter += 1
-        return vel.view(n_batch, self._n_particles * self._n_dimensions)
+        return vel.view(n_batch, self._num_particles * self._num_dimensions)
 
     def _create_edges(self):
         rows, cols = [], []
-        for i in range(self._n_particles):
-            for j in range(i + 1, self._n_particles):
+        for i in range(self._num_particles):
+            for j in range(i + 1, self._num_particles):
                 rows.append(i)
                 cols.append(j)
                 rows.append(j)

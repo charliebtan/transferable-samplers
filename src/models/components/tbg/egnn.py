@@ -30,12 +30,13 @@ class EGNN(nn.Module):
             self.coords_range_layer = self.coords_range_layer * 19
         # self.reg = reg
         # Encoder
-        # self.add_module("gcl_0", E_GCL(in_node_nf, self.hidden_nf, self.hidden_nf, edges_in_d=in_edge_nf, act_fn=act_fn, recurrent=False, coords_weight=coords_weight))
+        # self.add_module("gcl_0", E_GCL(in_node_nf, self.hidden_nf, self.hidden_nf,
+        # edges_in_d=in_edge_nf, act_fn=act_fn, recurrent=False, coords_weight=coords_weight))
         self.embedding = nn.Linear(in_node_nf, self.hidden_nf)
         self.embedding_out = nn.Linear(self.hidden_nf, out_node_nf)
         for i in range(0, n_layers):
             self.add_module(
-                "gcl_%d" % i,
+                f"gcl_{i}",
                 E_GCL(
                     self.hidden_nf,
                     self.hidden_nf,
@@ -55,8 +56,13 @@ class EGNN(nn.Module):
         # Edit Emiel: Remove velocity as input
         h = self.embedding(h)
         for i in range(0, self.n_layers):
-            h, x, _ = self._modules["gcl_%d" % i](
-                h, edges, x, edge_attr=edge_attr, node_mask=node_mask, edge_mask=edge_mask
+            h, x, _ = self._modules[f"gcl_{i}"](
+                h,
+                edges,
+                x,
+                edge_attr=edge_attr,
+                node_mask=node_mask,
+                edge_mask=edge_mask,
             )
         h = self.embedding_out(h)
 
@@ -99,17 +105,20 @@ class TEGNN(EGNN):
         self.t_embedder = TimestepEmbedder(hidden_size=self.hidden_nf)
 
     def forward(self, h, x, t, edges, edge_attr=None, node_mask=None, edge_mask=None):
-        # h is shape (n_particles, n_features)
+        # h is shape (num_particles, n_features)
         # t_emb is shape (n_batch * n_particle, n_hidden)
-        t_emb = (
-            self.t_embedder(t).unsqueeze(1).repeat(1, h.shape[0], 1).reshape(-1, self.hidden_nf)
-        )
-        # h is shape (1, n_particles, n_hidden)
+        t_emb = self.t_embedder(t).unsqueeze(1).repeat(1, h.shape[0], 1).reshape(-1, self.hidden_nf)
+        # h is shape (1, num_particles, n_hidden)
         h = self.embedding(h).unsqueeze(0).repeat(t.shape[0], 1, 1).reshape(-1, self.hidden_nf)
         for i in range(0, self.n_layers):
             h = h + t_emb
-            h, x, _ = self._modules["gcl_%d" % i](
-                h, edges, x, edge_attr=edge_attr, node_mask=node_mask, edge_mask=edge_mask
+            h, x, _ = self._modules[f"gcl_{i}"](
+                h,
+                edges,
+                x,
+                edge_attr=edge_attr,
+                node_mask=node_mask,
+                edge_mask=edge_mask,
             )
         h = self.embedding_out(h)
 

@@ -96,7 +96,13 @@ class GCL(nn.Module):
         return out, agg
 
     def forward(
-        self, h, edge_index, edge_attr=None, node_attr=None, node_mask=None, edge_mask=None
+        self,
+        h,
+        edge_index,
+        edge_attr=None,
+        node_attr=None,
+        node_mask=None,
+        edge_mask=None,
     ):
         row, col = edge_index
 
@@ -267,15 +273,20 @@ class E_GCL(nn.Module):
         return coord
 
     def forward(
-        self, h, edge_index, coord, edge_attr=None, node_attr=None, node_mask=None, edge_mask=None
+        self,
+        h,
+        edge_index,
+        coord,
+        edge_attr=None,
+        node_attr=None,
+        node_mask=None,
+        edge_mask=None,
     ):
         row, col = edge_index
         radial, coord_diff = self.coord2radial(edge_index, coord)
 
         edge_feat = self.edge_model(h[row], h[col], radial, edge_attr, edge_mask)
-        coord = self.coord_model(
-            coord, edge_index, coord_diff, radial, edge_feat, node_mask, edge_mask
-        )
+        coord = self.coord_model(coord, edge_index, coord_diff, radial, edge_feat, node_mask, edge_mask)
 
         h, agg = self.node_model(h, edge_index, edge_feat, node_attr)
         # coord = self.node_coord_model(h, coord)
@@ -333,9 +344,7 @@ class E_GCL_vel(E_GCL):
             attention=attention,
         )
 
-        self.coord_mlp_vel = nn.Sequential(
-            nn.Linear(input_nf, hidden_nf), act_fn, nn.Linear(hidden_nf, 1)
-        )
+        self.coord_mlp_vel = nn.Sequential(nn.Linear(input_nf, hidden_nf), act_fn, nn.Linear(hidden_nf, 1))
 
     def forward(self, h, edge_index, coord, vel, edge_attr=None, node_attr=None):
         row, col = edge_index

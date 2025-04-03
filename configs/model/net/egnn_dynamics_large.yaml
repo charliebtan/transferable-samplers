@@ -1,5 +1,5 @@
 _target_: src.models.components.tbg.egnn_dynamics.EGNN_dynamics
-n_particles: ${data.n_particles}
-n_dimensions: ${data.n_dimensions}
+num_particles: ${data.num_particles}
+num_dimensions: ${data.num_dimensions}
 hidden_nf: 256
 n_layers: 5

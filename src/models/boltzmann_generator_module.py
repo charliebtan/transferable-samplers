@@ -1,46 +1,39 @@
 import logging
-import math
 import time
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Optional
 
 import hydra
 import matplotlib.pyplot as plt
-import numpy as np
-import ot as pot
 import torch
 import torchmetrics
 from bgflow import MeanFreeNormalDistribution, NormalDistribution
 from lightning import LightningDataModule, LightningModule
-from lightning.pytorch.utilities import grad_norm
+from lightning.pytorch.loggers import WandbLogger
 from torchmetrics import MeanMetric
 from tqdm import tqdm
 
-from src.models.components.distribution_distances import (
-    compute_distribution_distances_with_prefix,
-    energy_distances,
-)
+from src.data.components.data_types import SamplesData
 from src.models.components.ema import EMA
-from src.models.components.jarzynski_sampler import JarzynskiSampler
-from src.models.components.utils import RunningMedian, resample
-from src.utils.tbg_utils import sampling_efficiency
+from src.models.components.smc_sampler import SMCSampler
+from src.models.components.utils import resample
 
 logger = logging.getLogger(__name__)
 
 
 class BoltzmannGeneratorLitModule(LightningModule):
-
     def __init__(
         self,
         net: torch.nn.Module,
         optimizer: torch.optim.Optimizer,
         scheduler: torch.optim.lr_scheduler,
         datamodule: LightningDataModule,
-        jarzynski_sampler: JarzynskiSampler,
+        smc_sampler: SMCSampler,
         sampling_config,
         ema_decay: float,
         compile: bool,
         mean_free_prior: bool = True,
         stabilize_training: bool = False,
+        use_com_adjustment: bool = False,
         *args,
         **kwargs,
     ) -> None:
@@ -64,34 +57,41 @@ class BoltzmannGeneratorLitModule(LightningModule):
 
         self.datamodule = datamodule
 
-        self.jarzynski_sampler = jarzynski_sampler(
+        self.smc_sampler = smc_sampler(
             source_energy=self.proposal_energy,
             target_energy=self.datamodule.energy,
+            log_image_fn=self.log_image,
         )
 
         # loss function
         self.criterion = torch.nn.MSELoss(reduction="mean")
 
         # metric objects for calculating and averaging accuracy across batches
-
         self.train_metrics = torchmetrics.MetricCollection({"loss": MeanMetric()}, prefix="train/")
         self.val_metrics = self.train_metrics.clone(prefix="val/")
         self.test_metrics = self.train_metrics.clone(prefix="test/")
 
         if self.hparams.mean_free_prior:
             self.prior = MeanFreeNormalDistribution(
-                self.datamodule.dim, self.datamodule.n_particles, two_event_dims=False
+                self.datamodule.hparams.dim,
+                self.datamodule.hparams.num_particles,
+                two_event_dims=False,
             )
         else:
-            self.prior = NormalDistribution(self.datamodule.dim)
-        if self.hparams.stabilize_training:
-            self.gradient_history = RunningMedian(100)
+            self.prior = NormalDistribution(self.datamodule.hparams.dim)
 
-        self.target_target_energy = None
+    def log_image(self, img: torch.Tensor, title: str = None) -> None:
+        """Log an image to the logger.
 
-    def training_step(
-        self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
-    ) -> torch.Tensor:
+        :param img: The image to log.
+        :param title: The title of the image.
+        """
+        if self.loggers is not None:
+            for logger in self.loggers:
+                if isinstance(logger, WandbLogger):
+                    logger.log_image(title, [img])
+
+    def training_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> torch.Tensor:
         """Perform a single training step on a batch of data from the training set.
 
         :param batch: A batch of data (a tuple) containing the input tensor of images and target
@@ -116,7 +116,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         if self.hparams.compile and stage == "fit":
             self.net = torch.compile(self.net)
 
-    def configure_optimizers(self) -> Dict[str, Any]:
+    def configure_optimizers(self) -> dict[str, Any]:
         """Choose what optimizers and learning-rate schedulers to use in your optimization.
         Normally you'd need one. But in the case of GANs or similar you might have multiple.
 
@@ -152,7 +152,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
 
     def batched_generate_samples(
         self, total_size: int, batch_size: Optional[int] = None, dummy_ll: bool = False
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         if batch_size is None:
             batch_size = self.hparams.sampling_config.batch_size
         samples = []
@@ -175,7 +175,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
 
     def generate_samples(
         self, batch_size: int, n_timesteps: int = None
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Generate samples from the model.
 
         :param batch_size: The batch size to use for generating samples.
@@ -189,7 +189,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
     @torch.no_grad()
     def eval_step(
         self,
-        batch: Tuple[torch.Tensor, torch.Tensor],
+        batch: tuple[torch.Tensor, torch.Tensor],
         batch_idx: int,
         prefix: str = "val",
     ) -> None:
@@ -200,13 +200,13 @@ class BoltzmannGeneratorLitModule(LightningModule):
             elif prefix == "test":
                 self.test_metrics.update(loss)
 
-    def validation_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
+    def validation_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
         """Perform a single validation step on a batch of data from the validation set.
         :param batch_idx: The index of the current batch.
         """
         self.eval_step(batch, batch_idx, prefix="val")
 
-    def test_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
+    def test_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
         """Perform a single test step on a batch of data from the test set.
         :param batch_idx: The index of the current batch.
         """
@@ -228,249 +228,139 @@ class BoltzmannGeneratorLitModule(LightningModule):
         plt.close("all")
 
     @torch.no_grad()
-    def evaluate(self, prefix: str = "val", generator=None, output_dir=None) -> None:
-        logging.info("Eval epoch end")
-        if generator is None:
-            generator = self.batched_generate_samples
+    def evaluate(self, prefix: str = "val", proposal_generator=None, output_dir=None) -> None:
+        """Generates samples from the proposal and runs SMC if enabled.
+        Also computes metrics, through the datamodule function "metrics_and_plots".
+        """
+        logging.info("Evaluating sampling")
+
+        # Define proposal generator
+        if proposal_generator is None:
+            proposal_generator = self.batched_generate_samples
             if "dummy_ll" in self.hparams and self.hparams.dummy_ll:
-                generator = lambda x: self.batched_generate_samples(x, dummy_ll=True)
-        if prefix.startswith("val") or prefix.startswith("base"):
-            num_proposal_samples = self.hparams.sampling_config.num_proposal_samples
-            true_data = self.datamodule.data_val
-        elif prefix.startswith("test"):
+                proposal_generator = lambda x: self.batched_generate_samples(x, dummy_ll=True)
+
+        if prefix.startswith("test"):
             num_proposal_samples = self.hparams.sampling_config.num_test_proposal_samples
-            true_data = self.datamodule.data_test
+            true_samples = self.datamodule.data_test
+        else:
+            num_proposal_samples = self.hparams.sampling_config.num_proposal_samples
+            true_samples = self.datamodule.data_val
 
-        # generate samples and record time
+        true_data = SamplesData(
+            self.datamodule.as_pointcloud(self.datamodule.unnormalize(true_samples)),
+            -self.datamodule.energy(true_samples),
+        )
 
+        # Generate samples and record time
         torch.cuda.synchronize()
         start_time = time.time()
-
-        samples, log_p, prior_samples = generator(num_proposal_samples)
-        
+        proposal_samples, proposal_log_p, prior_samples = proposal_generator(num_proposal_samples)
         torch.cuda.synchronize()
         time_duration = time.time() - start_time
         self.log(f"{prefix}/samples_walltime", time_duration)
-        self.log(f"{prefix}/samples_per_second", len(samples) / time_duration)
+        self.log(f"{prefix}/samples_per_second", len(proposal_samples) / time_duration)
 
-        # save samples to dist
-
+        # Save samples to disk
         samples_dict = {
-            "samples": samples,
-            "log_p": log_p,
             "prior_samples": prior_samples,
+            "proposal_samples": proposal_samples,
+            "proposal_log_p": proposal_log_p,
         }
         if output_dir is None:
             output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
-        logging.info(f"Saving {len(samples)} samples to {output_dir}/{prefix}_samples.pt")
+        logging.info(f"Saving {len(proposal_samples)} samples to {output_dir}/{prefix}_samples.pt")
         torch.save(samples_dict, f"{output_dir}/{prefix}_samples.pt")
 
-        # compute energy
-        sample_target_energy = self.datamodule.energy(samples)
-        if self.target_target_energy is None:
-            self.target_target_energy = self.datamodule.energy(true_data)
-        target_target_energy = self.target_target_energy
-        self.log(f"{prefix}/mean_energy", sample_target_energy.mean(), sync_dist=True)
-        logging.info("Energies computed")
-
-        coms = samples.view(samples.shape[0], -1, self.datamodule.n_dimensions).mean(dim=1)
+        # Compute proposal center of mass std - TODO should this just be 1 / sqrt(N) ?
+        coms = self.datamodule.center_of_mass(proposal_samples).mean(dim=1)
         proposal_com_std = coms.std()
-        self.datamodule.proposal_com_std = proposal_com_std
-        logging.info(f"data coms std: {self.datamodule.std}, proposal coms std: {proposal_com_std}")
+        self.proposal_com_std = proposal_com_std
+        self.log(f"{prefix}/proposal_com_std", proposal_com_std, sync_dist=True)
 
-        # compute weights + resample
-        assert log_p.shape == sample_target_energy.shape
-        sample_target_energy_com = self.datamodule.energy(samples, use_com_energy=self.hparams.use_com_energy)
-        logits = -sample_target_energy_com - log_p
-        ess = sampling_efficiency(logits)
-        self.log(f"{prefix}/unclipped_effective_sample_size", ess, sync_dist=True)
-        # clip the top 1% of the logits to avoid numerical issues
-        for quantile in [0.1, 0.01, 0.002]:
-            clipped_logits_mask = logits > torch.quantile(logits, 1 - quantile)
-            ess = sampling_efficiency(logits[~clipped_logits_mask])
-            self.log(f"{prefix}/clip_{quantile}/effective_sample_size", ess, sync_dist=True)
-            self.log(
-                f"{prefix}/clip_{quantile}/n_clipped",
-                clipped_logits_mask.float().sum(),
-                sync_dist=True,
+        # Apply CoM adjustment to energy, this must be done here for compatibility with CNFs
+        if self.hparams.sampling_config.use_com_adjustment:
+            proposal_log_p = proposal_log_p - self.com_energy_adjustment(proposal_samples)
+
+        # Compute energy
+        proposal_samples_energy = -self.datamodule.energy(proposal_samples)
+
+        # Datatype for easier metrics and plotting
+        proposal_data = SamplesData(
+            self.datamodule.as_pointcloud(self.datamodule.unnormalize(proposal_samples)),
+            proposal_samples_energy,
+        )
+
+        # Compute resampling index
+        resampling_logits = proposal_samples_energy - proposal_log_p  # TODO CoM
+
+        # Filter samples based on logit clipping
+        # This only affects the reweighted sampling metrics (not input to Jarzyinski)
+        if self.hparams.sampling_config.clip_reweighting_logits:
+            clipped_logits_mask = resampling_logits > torch.quantile(
+                resampling_logits,
+                1 - float(self.hparams.sampling_config.clip_reweighting_logits),
             )
+            proposal_samples_clipped = proposal_samples[~clipped_logits_mask]
+            resampling_logits_clipped = resampling_logits[~clipped_logits_mask]
+            logging.info("Clipped logits for resampling")
 
-        if "clip_logits" in self.hparams and self.hparams.clip_logits:
-            clipped_logits_mask = logits > torch.quantile(
-                logits, 1 - float(self.hparams.clip_logits)
-            )
-            log_p = log_p[~clipped_logits_mask]
-            logits = logits[~clipped_logits_mask]
-            samples = samples[~clipped_logits_mask]
-            sample_target_energy = sample_target_energy[~clipped_logits_mask]
+        _, resampling_index = resample(proposal_samples_clipped, resampling_logits_clipped, return_index=True)
 
-            logging.info("Clipped logits")
-  
-        ess = sampling_efficiency(logits)
-        self.log(f"{prefix}/effective_sample_size", ess, sync_dist=True)
-
-        resampled_samples = resample(samples, logits)
-        num_eval_samples = min(
-            self.hparams.sampling_config.num_eval_samples, len(samples), len(true_data)
+        reweighted_data = SamplesData(
+            self.datamodule.as_pointcloud(self.datamodule.unnormalize(proposal_samples[resampling_index])),
+            proposal_samples_energy[resampling_index],
+            logits=resampling_logits_clipped,
         )
 
-        # coms = samples.view(samples.shape[0], -1, 3).mean(dim=1)
-        # coms_norm = coms.norm(dim=1)
+        if self.smc_sampler is not None and self.smc_sampler.enabled:
+            # TODO remove this once refactored
+            self.smc_sampler.use_com_energy = self.hparams.use_com_energy
 
-        # logging.info(coms_norm.mean())
-        # logging.info(coms_norm.std())
+            logging.info("SMC sampling enabled")
 
-        # rs_coms = resampled_samples.view(resampled_samples.shape[0], -1, 3).mean(dim=1)
-        # rs_coms_norm = rs_coms.norm(dim=1)
+            num_smc_samples = min(self.hparams.sampling_config.num_smc_samples, len(proposal_samples))
 
-        # import matplotlib.pyplot as plt
-
-        # # compute and plot histogram of coms_norm
-        # plt.hist(coms_norm.cpu().numpy(), bins=50, density=True)
-        # plt.hist(rs_coms_norm.cpu().numpy(), bins=50, density=True)
-        # plt.xlabel("Center of Mass Norm")
-        # plt.ylabel("Density")
-        # plt.title(f"{prefix} Center of Mass Norm Histogram")
-        # plt.savefig(f"{self.hparams.use_com_energy}_{self.hparams.clip_logits}_{len(coms)}_{proposal_com_std}_coms_norm_histogram.png")
-        # plt.close()
-
-        eval_samples = true_data[:num_eval_samples]
-
-        # compute dist metrics
-        dist_metrics = compute_distribution_distances_with_prefix(
-            self.datamodule.unnormalize(samples[:num_eval_samples]).cpu(),
-            self.datamodule.unnormalize(eval_samples).cpu(),
-            prefix=prefix,
-        )
-        dist_metrics[f"{prefix}/num_eval_samples"] = num_eval_samples
-        self.log_dict(dist_metrics)
-
-        # compute resampled dist metrics
-        resampled_dist_metrics = compute_distribution_distances_with_prefix(
-            self.datamodule.unnormalize(resampled_samples[:num_eval_samples]).cpu(),
-            self.datamodule.unnormalize(eval_samples).cpu(),
-            prefix=prefix + "/resampled",
-        )
-        self.log_dict(resampled_dist_metrics)
-
-        logging.info("Distance metrics computed")
-
-        # compute energy metrics
-        energy_metrics = energy_distances(sample_target_energy, target_target_energy, prefix)
-        self.log_dict(energy_metrics)
-
-        # compute resampled energy metrics
-        resampled_sample_target_energy = self.datamodule.energy(resampled_samples)
-        self.log(
-            f"{prefix}/resampled/mean_energy",
-            resampled_sample_target_energy.mean(),
-            sync_dist=True,
-        )
-        resampled_energy_metrics = energy_distances(
-            resampled_sample_target_energy, target_target_energy, prefix + "/resampled"
-        )
-        self.log_dict(resampled_energy_metrics)
-
-        logging.info("Energy metrics computed")
-
-        jarzynski_samples, jarzynski_logits = None, None
-        if self.jarzynski_sampler is not None and self.jarzynski_sampler.enabled:
-
-            self.jarzynski_sampler.use_com_energy = self.hparams.use_com_energy
-
-            logging.info("Jarzynski sampling enabled")
-
-            self.jarzynski_sampler.wandb_logger = self.datamodule.get_wandb_logger(self.loggers)
-
-            if self.hparams.sampling_config.energy_cutoff is not None:
-                filter_array = sample_target_energy < self.hparams.sampling_config.energy_cutoff
-                filtered_samples = samples[filter_array]
-                self.log(f"{prefix}/filtered_samples", torch.sum(~filter_array).float())
-            else:
-                filtered_samples = samples
-                self.log(f"{prefix}/filtered_samples", 0.0)
-
-            num_jarzynski_samples = min(
-                self.hparams.sampling_config.num_jarzynski_samples, len(filtered_samples)
-            )
-
-            # generate jarzynski samples and record time
-
+            # Generate smc samples and record time
             torch.cuda.synchronize()
             start_time = time.time()
-
-            jarzynski_samples, jarzynski_logits = self.jarzynski_sampler.sample(
-                filtered_samples[:num_jarzynski_samples]
-            )
-
+            smc_samples, smc_logits = self.smc_sampler.sample(
+                proposal_samples[:num_smc_samples]
+            )  # already returned resampled
             torch.cuda.synchronize()
             time_duration = time.time() - start_time
-            self.log(f"{prefix}/jarzynski/samples_walltime", time_duration)
-            self.log(
-                f"{prefix}/jarzynski/samples_per_second", len(jarzynski_samples) / time_duration
-            )
+            self.log(f"{prefix}/smc/samples_walltime", time_duration)
+            self.log(f"{prefix}/smc/samples_per_second", len(smc_samples) / time_duration)
 
-            # save samples to dist
-
-            jarzynski_samples_dict = {
-                "samples": jarzynski_samples,
-                "logits": jarzynski_logits,
+            # Save samples to disk
+            smc_samples_dict = {
+                "smc_samples": smc_samples,
+                "smc_logits": smc_logits,
             }
-            logging.info(
-                f"Saving {len(jarzynski_samples)} samples to {output_dir}/{prefix}_jarzynski_samples.pt"
+            logging.info(f"Saving {len(smc_samples)} samples to {output_dir}/{prefix}_smc_samples.pt")
+            torch.save(smc_samples_dict, f"{output_dir}/{prefix}_smc_samples.pt")
+
+            # Datatype for easier metrics and plotting
+            smc_data = SamplesData(
+                self.datamodule.as_pointcloud(self.datamodule.unnormalize(smc_samples)),
+                -self.datamodule.energy(smc_samples),
+                logits=smc_logits,
             )
-            torch.save(jarzynski_samples_dict, f"{output_dir}/{prefix}_jarzynski_samples.pt")
 
-            # jarzynski samples should always be resampled
-            # after this point the logits are only used for ESS computation
-            jarzynski_samples = resample(jarzynski_samples, jarzynski_logits)
-
-            jarzynski_ess = sampling_efficiency(jarzynski_logits)
-            self.log(f"{prefix}/jarzynski/effective_sample_size", jarzynski_ess, sync_dist=True)
-
-            num_eval_samples = min(
-                num_jarzynski_samples,
-                self.hparams.sampling_config.num_eval_samples,
-                len(true_data),
-            )
-            eval_samples = true_data[:num_eval_samples]
-
-            # compute jarzynski dist metrics
-            jarzynski_dist_metrics = compute_distribution_distances_with_prefix(
-                self.datamodule.unnormalize(jarzynski_samples[:num_eval_samples]),
-                self.datamodule.unnormalize(eval_samples),
-                prefix=prefix + "/jarzynski",
-            )
-            jarzynski_dist_metrics[f"{prefix}/jarzynski/num_eval_samples"] = num_eval_samples
-            self.log_dict(jarzynski_dist_metrics)
-
-            logging.info("Distance metrics computed (jarzynski)")
-
-            # compute jarzynski energy metrics
-            sample_target_jarzynski_energy = self.datamodule.energy(jarzynski_samples)
-            self.log(f"{prefix}/jarzynski/mean_energy", sample_target_jarzynski_energy.mean())
-            jarzynski_energy_metrics = energy_distances(
-                sample_target_jarzynski_energy, target_target_energy, prefix + "/jarzynski"
-            )
-            self.log_dict(jarzynski_energy_metrics)
-
-            logging.info("Energy metrics computed (jarzynski)")
+        else:
+            smc_data = None
 
         # log dataset metrics
-        dataset_metrics = self.datamodule.log_on_epoch_end(
-            samples,
-            log_p,
-            jarzynski_samples,
-            num_eval_samples=self.hparams.sampling_config.num_eval_samples,
-            use_com_energy=self.hparams.use_com_energy,
-            loggers=self.loggers,
+        metrics = self.datamodule.metrics_and_plots(
+            self.log_dict,
+            self.log_image,
+            true_data,
+            proposal_data,
+            reweighted_data,
+            smc_data,
             prefix=prefix,
         )
-        if dataset_metrics is not None:
-            self.log_dict(dataset_metrics)
-
-    def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
-        pass
+        self.log_dict(metrics)
 
     def on_train_epoch_start(self) -> None:
         logging.info("Train epoch start")
@@ -497,48 +387,21 @@ class BoltzmannGeneratorLitModule(LightningModule):
         logging.info("Test epoch end")
 
     def on_after_backward(self) -> None:
-
         valid_gradients = True
         flat_grads = torch.cat([p.grad.view(-1) for p in self.parameters() if p.grad is not None])
         global_norm = torch.norm(flat_grads, p=2)
-        for name, param in self.named_parameters():
+        for _name, param in self.named_parameters():
             if param.grad is not None:
-                valid_gradients = not (
-                    torch.isnan(param.grad).any() or torch.isinf(param.grad).any()
-                )
+                valid_gradients = not (torch.isnan(param.grad).any() or torch.isinf(param.grad).any())
 
                 if not valid_gradients:
                     break
 
         self.log("global_gradient_norm", global_norm, on_step=True, prog_bar=True)
         if not valid_gradients:
-            logger.warning(
-                "detected inf or nan values in gradients. not updating model parameters"
-            )
+            logger.warning("detected inf or nan values in gradients. not updating model parameters")
             self.zero_grad()
             return
-
-        if not self.hparams.stabilize_training:
-            return
-        self.gradient_history.update(global_norm.item())
-        running_global_norm = self.gradient_history.compute()
-        if global_norm > 20 * running_global_norm:
-            logger.warning(
-                f"detected large_gradient {global_norm} which is more than 20 times the running median {running_global_norm}. not updating model parameters"
-            )
-            self.zero_grad()
-        elif global_norm > 5 * running_global_norm:
-            logger.warning(
-                f"detected large_gradient {global_norm} which is more than 5 "
-                f"times the running median {running_global_norm}. clipping"
-                "gradients"
-            )
-            norm = torch.nn.utils.clip_grad_norm_(self.parameters(), 5 * running_global_norm)
-            self.log("clipped_gradient_norm", norm, on_step=True, prog_bar=True)
-
-    def proposal_energy(self, x: torch.Tensor) -> torch.Tensor:
-        # x is considered to be a sample from the proposal distribution
-        raise NotImplementedError
 
     # https://github.com/Lightning-AI/pytorch-lightning/issues/1462
     def on_before_optimizer_step(self, optimizer, *args, **kwargs) -> None:
@@ -554,6 +417,10 @@ class BoltzmannGeneratorLitModule(LightningModule):
         super().optimizer_step(*args, **kwargs)
         if isinstance(self.net, EMA):
             self.net.update_ema()
+
+    def proposal_energy(self, x: torch.Tensor) -> torch.Tensor:
+        # x is considered to be a sample from the proposal distribution
+        raise NotImplementedError
 
 
 if __name__ == "__main__":

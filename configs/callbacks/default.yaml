@@ -1,19 +1,7 @@
 defaults:
-  - model_checkpoint
-  - model_checkpoint_cropped
-  - early_stopping
   - model_summary
   - lr_monitor
   - _self_
-
-model_checkpoint:
-  dirpath: ${paths.output_dir}/checkpoints
-  filename: "epoch_{epoch:03d}"
-  monitor: "val/energy_w1"
-  mode: "min"
-  save_last: True
-  save_top_k: 3
-  auto_insert_metric_name: False
 
 model_checkpoint_cropped:
   dirpath: ${paths.output_dir}/checkpoints
@@ -21,7 +9,7 @@ model_checkpoint_cropped:
   monitor: "val/cropped_energy_w1"
   mode: "min"
   save_last: False
-  save_top_k: 3
+  save_top_k: 1
   auto_insert_metric_name: False
 
 model_checkpoint_time:
@@ -39,11 +27,6 @@ model_checkpoint_time:
   train_time_interval: null # checkpoints are monitored at the specified time interval
   every_n_epochs: 100 # number of epochs between checkpoints
   save_on_train_epoch_end: True # whether to run checkpointing at the end of the training epoch or the end of validation
-
-# early_stopping:
-#   monitor: "val/acc"
-#   patience: 100
-#   mode: "max"
 
 model_summary:
   max_depth: 2
