@@ -1,14 +1,14 @@
-from lightning.pytorch.loggers import WandbLogger
-import torch
-import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
+import numpy as np
+import torch
+from lightning.pytorch.loggers import WandbLogger
 
 matplotlib.rcParams["mathtext.fontset"] = "stix"
 matplotlib.rcParams["font.family"] = "STIXGeneral"
 
+
 def interatomic_dist(x):
-    
     num_particles = x.shape[1]
 
     # Compute the pairwise interatomic distances
@@ -22,6 +22,7 @@ def interatomic_dist(x):
 
     return dist.flatten()
 
+
 def plot_atom_distances(
     log_image_fn,
     true_samples,
@@ -32,7 +33,6 @@ def plot_atom_distances(
     prefix="",
     wandb_logger: WandbLogger = None,
 ):
-
     true_samples_dist = interatomic_dist(true_samples).cpu()
     min_dist = true_samples_dist.min()
     max_dist = true_samples_dist.max()
@@ -41,7 +41,7 @@ def plot_atom_distances(
         proposal_samples_dist = interatomic_dist(proposal_samples).cpu()
         min_dist = min(min_dist, proposal_samples_dist.min())
         max_dist = max(max_dist, proposal_samples_dist.max())
-    
+
     if resampled_samples is not None:
         resampled_samples_dist = interatomic_dist(resampled_samples).cpu()
         min_dist = min(min_dist, resampled_samples_dist.min())

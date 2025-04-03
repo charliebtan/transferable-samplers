@@ -48,16 +48,12 @@ class Attention(torch.nn.Module):
     ) -> torch.Tensor:
         B, T, C = x.size()
         x = self.norm(x.float()).type(x.dtype)
-        q, k, v = (
-            self.qkv(x).reshape(B, T, 3 * self.num_heads, -1).transpose(1, 2).chunk(3, dim=1)
-        )  # (b, h, t, d)
+        q, k, v = self.qkv(x).reshape(B, T, 3 * self.num_heads, -1).transpose(1, 2).chunk(3, dim=1)  # (b, h, t, d)
 
         if self.sample:
             self.k_cache[which_cache].append(k)
             self.v_cache[which_cache].append(v)
-            k = torch.cat(
-                self.k_cache[which_cache], dim=2
-            )  # note that sequence dimension is now 2
+            k = torch.cat(self.k_cache[which_cache], dim=2)  # note that sequence dimension is now 2
             v = torch.cat(self.v_cache[which_cache], dim=2)
 
         scale = self.sqrt_scale**2 / temp
@@ -169,9 +165,7 @@ class MetaBlock(torch.nn.Module):
         self.permutation = permutation
         self.register_buffer("attn_mask", torch.tril(torch.ones(num_patches, num_patches)))
 
-    def forward(
-        self, x: torch.Tensor, y: torch.Tensor | None = None
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, x: torch.Tensor, y: torch.Tensor | None = None) -> tuple[torch.Tensor, torch.Tensor]:
         x = self.permutation(x)
         pos_embed = self.permutation(self.pos_embed, dim=0)
         x_in = x
@@ -219,9 +213,7 @@ class MetaBlock(torch.nn.Module):
                 x = x + self.class_embed.mean(dim=0)
 
         for block in self.attn_blocks:
-            x = block(
-                x, attn_temp=attn_temp, which_cache=which_cache
-            )  # here we use kv caching, so no attn_mask
+            x = block(x, attn_temp=attn_temp, which_cache=which_cache)  # here we use kv caching, so no attn_mask
         x = self.proj_out(x)
 
         if self.nvp:
@@ -256,9 +248,7 @@ class MetaBlock(torch.nn.Module):
         for i in range(x.size(1) - 1):
             za, zb = self.reverse_step(x, pos_embed, i, y, which_cache="cond")
             if guidance > 0 and guide_what:
-                za_u, zb_u = self.reverse_step(
-                    x, pos_embed, i, None, attn_temp=attn_temp, which_cache="uncond"
-                )
+                za_u, zb_u = self.reverse_step(x, pos_embed, i, None, attn_temp=attn_temp, which_cache="uncond")
                 if annealed_guidance:
                     g = (i + 1) / (T - 1) * guidance
                 else:
@@ -394,7 +384,6 @@ if __name__ == "__main__":
     print("Invertibility test passed")
 
     for i in range(16):
-
         x_i = x[i : i + 1]
 
         with torch.no_grad():

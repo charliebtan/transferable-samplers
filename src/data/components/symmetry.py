@@ -1,10 +1,7 @@
-import logging
-
 import torch
 
-def find_chirality_centers(
-    adj_list: torch.Tensor, atom_types: torch.Tensor, num_h_atoms: int = 2
-) -> torch.Tensor:
+
+def find_chirality_centers(adj_list: torch.Tensor, atom_types: torch.Tensor, num_h_atoms: int = 2) -> torch.Tensor:
     """
     Return the chirality centers for a peptide, e.g. carbon alpha atoms and their bonds.
 
@@ -18,9 +15,7 @@ def find_chirality_centers(
         chirality_centers
     """
     chirality_centers = []
-    candidate_chirality_centers = torch.where(torch.unique(adj_list, return_counts=True)[1] == 4)[
-        0
-    ]
+    candidate_chirality_centers = torch.where(torch.unique(adj_list, return_counts=True)[1] == 4)[0]
     for center in candidate_chirality_centers:
         bond_idx, bond_pos = torch.where(adj_list == center)
         bonded_idxs = adj_list[bond_idx, (bond_pos + 1) % 2].long()
@@ -44,15 +39,14 @@ def compute_chirality_sign(coords: torch.Tensor, chirality_centers: torch.Tensor
     """
     assert coords.dim() == 3
     # print(coords.shape, chirality_centers.shape, chirality_centers)
-    direction_vectors = (
-        coords[:, chirality_centers[:, 1:], :] - coords[:, chirality_centers[:, [0]], :]
-    )
+    direction_vectors = coords[:, chirality_centers[:, 1:], :] - coords[:, chirality_centers[:, [0]], :]
     perm_sign = torch.einsum(
         "ijk, ijk->ij",
         direction_vectors[:, :, 0],
         torch.cross(direction_vectors[:, :, 1], direction_vectors[:, :, 2], dim=-1),
     )
     return torch.sign(perm_sign)
+
 
 def check_symmetry_change(true_coords: torch.Tensor, pred_coords: torch.Tensor, adj_list, atom_types) -> torch.Tensor:
     """
@@ -68,8 +62,6 @@ def check_symmetry_change(true_coords: torch.Tensor, pred_coords: torch.Tensor, 
     """
     chirality_centers = find_chirality_centers(adj_list, atom_types)
 
-    reference_signs = compute_chirality_sign(
-        true_coords[[1]], chirality_centers
-    )
+    reference_signs = compute_chirality_sign(true_coords[[1]], chirality_centers)
     perm_sign = compute_chirality_sign(pred_coords, chirality_centers)
     return (perm_sign != reference_signs.to(pred_coords)).any(dim=-1)

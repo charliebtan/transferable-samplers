@@ -1,14 +1,14 @@
 import os
 
-from bgmol.datasets import AImplicitUnconstrained
 import numpy as np
 import torch
+from bgmol.datasets import AImplicitUnconstrained
 
 from src.data.components.transform_dataset import TransformDataset
 from src.data.peptide_datamodule import PeptideDataModule
 
+
 class ALDPDataModule(PeptideDataModule):
-    
     def prepare_data(self) -> None:
         """Download data if needed. Lightning ensures that `self.prepare_data()` is called only
         within a single process on CPU, so you can safely add your downloading logic within. In
@@ -24,11 +24,11 @@ class ALDPDataModule(PeptideDataModule):
 
         # yes a hack but only way without changing bgmol
         self.bgmol_dataset = AImplicitUnconstrained(
-            read=True, download=True if "AImplicitUnconstrained" not in os.listdir() else False
+            read=True,
+            download=True if "AImplicitUnconstrained" not in os.listdir() else False,
         )
 
     def setup_data(self):
-
         # Load the data - data is 10 times smaller in bgflow dataset than in npy
         train_data = np.load(self.data_path, allow_pickle=True) / 10.0
         test_data = torch.tensor(self.bgmol_dataset.xyz).view(-1, self.hparams.dim)
@@ -54,26 +54,29 @@ class ALDPDataModule(PeptideDataModule):
         test_data = self.normalize(test_data)
 
         # Create training dataset with transforms applied
-        self.data_train = TransformDataset(train_data, transform=self.transforms) 
+        self.data_train = TransformDataset(train_data, transform=self.transforms)
 
         # Split val and test data
-        self.data_val, self.data_test = test_data[:self.hparams.num_val_samples], test_data[self.hparams.num_val_samples:]
+        self.data_val, self.data_test = (
+            test_data[: self.hparams.num_val_samples],
+            test_data[self.hparams.num_val_samples :],
+        )
 
-        # Randomized ordering of val samples
+        # Randomized ordering of val samples
         val_rng = np.random.default_rng(0)
         self.data_val = torch.tensor(val_rng.permutation(self.data_val))
 
         # Randomized ordering / subset of test samples
         test_rng = np.random.default_rng(1)
-        self.data_test = torch.tensor(test_rng.permutation(self.data_test))[self.hparams.num_test_samples:]
+        self.data_test = torch.tensor(test_rng.permutation(self.data_test))[self.hparams.num_test_samples :]
 
-        # Smaller subset for plotting 
-        self.data_test_small = self.data_test[:self.hparams.num_test_samples_small]
+        # Smaller subset for plotting
+        self.data_test_small = self.data_test[: self.hparams.num_test_samples_small]
 
     def setup_potential(self):
-
         self.topology = self.bgmol_dataset.system.mdtraj_topology
         self.potential = self.bgmol_dataset.get_energy_model()
+
 
 if __name__ == "__main__":
     _ = ALDPDataModule()

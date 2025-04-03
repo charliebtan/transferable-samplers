@@ -1,6 +1,6 @@
-from typing import Callable
 import logging
 import math
+from typing import Callable
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -38,14 +38,12 @@ class SMCSampler(torch.nn.Module):
         self.input_energy_cutoff = input_energy_cutoff
 
     def plot_stepwise_energy(self, target_energy_list, interpolation_energy_list, t_list):
-
         stepwise_target_energy_np = np.stack(target_energy_list)
         stepwise_interpolation_energy_np = np.stack(interpolation_energy_list)
 
         fig, axs = plt.subplots(1, 2, figsize=(15, 5))
 
         for k in range(stepwise_target_energy_np.shape[1]):
-
             axs[0].plot(t_list, stepwise_target_energy_np[:, k], linewidth=1, alpha=0.5)
             axs[1].plot(t_list, stepwise_interpolation_energy_np[:, k], linewidth=1, alpha=0.5)
 
@@ -60,7 +58,6 @@ class SMCSampler(torch.nn.Module):
         plt.close()
 
     def plot_stepwise_energy_hist(self, target_energy_list, interpolation_energy_list, t_list):
-
         stepwise_target_energy_np = np.stack(target_energy_list)
         stepwise_interpolation_energy_np = np.stack(interpolation_energy_list)
         t_np = np.array(t_list)
@@ -114,13 +111,11 @@ class SMCSampler(torch.nn.Module):
         plt.close()
 
     def plot_dX_t_norm(self, dX_t_norm_list, t_list):
-
         dX_t_norm_np = np.stack(dX_t_norm_list).T
 
         fig, axs = plt.subplots(1, 1, figsize=(7.5, 5))
 
         for k in range(dX_t_norm_np.shape[0]):
-
             axs.plot(t_list, dX_t_norm_np[k], linewidth=1, alpha=0.5)
 
         axs.set_xlabel("Time", fontsize=12)
@@ -130,7 +125,6 @@ class SMCSampler(torch.nn.Module):
         plt.close()
 
     def plot_weights(self, A_list, ESS_list, t_list):
-
         A_np = torch.stack(A_list).cpu().numpy()
 
         fig, axs = plt.subplots(1, 2, figsize=(15, 5))
@@ -149,7 +143,6 @@ class SMCSampler(torch.nn.Module):
         plt.close()
 
     def plot_eps(self, eps_list, t_list):
-
         fig, ax = plt.subplots(1, 1, figsize=(7.5, 5))
         ax.plot(t_list, eps_list, linewidth=1, alpha=0.5)
         ax.set_xlabel("Time", fontsize=12)
@@ -162,12 +155,8 @@ class SMCSampler(torch.nn.Module):
         source_energy = self.source_energy(x)
         target_energy = self.target_energy(x)
         target_energy = target_energy.reshape(-1)
-        assert source_energy.shape == (
-            x.shape[0],
-        ), f"Source energy should be a flat vector not {source_energy.shape}"
-        assert target_energy.shape == (
-            x.shape[0],
-        ), f"Target energy should be a flat vector, not {target_energy.shape}"
+        assert source_energy.shape == (x.shape[0],), f"Source energy should be a flat vector not {source_energy.shape}"
+        assert target_energy.shape == (x.shape[0],), f"Target energy should be a flat vector, not {target_energy.shape}"
         energy = (1 - t) * source_energy + t * target_energy
         return energy
 
@@ -180,9 +169,7 @@ class SMCSampler(torch.nn.Module):
 
             et = self.linear_energy_interpolation(x, t)
 
-            assert (
-                et.requires_grad
-            ), "et should require grad - check the energy function for no_grad"
+            assert et.requires_grad, "et should require grad - check the energy function for no_grad"
 
             # this is a bit hacky but is fine as long as
             # the energy function is defined properly and
@@ -200,7 +187,6 @@ class SMCSampler(torch.nn.Module):
 
     @torch.no_grad()
     def sample(self, proposal_samples):
-
         if not self.enabled:
             return None, None
 
@@ -232,22 +218,14 @@ class SMCSampler(torch.nn.Module):
             # slice into list of batches (tensors)
             X_batches = [X[i : i + self.batch_size] for i in range(0, X.shape[0], self.batch_size)]
 
-            target_energy_list = [
-                np.concatenate([self.target_energy(X_batch).cpu() for X_batch in X_batches])
-            ]
+            target_energy_list = [np.concatenate([self.target_energy(X_batch).cpu() for X_batch in X_batches])]
             interpolation_energy_list = [
-                np.concatenate(
-                    [
-                        self.linear_energy_interpolation(X_batch, timesteps[0]).cpu()
-                        for X_batch in X_batches
-                    ]
-                )
+                np.concatenate([self.linear_energy_interpolation(X_batch, timesteps[0]).cpu() for X_batch in X_batches])
             ]
 
         t_previous = 0.0
 
         for j, t in tqdm(enumerate(timesteps[:-1])):
-
             logging.info(f"Outer loop iteration {j}")
 
             # slice into list of batches (tensors)
@@ -260,13 +238,10 @@ class SMCSampler(torch.nn.Module):
 
             dt = t - t_previous
             for batch_idx, (X_batch, A_batch) in enumerate(zip(X_batches, A_batches)):
-
                 eps = eps_fn(t)
 
                 # get the energy gradients
-                energy_grad_x, energy_grad_t = self.linear_energy_interpolation_gradients(
-                    X_batch, t
-                )
+                energy_grad_x, energy_grad_t = self.linear_energy_interpolation_gradients(X_batch, t)
 
                 # assert torch.allclose(energy_grad_t, - self.source_energy(X_batch) + self.target_energy(X_batch))
 
@@ -285,9 +260,7 @@ class SMCSampler(torch.nn.Module):
 
                 if self.do_energy_plots:
                     target_energy_batches.append(self.target_energy(X_batch).cpu())
-                    interpolation_energy_batches.append(
-                        self.linear_energy_interpolation(X_batch, t).cpu()
-                    )
+                    interpolation_energy_batches.append(self.linear_energy_interpolation(X_batch, t).cpu())
 
             # cat the batches to compute global statistics
             X = torch.cat(X_batches, dim=0)
@@ -297,14 +270,9 @@ class SMCSampler(torch.nn.Module):
             smc_weights = torch.softmax(A, dim=-1)
 
             if X.isnan().any() or A.isnan().any() or not (j + 1) % 100 or j + 1 == num_timesteps:
-
                 if self.do_energy_plots:
-                    self.plot_stepwise_energy(
-                        target_energy_list, interpolation_energy_list, t_list
-                    )
-                    self.plot_stepwise_energy_hist(
-                        target_energy_list, interpolation_energy_list, t_list
-                    )
+                    self.plot_stepwise_energy(target_energy_list, interpolation_energy_list, t_list)
+                    self.plot_stepwise_energy_hist(target_energy_list, interpolation_energy_list, t_list)
 
                 self.plot_dX_t_norm(dX_t_norm_list, t_list)
                 self.plot_weights(A_list, ESS_list, t_list)
@@ -345,22 +313,15 @@ class SMCSampler(torch.nn.Module):
                 dX_t_norm_list.append(np.concatenate(dX_t_norm_batches))
 
                 # slice into list of batches (tensors)
-                X_batches = [
-                    X[i : i + self.batch_size] for i in range(0, X.shape[0], self.batch_size)
-                ]
+                X_batches = [X[i : i + self.batch_size] for i in range(0, X.shape[0], self.batch_size)]
 
                 if self.do_energy_plots:
                     target_energy_list.append(
-                        np.concatenate(
-                            [self.target_energy(X_batch).cpu() for X_batch in X_batches]
-                        )
+                        np.concatenate([self.target_energy(X_batch).cpu() for X_batch in X_batches])
                     )
                     interpolation_energy_list.append(
                         np.concatenate(
-                            [
-                                self.linear_energy_interpolation(X_batch, t + 1e-9).cpu()
-                                for X_batch in X_batches
-                            ]
+                            [self.linear_energy_interpolation(X_batch, t + 1e-9).cpu() for X_batch in X_batches]
                         )
                     )
 

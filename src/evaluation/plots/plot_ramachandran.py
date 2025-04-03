@@ -1,7 +1,6 @@
-from lightning.pytorch.loggers import WandbLogger
-import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib.colors import LogNorm
 
 from src.evaluation.metrics.ramachandran import get_phi_psi_vectors
@@ -9,8 +8,8 @@ from src.evaluation.metrics.ramachandran import get_phi_psi_vectors
 matplotlib.rcParams["mathtext.fontset"] = "stix"
 matplotlib.rcParams["font.family"] = "STIXGeneral"
 
-def plot_ramachandran(log_image_fn, samples, topology, prefix: str = ""):
 
+def plot_ramachandran(log_image_fn, samples, topology, prefix: str = ""):
     prefix += "/rama"
 
     phis, psis = get_phi_psi_vectors(samples, topology)
@@ -30,7 +29,12 @@ def plot_ramachandran(log_image_fn, samples, topology, prefix: str = ""):
             rasterized=True,
         )
         ticks = np.array(
-            [np.exp(-6) * h.max(), np.exp(-4.0) * h.max(), np.exp(-2) * h.max(), h.max()]
+            [
+                np.exp(-6) * h.max(),
+                np.exp(-4.0) * h.max(),
+                np.exp(-2) * h.max(),
+                h.max(),
+            ]
         )
         ax.set_xlabel(r"$\varphi$", fontsize=45)
         # ax.set_title("Boltzmann Generator", fontsize=45)

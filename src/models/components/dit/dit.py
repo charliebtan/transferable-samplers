@@ -139,9 +139,9 @@ class LayerNorm(nn.Module):
 def residual_linear(x, W, x_skip, residual_scale):
     """x_skip + residual_scale * W @ x"""
     dim_out, dim_in = W.shape[0], W.shape[1]
-    return torch.addmm(
-        x_skip.view(-1, dim_out), x.view(-1, dim_in), W.T, alpha=residual_scale
-    ).view(*x.shape[:-1], dim_out)
+    return torch.addmm(x_skip.view(-1, dim_out), x.view(-1, dim_in), W.T, alpha=residual_scale).view(
+        *x.shape[:-1], dim_out
+    )
 
 
 #################################################################################
@@ -173,9 +173,9 @@ class TimestepEmbedder(nn.Module):
         """
         # https://github.com/openai/glide-text2im/blob/main/glide_text2im/nn.py
         half = dim // 2
-        freqs = torch.exp(
-            -math.log(max_period) * torch.arange(start=0, end=half, dtype=torch.float32) / half
-        ).to(device=t.device)
+        freqs = torch.exp(-math.log(max_period) * torch.arange(start=0, end=half, dtype=torch.float32) / half).to(
+            device=t.device
+        )
         args = t[:, None].float() * freqs[None]
         embedding = torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
         if dim % 2:
@@ -245,9 +245,9 @@ class DDiTBlock(nn.Module):
 
         bias_dropout_scale_fn = self._get_bias_dropout_scale()
 
-        (shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp) = self.adaLN_modulation(
-            c
-        )[:, None].chunk(6, dim=2)
+        (shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp) = self.adaLN_modulation(c)[:, None].chunk(
+            6, dim=2
+        )
 
         # attention operation
         x_skip = x
@@ -348,9 +348,7 @@ class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
             )
         self.blocks = nn.ModuleList(blocks)
 
-        self.output_layer = DDitFinalLayer(
-            config.model.hidden_size, vocab_size, config.model.cond_dim
-        )
+        self.output_layer = DDitFinalLayer(config.model.hidden_size, vocab_size, config.model.cond_dim)
         self.scale_by_sigma = config.model.scale_by_sigma
 
     def _get_bias_dropout_scale(self):
@@ -482,13 +480,12 @@ class WrappedPretrainedDIT(torch.nn.Module):
             if isinstance(self.pretrained_backbone, DIT):
                 cond = F.silu(self._get_backbone().sigma_map(sigma))
             elif check_instance_UNetVDM(self.pretrained_backbone):
-                mean_dim = 0
                 cond = self._get_backbone().sigma_map(sigma)
                 hidden_states = hidden_states.detach()
             else:
                 cond = F.silu(self._get_backbone().sigma_map(sigma))
                 # warn that it may be unsupported
-                warnings.warn("Using default sigma_map for WrappedPretrainedDIT")
+                warnings.warn("Using default sigma_map for WrappedPretrainedDIT", stacklevel=2)
 
             logZ = self.logZ_layer(hidden_states[-1].detach(), cond.detach()).mean(dim=1)
 
@@ -559,9 +556,7 @@ class DIT3D(nn.Module, huggingface_hub.PyTorchModelHubMixin):
             )
         self.blocks = nn.ModuleList(blocks)
 
-        self.output_layer = DDitFinalLayer(
-            config.model.hidden_size, vocab_size, config.model.cond_dim
-        )
+        self.output_layer = DDitFinalLayer(config.model.hidden_size, vocab_size, config.model.cond_dim)
         self.scale_by_sigma = config.model.scale_by_sigma
 
     def _get_bias_dropout_scale(self):

@@ -1,7 +1,6 @@
 # Copyright (c) 2023, Tri Dao.
 
-import math
-from typing import Any, List, Optional, Tuple, Union
+from typing import Any, Optional, Union
 
 import torch
 from einops import rearrange, repeat
@@ -28,7 +27,10 @@ def apply_rotary_emb_torch(x, cos, sin, interleaved=False):
     cos = repeat(cos, "... d -> ... 1 (2 d)" if not interleaved else "... d -> ... 1 (d 2)")
     sin = repeat(sin, "... d -> ... 1 (2 d)" if not interleaved else "... d -> ... 1 (d 2)")
     return torch.cat(
-        [x[..., :ro_dim] * cos + rotate_half(x[..., :ro_dim], interleaved) * sin, x[..., ro_dim:]],
+        [
+            x[..., :ro_dim] * cos + rotate_half(x[..., :ro_dim], interleaved) * sin,
+            x[..., ro_dim:],
+        ],
         dim=-1,
     )
 
@@ -120,9 +122,7 @@ def apply_rotary_emb(
     rotary_dim must be <= headdim
     Apply rotary embedding to the first rotary_dim of x.
     """
-    return ApplyRotaryEmb.apply(
-        x, cos, sin, interleaved, inplace, seqlen_offsets, cu_seqlens, max_seqlen
-    )
+    return ApplyRotaryEmb.apply(x, cos, sin, interleaved, inplace, seqlen_offsets, cu_seqlens, max_seqlen)
 
 
 # For backward compatibility
@@ -158,7 +158,12 @@ class ApplyRotaryEmbQKV_(torch.autograd.Function):
                 assert qkv.shape[2] == num_heads_q + 2 * num_heads_k
                 qk = qkv[:, :, : num_heads_q + num_heads_k]
             apply_rotary(
-                qk, cos, sin, seqlen_offsets=seqlen_offsets, interleaved=interleaved, inplace=True
+                qk,
+                cos,
+                sin,
+                seqlen_offsets=seqlen_offsets,
+                interleaved=interleaved,
+                inplace=True,
             )
         else:
             cos_k = cos if cos_k is None else cos_k
@@ -170,7 +175,10 @@ class ApplyRotaryEmbQKV_(torch.autograd.Function):
                 assert num_heads_q is not None
                 num_heads_k = (qkv.shape[2] - num_heads_q) // 2
                 assert qkv.shape[2] == num_heads_q + 2 * num_heads_k
-                q, k = qkv[:, :, :num_heads_q], qkv[:, :, num_heads_q : num_heads_q + num_heads_k]
+                q, k = (
+                    qkv[:, :, :num_heads_q],
+                    qkv[:, :, num_heads_q : num_heads_q + num_heads_k],
+                )
             apply_rotary(q, cos, sin, seqlen_offsets, interleaved=interleaved, inplace=True)
             apply_rotary(k, cos_k, sin_k, seqlen_offsets, interleaved=interleaved, inplace=True)
             ctx.save_for_backward(cos, sin, cos_k, sin_k)
@@ -245,9 +253,7 @@ class ApplyRotaryEmbQKV_(torch.autograd.Function):
         return dqkv, None, None, None, None, None, None, None
 
     @staticmethod
-    def vmap(
-        args: List[Any], batch_size: int, _vmap_id: int = 0
-    ) -> Tuple[torch.nn.Module, List[str]]:
+    def vmap(args: list[Any], batch_size: int, _vmap_id: int = 0) -> tuple[torch.nn.Module, list[str]]:
         class VMapApplyRotaryEmbQKV(torch.nn.Module):
             def __init__(self):
                 super().__init__()
@@ -264,9 +270,7 @@ class ApplyRotaryEmbQKV_(torch.autograd.Function):
         return VMapApplyRotaryEmbQKV(), ["qkv", "cos", "sin"]
 
     @staticmethod
-    def adjoint(
-        args: List[Any], tangents: List[Tensor], _vmap_id: int = 0
-    ) -> Tuple[Optional[Tensor], ...]:
+    def adjoint(args: list[Any], tangents: list[Tensor], _vmap_id: int = 0) -> tuple[Optional[Tensor], ...]:
         qkv, cos, sin = args[:3]
         dqkv, _, _, _, _, _, _, _, _ = tangents
         if dqkv is None:
@@ -314,21 +318,29 @@ def apply_rotary_emb_qkv_(
     rotary_dim must be <= headdim
     Apply rotary embedding *inplace* to the first rotary_dim of Q and K.
     """
-    return ApplyRotaryEmbQKV_.apply(
-        qkv, cos, sin, cos_k, sin_k, interleaved, seqlen_offsets, num_heads_q
-    )
+    return ApplyRotaryEmbQKV_.apply(qkv, cos, sin, cos_k, sin_k, interleaved, seqlen_offsets, num_heads_q)
 
 
 class ApplyRotaryEmbKV_(torch.autograd.Function):
     @staticmethod
     def forward(
-        ctx, kv, cos, sin, interleaved=False, seqlen_offsets: Union[int, torch.Tensor] = 0
+        ctx,
+        kv,
+        cos,
+        sin,
+        interleaved=False,
+        seqlen_offsets: Union[int, torch.Tensor] = 0,
     ):
         batch, seqlen, two, nheads, headdim = kv.shape
         assert two == 2
         k = kv[:, :, 0]
         apply_rotary(
-            k, cos, sin, seqlen_offsets=seqlen_offsets, interleaved=interleaved, inplace=True
+            k,
+            cos,
+            sin,
+            seqlen_offsets=seqlen_offsets,
+            interleaved=interleaved,
+            inplace=True,
         )
         if isinstance(seqlen_offsets, int):
             ctx.save_for_backward(cos, sin)  # Can't save int with save_for_backward
@@ -356,9 +368,6 @@ class ApplyRotaryEmbKV_(torch.autograd.Function):
             conjugate=True,
         )
         return dkv, None, None, None, None
-
-
-apply_rotary_emb_kv_ = ApplyRotaryEmbKV_.apply
 
 
 def apply_rotary_emb_kv_(
@@ -448,10 +457,7 @@ class RotaryEmbedding(torch.nn.Module):
         self._sin_k_cached = None
 
     def _compute_inv_freq(self, device=None):
-        return 1.0 / (
-            self.base
-            ** (torch.arange(0, self.dim, 2, device=device, dtype=torch.float32) / self.dim)
-        )
+        return 1.0 / (self.base ** (torch.arange(0, self.dim, 2, device=device, dtype=torch.float32) / self.dim))
 
     def _update_cos_sin_cache(self, seqlen, device=None, dtype=None):
         # Reset the tables if the sequence length has changed,
@@ -489,8 +495,7 @@ class RotaryEmbedding(torch.nn.Module):
                 self._sin_cached = torch.sin(freqs).to(dtype)
             else:
                 power = (
-                    torch.arange(seqlen, dtype=self.scale.dtype, device=self.scale.device)
-                    - seqlen // 2
+                    torch.arange(seqlen, dtype=self.scale.dtype, device=self.scale.device) - seqlen // 2
                 ) / self.scale_base
                 scale = self.scale.to(device=power.device) ** rearrange(power, "s -> s 1")
                 # We want the multiplication by scale to happen in fp32
@@ -506,7 +511,7 @@ class RotaryEmbedding(torch.nn.Module):
         seqlen_offset: Union[int, torch.Tensor] = 0,
         max_seqlen: Optional[int] = None,
         num_heads_q: Optional[int] = None,
-    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+    ) -> Union[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
         """
         qkv: (batch, seqlen, 3, nheads, headdim) or (batch, seqlen, num_heads_q + 2 * num_heads_k, headdim)
             if kv is none, else it's just q of shape (batch, seqlen, nheads, headdim).

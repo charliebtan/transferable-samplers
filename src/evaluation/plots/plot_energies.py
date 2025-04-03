@@ -1,11 +1,11 @@
-from lightning.pytorch.loggers import WandbLogger
-import torch
-import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
+import numpy as np
+import torch
 
 matplotlib.rcParams["mathtext.fontset"] = "stix"
 matplotlib.rcParams["font.family"] = "STIXGeneral"
+
 
 def plot_energies(
     log_image_fn,
@@ -18,7 +18,6 @@ def plot_energies(
     ylim=None,
     prefix="",
 ):
-
     fig, ax = plt.subplots(figsize=(4, 3), dpi=300, constrained_layout=True)
     fig.patch.set_facecolor("white")
 
@@ -77,9 +76,7 @@ def plot_energies(
     new_tick = bin_edges[-1]
     custom_label = rf"$\geq {new_tick}$"
     xticks.append(new_tick)
-    xtick_labels = [
-        str(int(tick)) if tick != new_tick else custom_label for tick in xticks
-    ]
+    xtick_labels = [str(int(tick)) if tick != new_tick else custom_label for tick in xticks]
     ax.set_xticks(xticks)
     ax.set_xticklabels(xtick_labels)
 
