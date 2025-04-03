@@ -1,5 +1,12 @@
 # Fast Transferable Boltzmann Generators
 
+## Dev Setup
+
+```
+pip install ruff
+pre-commit install
+```
+
 ## Install
 ```
 conda create -n fast-tbg python=3.11
@@ -9,18 +16,10 @@ pip install -r requirements.txt
 
 ## Train
 ```
-python src/train.py trainer=gpu
+python src/train.py experiment=training/tarflow_aldp trainer=gpu
 ```
 
 ## Sampling
 ```
-python src/eval.py ckpt_path=${CHECKPOINT_PATH} experiment=jarz_tarflow_al2
+python src/eval.py ckpt_path=${CHECKPOINT_PATH} experiment=evaluation/tarflow_aldp
 ```
-
-## Data Files
-
-MD data files can be found below
-
-https://osf.io/srqg7/files/osfstorage?view_only=af935a79a5e645b7aab5d37bc5eb3faa
-
-https://osf.io/wm47v/files/osfstorage?view_only=af935a79a5e645b7aab5d37bc5eb3faa
