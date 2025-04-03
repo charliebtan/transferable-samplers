@@ -29,9 +29,6 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
         """
         super().__init__(*args, **kwargs)
 
-        self.energy_kl_loss = energy_kl_loss
-        self.energy_kl_weight = energy_kl_weight
-
     def model_step(
         self,
         batch: torch.Tensor,
@@ -44,10 +41,10 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
         else:
             loss = self.prior.energy(x0).mean() - dlogp.mean()
 
-        if self.energy_kl_loss:
+        if self.hparams.energy_kl_weight:
             samples, log_p, _ = self.generate_samples(x1.shape[0])
             energy_loss = self.energy_kl(samples, log_p).mean()
-            loss = loss + self.energy_kl_weight * energy_loss
+            loss = loss + self.hparams.energy_kl_weight * energy_loss
             self.log("Energy Loss", energy_loss.item(), prog_bar=True, sync_dist=True)
         return loss
 
@@ -111,6 +108,7 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
             x_recon, fwd_logdets = self.net(x_pred)
             fwd_logdets = fwd_logdets * self.datamodule.hparams.dim  # rescale from mean to sum
 
+            # TODO refector these all into a metrics
             self.log("invert/mse", torch.mean((prior_samples - x_recon) ** 2), sync_dist=True)
             self.log(
                 "invert/max_abs",

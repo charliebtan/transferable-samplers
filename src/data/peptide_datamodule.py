@@ -264,6 +264,7 @@ class PeptideDataModule(BaseDataModule):
             prefix + "/correct_symmetry_rate": correct_symmetry_rate,
             prefix + "/uncorrectable_symmetry_rate": uncorrectable_symmetry_rate,
         }
+        logging.info(f"Correct symmetry rate is {correct_symmetry_rate:.2f}, ")
 
         if uncorrectable_symmetry_rate > 0.1:
             logging.warning(f"Uncorrectable symmetry rate is {uncorrectable_symmetry_rate:.2f}, ")
@@ -278,16 +279,16 @@ class PeptideDataModule(BaseDataModule):
         if len(pred_data) < 0.9 * self.hparams.num_eval_samples:
             logging.warning(r"Less than 90% of required eval samples supplied.")
 
-        # Compute effective sample size
-        if pred_data.logits is not None:
-            ess = sampling_efficiency(pred_data.logits)
-            metrics[f"{prefix}/effective_sample_size"] = ess
-
         # Slice data to subset
         num_eval_samples = min(self.hparams.num_eval_samples, len(pred_data), len(true_data))
         true_data = true_data[:num_eval_samples]
         pred_data = pred_data[:num_eval_samples]
         metrics["num_eval_samples"] = min(num_eval_samples, len(pred_data))
+
+        # Compute effective sample size
+        if pred_data.logits is not None:
+            ess = sampling_efficiency(pred_data.logits)
+            metrics[f"{prefix}/effective_sample_size"] = ess
 
         # Distribtuion distance metrics
         metrics.update(distribution_distances(true_data.samples, pred_data.samples, prefix=prefix))
@@ -327,7 +328,9 @@ class PeptideDataModule(BaseDataModule):
 
         metrics = {}
 
-        plot_ramachandran(log_image_fn, true_data.samples, self.topology, prefix=prefix + "true")
+        plot_ramachandran(
+            log_image_fn, true_data.samples[: self.hparams.num_eval_samples], self.topology, prefix=prefix + "true"
+        )
 
         for data, name in [
             [proposal_data, "proposal"],
@@ -339,6 +342,8 @@ class PeptideDataModule(BaseDataModule):
 
             if len(data) == 0:
                 logging.warning(f"No {name} samples present.")
+
+            data = data[: self.hparams.num_eval_samples * 2]  # slice out extra samples for those lost to symmetry
 
             symmetry_metrics, symmetry_change = self.resolve_chirality(true_data.samples, data.samples, prefix + name)
             data = data[~symmetry_change]
@@ -353,7 +358,7 @@ class PeptideDataModule(BaseDataModule):
         logging.info("Plotting energies")
         plot_energies(
             log_image_fn,
-            true_data.energy[self.hparams.num_eval_samples :],
+            true_data.energy[: self.hparams.num_eval_samples],
             proposal_data.energy if len(proposal_data) > 0 else None,
             resampled_data.energy if len(resampled_data) > 0 else None,
             smc_data.energy if (smc_data is not None and len(smc_data) > 0) else None,
@@ -364,7 +369,7 @@ class PeptideDataModule(BaseDataModule):
         logging.info("Plotting interatomic distances")
         plot_atom_distances(
             log_image_fn,
-            true_data.samples[self.hparams.num_eval_samples :],
+            true_data.samples[: self.hparams.num_eval_samples],
             proposal_data.samples if len(proposal_data) > 0 else None,
             resampled_data.samples if len(resampled_data) > 0 else None,
             smc_data.samples if (smc_data is not None and len(smc_data) > 0) else None,
