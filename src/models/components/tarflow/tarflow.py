@@ -403,7 +403,7 @@ class TarFlow(torch.nn.Module):
         if encodings is not None:
             assert self.conditional, (
                 f"Passed in encodings for transferrability, but conditional={self.conditional}."
-                + " Set conditional var to True"
+                + " Set conditional attribute to True"
             )
             cond = self.cond_embed(
                 atom_type=encodings["atom_type"], aa_type=encodings["aa_type"], aa_pos=encodings["aa_pos"]
@@ -435,6 +435,10 @@ class TarFlow(torch.nn.Module):
 
         cond = None
         if encodings is not None:
+            assert self.conditional, (
+                f"Passed in encodings for transferrability, but conditional={self.conditional}."
+                + " Set conditional attribute to True"
+            )
             cond = self.cond_embed(
                 atom_type=encodings["atom_type"], aa_type=encodings["aa_type"], aa_pos=encodings["aa_pos"]
             )
