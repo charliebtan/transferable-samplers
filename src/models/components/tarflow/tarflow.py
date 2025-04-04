@@ -4,6 +4,8 @@
 #
 import torch
 
+from .embed import ConditionalEmbedder
+
 
 class Permutation(torch.nn.Module):
     def __init__(self, seq_length: int):
@@ -146,14 +148,14 @@ class MetaBlock(torch.nn.Module):
         head_dim: int = 64,
         expansion: int = 4,
         nvp: bool = True,
-        cond_in_channels: int | None = None,
+        conditional: bool = False,
         num_classes: int = 0,
     ):
         super().__init__()
         self.proj_in = torch.nn.Linear(in_channels, channels)
 
-        if cond_in_channels is not None:
-            self.proj_cond = torch.nn.Linear(cond_in_channels, channels)
+        if conditional:
+            self.proj_cond = torch.nn.Linear(channels, channels)
 
         self.pos_embed = torch.nn.Parameter(torch.randn(num_patches, channels) * 1e-2)
         if num_classes:
@@ -323,7 +325,7 @@ class TarFlow(torch.nn.Module):
         channels: int,
         num_blocks: int,
         layers_per_block: int,
-        cond_in_channels: int | None = None,
+        conditional: bool = False,
         nvp: bool = True,
         num_classes: int = 0,
     ):
@@ -337,6 +339,9 @@ class TarFlow(torch.nn.Module):
             PermutationFlip(self.num_patches),
         ]
 
+        if conditional:
+            self.cond_embed = ConditionalEmbedder(channels=channels)
+
         blocks = []
         for i in range(num_blocks):
             blocks.append(
@@ -348,7 +353,7 @@ class TarFlow(torch.nn.Module):
                     permutations[i % 2],
                     layers_per_block,
                     nvp=nvp,
-                    cond_in_channels=cond_in_channels,
+                    conditional=conditional,
                     num_classes=num_classes,
                 )
             )
@@ -356,9 +361,9 @@ class TarFlow(torch.nn.Module):
         # prior for nvp mode should be all ones, but needs to be learnd for the vp mode
         self.register_buffer("var", torch.ones(self.num_patches, in_channels * patch_size**2))
         self.in_channels = in_channels
+        self.channels = channels
         self.img_size = img_size
-        self.cond_in_channels = cond_in_channels
-        self.cond_img_size = (img_size // in_channels) * cond_in_channels if cond_in_channels is not None else None
+        self.conditional = conditional
         if self.in_channels != 1:
             assert not self.img_size % self.in_channels
 
@@ -388,26 +393,33 @@ class TarFlow(torch.nn.Module):
     def forward(
         self,
         x: torch.Tensor,
-        cond: torch.Tensor | None = None,
+        encodings: dict[str, torch.Tensor] | None = None,
         mask: torch.Tensor | None = None,
         y: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor], torch.Tensor]:
         x = self.patchify(x)
 
-        if cond is not None:
-            cond = self.patchify(cond, img_size=self.cond_img_size, in_channels=self.cond_in_channels)
+        cond = None
+        if encodings is not None:
+            assert self.conditional, print(f"Set conditional var to True; currently conditonal={self.conditional}")
+            cond = self.cond_embed(
+                atom_type=encodings["atom_type"], aa_type=encodings["aa_type"], aa_pos=encodings["aa_pos"]
+            )
+            cond = cond.reshape(-1, cond.shape[1] * cond.shape[2])
+            cond = self.patchify(cond, img_size=cond.shape[-1], in_channels=self.channels)
 
         logdets = torch.zeros((), device=x.device)
         for block in self.blocks:
             x, logdet = block(x, cond, mask, y)
             logdets = logdets + logdet
+
         x_pred = self.unpatchify(x)
         return x_pred, logdets
 
     def reverse(
         self,
         x: torch.Tensor,
-        cond: torch.Tensor | None = None,
+        encodings: dict[str, torch.Tensor] | None = None,
         mask: torch.Tensor | None = None,
         y: torch.Tensor | None = None,
         guidance: float = 0,
@@ -418,14 +430,20 @@ class TarFlow(torch.nn.Module):
     ) -> torch.Tensor | list[torch.Tensor]:
         x = self.patchify(x)
 
-        if cond is not None:
-            cond = self.patchify(cond, img_size=self.cond_img_size, in_channels=self.cond_in_channels)
+        cond = None
+        if encodings is not None:
+            cond = self.cond_embed(
+                atom_type=encodings["atom_type"], aa_type=encodings["aa_type"], aa_pos=encodings["aa_pos"]
+            )
+            cond = cond.reshape(-1, cond.shape[1] * cond.shape[2])
+            cond = self.patchify(cond, img_size=cond.shape[-1], in_channels=self.channels)
 
         seq = [self.unpatchify(x)]
         x = x * self.var.sqrt()
         for block in reversed(self.blocks):
             x = block.reverse(x, cond, mask, y, guidance, guide_what, attn_temp, annealed_guidance)
             seq.append(self.unpatchify(x))
+
         x = self.unpatchify(x)
         if not return_sequence:
             return x
