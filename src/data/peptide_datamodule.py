@@ -256,6 +256,8 @@ class PeptideDataModule(BaseDataModule):
                     "the number of devices ({self.trainer.world_size})."
                 )
             self.batch_size_per_device = self.hparams.batch_size // self.trainer.world_size
+        else:
+            self.batch_size_per_device = self.hparams.batch_size
 
         self.setup_potential()
         self.setup_atom_encoding()
