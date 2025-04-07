@@ -211,7 +211,7 @@ class PeptideDataModule(BaseDataModule):
 
         # Randomized ordering / subset of test samples
         test_rng = np.random.default_rng(1)
-        self.data_test = torch.tensor(test_rng.permutation(self.data_test))[self.hparams.num_test_samples :]
+        self.data_test = torch.tensor(test_rng.permutation(self.data_test))[: self.hparams.num_test_samples]
 
         # Create training dataset with transforms applied
         self.data_train = PeptideDataset(train_data, transform=self.transforms, encodings=self.encodings)
