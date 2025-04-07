@@ -336,7 +336,7 @@ class PeptideDataModule(BaseDataModule):
         metrics = {}
 
         plot_ramachandran(
-            log_image_fn, true_data.samples[: self.hparams.num_eval_samples * 5], self.topology, prefix=prefix + "true"
+            log_image_fn, true_data.samples[: self.hparams.num_eval_samples], self.topology, prefix=prefix + "true"
         )
 
         for data, name in [
