@@ -211,7 +211,7 @@ class PeptideDataModule(BaseDataModule):
 
         # Randomized ordering / subset of test samples
         test_rng = np.random.default_rng(1)
-        self.data_test = torch.tensor(test_rng.permutation(self.data_test))[self.hparams.num_test_samples :]
+        self.data_test = torch.tensor(test_rng.permutation(self.data_test))[: self.hparams.num_test_samples]
 
         # Create training dataset with transforms applied
         self.data_train = PeptideDataset(train_data, transform=self.transforms, encodings=self.encodings)
@@ -336,7 +336,7 @@ class PeptideDataModule(BaseDataModule):
         metrics = {}
 
         plot_ramachandran(
-            log_image_fn, true_data.samples[: self.hparams.num_eval_samples], self.topology, prefix=prefix + "true"
+            log_image_fn, true_data.samples[: self.hparams.num_eval_samples * 5], self.topology, prefix=prefix + "true"
         )
 
         for data, name in [
