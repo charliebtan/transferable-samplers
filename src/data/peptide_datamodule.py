@@ -25,9 +25,11 @@ from src.evaluation.metrics.distribution_distances import (
 )
 from src.evaluation.metrics.ess import sampling_efficiency
 from src.evaluation.metrics.ramachandran import ramachandran_metrics
+from src.evaluation.metrics.tica import tica_metric
 from src.evaluation.plots.plot_atom_distances import plot_atom_distances
 from src.evaluation.plots.plot_energies import plot_energies
 from src.evaluation.plots.plot_ramachandran import plot_ramachandran
+from src.evaluation.plots.plot_tica import plot_tica
 
 
 class PeptideDataModule(BaseDataModule):
@@ -41,6 +43,7 @@ class PeptideDataModule(BaseDataModule):
         num_particles: int,
         num_dimensions: int,
         dim: int,
+        tica_lagtime: int,
         make_iid: bool = False,
         com_augmentation: bool = False,
         # TODO maybe make this all just *args?
@@ -200,25 +203,25 @@ class PeptideDataModule(BaseDataModule):
         test_data = self.normalize(test_data)
 
         # Split val and test data
-        self.data_val, self.data_test = (
+        self.data_val_ordered, self.data_test_ordered = (
             test_data[: self.hparams.num_val_samples],
             test_data[self.hparams.num_val_samples :],
         )
 
         # Randomized ordering of val samples
         val_rng = np.random.default_rng(0)
-        self.data_val = torch.tensor(val_rng.permutation(self.data_val))
+        data_val = torch.tensor(val_rng.permutation(self.data_val_ordered))
 
         # Randomized ordering / subset of test samples
         test_rng = np.random.default_rng(1)
-        self.data_test = torch.tensor(test_rng.permutation(self.data_test))[: self.hparams.num_test_samples]
+        data_test = torch.tensor(test_rng.permutation(self.data_test_ordered))[: self.hparams.num_test_samples]
 
         # Create training dataset with transforms applied
         self.data_train = PeptideDataset(train_data, transform=self.transforms, encodings=self.encodings)
 
         # I actually thought better to apply transforms to val and test data too
-        self.data_val = PeptideDataset(self.data_val, transform=self.transforms, encodings=self.encodings)
-        self.data_test = PeptideDataset(self.data_test, transform=self.transforms, encodings=self.encodings)
+        self.data_val = PeptideDataset(data_val, transform=self.transforms, encodings=self.encodings)
+        self.data_test = PeptideDataset(data_test, transform=self.transforms, encodings=self.encodings)
 
     def setup_atom_types(self):
         atom_dict = {"C": 0, "H": 1, "N": 2, "O": 3, "S": 4}
@@ -278,7 +281,7 @@ class PeptideDataModule(BaseDataModule):
 
         return metrics, symmetry_change
 
-    def compute_all_metrics(self, true_data, pred_data, prefix: str = ""):
+    def compute_all_metrics(self, true_data, pred_data, true_traj_samples, prefix: str = ""):
         """Computes all metrics between true and predicted data."""
 
         metrics = {}
@@ -316,6 +319,12 @@ class PeptideDataModule(BaseDataModule):
         metrics.update(ramachandran_metrics(true_data.samples, pred_data.samples, self.topology, prefix=prefix))
         logging.info("Ramachandran metrics computed")
 
+        # TICA metrics
+        metrics.update(
+            tica_metric(true_traj_samples, pred_data.samples, self.topology, self.hparams.tica_lagtime, prefix=prefix)
+        )
+        logging.info("TICA metric computed")
+
         return metrics
 
     def metrics_and_plots(
@@ -335,8 +344,22 @@ class PeptideDataModule(BaseDataModule):
 
         metrics = {}
 
+        if prefix.startswith("val"):
+            true_traj_samples = self.as_pointcloud(self.unnormalize(self.data_val_ordered))
+        elif prefix.startswith("test"):
+            true_traj_samples = self.as_pointcloud(self.unnormalize(self.data_test_ordered))
+
         plot_ramachandran(
             log_image_fn, true_data.samples[: self.hparams.num_eval_samples], self.topology, prefix=prefix + "true"
+        )
+
+        plot_tica(
+            log_image_fn,
+            true_traj_samples,
+            true_data.samples[: self.hparams.num_eval_samples],
+            self.topology,
+            self.hparams.tica_lagtime,
+            prefix=prefix + "true",
         )
 
         for data, name in [
@@ -359,8 +382,16 @@ class PeptideDataModule(BaseDataModule):
             if len(data) == 0:
                 logging.warning(f"No {name} samples left after symmetry correction.")
             else:
-                metrics.update(self.compute_all_metrics(true_data, data, prefix + name))
+                metrics.update(self.compute_all_metrics(true_data, data, true_traj_samples, prefix + name))
                 plot_ramachandran(log_image_fn, data.samples, self.topology, prefix=prefix + name)
+                plot_tica(
+                    log_image_fn,
+                    true_traj_samples,
+                    data.samples,
+                    self.topology,
+                    self.hparams.tica_lagtime,
+                    prefix=prefix + name,
+                )
 
         logging.info("Plotting energies")
         plot_energies(

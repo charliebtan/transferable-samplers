@@ -68,25 +68,25 @@ class ALDPDataModule(PeptideDataModule):
         self.data_train = PeptideDataset(train_data, transform=self.transforms)
 
         # Split val and test data
-        self.data_val, self.data_test = (
+        self.data_val_ordered, self.data_test_ordered = (
             test_data[: self.hparams.num_val_samples],
             test_data[self.hparams.num_val_samples :],
         )
 
         # Randomized ordering of val samples
         val_rng = np.random.default_rng(0)
-        self.data_val = torch.tensor(val_rng.permutation(self.data_val))
+        data_val = torch.tensor(val_rng.permutation(self.data_val_ordered))
 
         # Randomized ordering / subset of test samples
         test_rng = np.random.default_rng(1)
-        self.data_test = torch.tensor(test_rng.permutation(self.data_test))[: self.hparams.num_test_samples]
+        data_test = torch.tensor(test_rng.permutation(self.data_test_ordered))[: self.hparams.num_test_samples]
 
         # Create training dataset with transforms applied
         self.data_train = PeptideDataset(train_data, transform=self.transforms, encodings=self.encodings)
 
         # I actually thought better to apply transforms to val and test data too
-        self.data_val = PeptideDataset(self.data_val, transform=self.transforms, encodings=self.encodings)
-        self.data_test = PeptideDataset(self.data_test, transform=self.transforms, encodings=self.encodings)
+        self.data_val = PeptideDataset(data_val, transform=self.transforms, encodings=self.encodings)
+        self.data_test = PeptideDataset(data_test, transform=self.transforms, encodings=self.encodings)
 
 
 if __name__ == "__main__":
