@@ -186,10 +186,14 @@ class MetaBlock(torch.nn.Module):
 
         attn_mask = self.attn_mask
         if mask is not None:
+            assert mask.shape[:1] == x.shape[:1], (
+                f"First two dimensions of mask {mask.shape[:1]} and x {x.shape[:1]} do not match"
+            )
             mask = self.permutation(mask)
             attn_mask = attn_mask.unsqueeze(0) * mask
             attn_mask = attn_mask.unsqueeze(1)
             x = x * mask
+
         for block in self.attn_blocks:
             x = block(x, attn_mask)
             if mask is not None:
@@ -393,6 +397,8 @@ class TarFlow(torch.nn.Module):
 
 
 if __name__ == "__main__":
+    torch.manual_seed(1)
+
     img_size = 66
     in_channels = 3
     cond_in_channels = None
@@ -488,9 +494,7 @@ if __name__ == "__main__":
     x2 = pad(x2, (0, img_size - img_size2), "constant", 0)
 
     x = torch.concat([x1, x2], axis=0)
-    mask = torch.where(x == 0, 0, 1).type(torch.float32)
-    mask = mask.reshape(-1, img_size // in_channels, in_channels)
-    mask = mask.mean(-1, keepdims=True)
+    mask = (x != 0).reshape(-1, img_size // in_channels, in_channels).any(dim=-1, keepdim=True).type(torch.float32)
 
     encodings = {
         "atom_type": torch.ones(batch_size, img_size // in_channels, dtype=torch.long),
