@@ -6,5 +6,5 @@ logger=wandb \
 trainer=gpu \
 trainer.max_epochs=2000 \
 data.batch_size=256 \
-model.energy_kl_weight=0,1e-3 \
+model.energy_kl_weight=0 \
 seed=0,1,2
