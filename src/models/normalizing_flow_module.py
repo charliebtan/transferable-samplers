@@ -3,7 +3,6 @@ import math
 
 import scipy
 import torch
-from bgflow import NormalDistribution
 
 from src.models.boltzmann_generator_module import BoltzmannGeneratorLitModule
 
@@ -14,8 +13,6 @@ torch.backends.cudnn.allow_tf32 = False
 class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
     def __init__(
         self,
-        force_gaussian_loss: bool = True,
-        energy_kl_loss: bool = False,
         energy_kl_weight: float = 0.01,
         log_invertibility_error: bool = True,
         *args,
@@ -36,10 +33,7 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
         x1, encodings = batch
         x0, dlogp = self.net(x1)
 
-        if self.hparams.force_gaussian_loss:  # TODO can we remove this now?
-            loss = (0.5 * x0.pow(2)).mean() - dlogp.mean()
-        else:
-            loss = self.prior.energy(x0).mean() - dlogp.mean()
+        loss = self.prior.energy(x0).mean() - dlogp.mean()
 
         if self.hparams.energy_kl_weight:
             samples, log_p, _ = self.generate_samples(x1.shape[0])
@@ -96,7 +90,6 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
         :return: A tuple containing the generated samples, the prior samples, and the log
             probability.
         """
-        self.prior = NormalDistribution(self.datamodule.hparams.dim)
 
         local_batch_size = batch_size // self.trainer.world_size
         prior_samples = self.prior.sample(local_batch_size).to(self.device)
