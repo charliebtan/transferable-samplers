@@ -3,7 +3,8 @@
 # Copyright (C) 2024 Apple Inc. All Rights Reserved.
 #
 import torch
-from embed import ConditionalEmbedder
+
+from .embed import ConditionalEmbedder
 
 
 class Permutation(torch.nn.Module):
@@ -334,7 +335,7 @@ class TarFlow(torch.nn.Module):
         mask: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor], torch.Tensor]:
         # patchify
-        x = x.reshape(-1, self.img_size // self.in_channels, in_channels)
+        x = x.reshape(-1, self.img_size // self.in_channels, self.in_channels)
 
         cond = None
         if encodings is not None:
