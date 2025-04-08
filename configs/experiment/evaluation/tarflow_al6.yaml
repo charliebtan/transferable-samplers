@@ -27,5 +27,3 @@ model:
   data:
     batch_size: 10_000
     num_eval_samples: 10_000
-
-tags: [jarz]

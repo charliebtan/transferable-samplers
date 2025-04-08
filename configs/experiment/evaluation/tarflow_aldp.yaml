@@ -4,7 +4,7 @@ defaults:
   - override /model: normalizing_flow
   - override /data: aldp
 
-ckpt_path: "/home/mila/b/bosejoey/scratch/fast-tbg/logs/train/multiruns/2025-01-23_22-29-10/12/checkpoints/epoch_699_cropped.ckpt"
+ckpt_path: "/home/mila/t/tanc/scratch/logs/train/multiruns/2025-04-03_13-58-23/1/checkpoints/epoch_1999_time.ckpt"
 train: False
 
 model:
@@ -28,5 +28,3 @@ model:
   data:
     batch_size: 10_000
     num_eval_samples: 10_000
-
-tags: [jarz]
