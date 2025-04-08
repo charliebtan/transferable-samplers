@@ -11,7 +11,7 @@ model:
     channels: 256
     num_blocks: 6
     layers_per_block: 6
-    conditional: true
+    conditional: ${model.transferable}
   optimizer:
     lr: 1e-4
     weight_decay: 4e-4
