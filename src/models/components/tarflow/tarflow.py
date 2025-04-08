@@ -330,7 +330,11 @@ class TarFlow(torch.nn.Module):
         self.img_size = img_size
         self.conditional = conditional
         if self.in_channels != 1:
-            assert not self.img_size % self.in_channels
+            if self.img_size % self.in_channels != 0:
+                raise ValueError(
+                    f"img_size ({self.img_size}) must be divisible by in_channels ({self.in_channels}). "
+                    "Ensure that the input dimensions are compatible."
+                )
 
     def forward(
         self,
