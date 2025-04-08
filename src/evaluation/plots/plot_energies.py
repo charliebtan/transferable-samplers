@@ -21,7 +21,7 @@ def plot_energies(
     fig, ax = plt.subplots(figsize=(4, 3), dpi=300, constrained_layout=True)
     fig.patch.set_facecolor("white")
 
-    energy_cropper = lambda x: torch.clamp(x, max=x_max - 0.1) if x_max else lambda x: x
+    energy_cropper = (lambda x: torch.clamp(x, max=x_max - 0.1)) if x_max is not None else (lambda x: x)
     if x_min is not None and x_max is not None:
         bin_edges = np.linspace(x_min, x_max, 100)
     else:

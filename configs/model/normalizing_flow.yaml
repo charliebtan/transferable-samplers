@@ -3,6 +3,7 @@ defaults:
   - net: tarflow_large
 
 _target_: src.models.normalizing_flow_module.NormalizingFlowLitModule
+mean_free_prior: False
 force_gaussian_loss: True
 energy_kl_weight: 0
 

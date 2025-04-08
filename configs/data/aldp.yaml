@@ -12,6 +12,6 @@ num_dimensions: 3
 dim: 66
 
 energy_hist_config:
-  x_min: -100
-  x_max: -50
-  ylim: 0.2
+  x_min: -50
+  x_max: 20
+  ylim: null
