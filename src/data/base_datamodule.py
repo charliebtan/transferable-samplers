@@ -115,30 +115,29 @@ class BaseDataModule(LightningDataModule):
         pass
 
     def zero_center_of_mass(self, x):
-        assert x.shape[-1] == self.hparams.dim
-        x = x.view(-1, self.hparams.num_particles, self.hparams.num_dimensions)
+        num_samples = x.shape[0]
+        x = x.view(num_samples, -1, self.hparams.num_dimensions)
         x = x - x.mean(axis=1, keepdims=True)
-        x = x.view(-1, self.hparams.dim)
+        x = x.view(num_samples, -1)
         return x
 
     def center_of_mass(self, x: torch.Tensor) -> torch.Tensor:
-        assert x.shape[-1] == self.hparams.dim
-        x = x.view(-1, self.hparams.num_particles, self.hparams.num_dimensions)
+        num_samples = x.shape[0]
+        x = x.view(num_samples, -1, self.hparams.num_dimensions)
         com = x.mean(axis=1)
         return com
 
     def normalize(self, x):
-        assert x.shape[-1] == self.hparams.dim
         assert self.std is not None, "Standard deviation should be computed first"
         assert self.std.numel() == 1, "Standard deviation should be scalar"
-        x = x.view(-1, self.hparams.num_particles, self.hparams.num_dimensions)
+        num_samples = x.shape[0]
+        x = x.view(num_samples, -1, self.hparams.num_dimensions)
         x = x - x.mean(axis=1, keepdims=True)
         x = x / self.std
-        x = x.view(-1, self.hparams.dim)
+        x = x.view(num_samples, -1)
         return x
 
     def unnormalize(self, x):
-        assert x.shape[-1] == self.hparams.dim
         assert self.std is not None, "Standard deviation should be computed first"
         assert self.std.numel() == 1, "Standard deviation should be scalar"
         x = x * self.std.to(x)

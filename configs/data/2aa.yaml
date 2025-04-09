@@ -1,0 +1,18 @@
+_target_: src.data.transferable_peptide_datamodule.TransferablePeptideDataModule
+data_dir: ${paths.data_dir}2aa
+train_data_url: "https://osf.io/download/qa362/?view_only=1052300a21bd43c08f700016728aa96e"
+val_data_url: "https://osf.io/download/679b62e49d2d956b1c468f5c/?view_only=1052300a21bd43c08f700016728aa96e"
+train_data_filename: all_train.npy
+val_data_filename: all_val.npy
+train_pdb_zip_url: "https://files.osf.io/v1/resources/n8vz3/providers/osfstorage/679375bd57903a5d42df2f35/?view_only=1052300a21bd43c08f700016728aa96e&zip="
+val_pdb_zip_url: "https://files.osf.io/v1/resources/n8vz3/providers/osfstorage/679375f673bc9d5219b5311c/?view_only=1052300a21bd43c08f700016728aa96e&zip="
+batch_size: 512 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
+num_workers: 2
+pin_memory: False
+num_aa: 2
+num_dimensions: 3
+dim: 120 # dim of largest system
+energy_hist_config:
+  x_min: -200
+  x_max: -100
+  ylim: 0.1
