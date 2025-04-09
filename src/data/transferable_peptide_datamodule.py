@@ -104,11 +104,12 @@ class TransferablePeptideDataModule(BaseDataModule):
                 zip_ref.extractall(self.val_pdb_path)
 
     def setup_topolgy(self):
-        self.pdb_dict = {}
-        self.topology_dict = {}
-
         train_pdb_files = os.listdir(self.train_pdb_path)
         val_pdb_files = os.listdir(self.val_pdb_path)
+
+        self.pdb_dict = {}
+        self.topology_dict = {}
+        self.val_sequences = []
 
         for filelist, pdb_path in zip([train_pdb_files, val_pdb_files], [self.train_pdb_path, self.val_pdb_path]):
             for filename in filelist:
@@ -122,6 +123,9 @@ class TransferablePeptideDataModule(BaseDataModule):
                 assert len(list(pdb.topology.chains())) == 1, "Only single chain PDBs are supported"
 
                 name = "".join([AA_CODE_CONVERSION[aa.name] for aa in pdb.topology.residues()])
+
+                if pdb_path == self.val_pdb_path:
+                    self.val_sequences.append(name)
 
                 self.pdb_dict[name] = pdb
                 self.topology_dict[name] = md.load_topology(filepath)
@@ -147,69 +151,68 @@ class TransferablePeptideDataModule(BaseDataModule):
             encoding[key] = torch.cat([value, torch.zeros(self.max_num_particles - value.shape[0])])
         return encoding
 
-    def setup_data(self):
-        train_data_dict = {}
+    def load_data_as_tensor_dict(self, path):
+        data = np.load(path, allow_pickle=True).item()
 
-        train_data = np.load(self.train_data_path, allow_pickle=True).item()
+        tensor_dict = {}
 
-        weighted_vars = []
+        max_num_particles = 0
 
-        self.max_num_particles = 0
-
-        # load + center + tensorize data
-        for key, data in train_data.items():
+        # Load + center + tensorize data
+        for key, data in data.items():
             num_samples = data.shape[0]
             num_particles = data.shape[1] // self.hparams.num_dimensions
-            self.max_num_particles = max(self.max_num_particles, num_particles)
+            max_num_particles = max(max_num_particles, num_particles)
             assert not data.shape[1] // num_samples
             data = torch.tensor(data).float()
 
-            # Zero center of mass
+            tensor_dict[key] = data
+
+        return tensor_dict, max_num_particles
+
+    def preprocess_data(self, data_dict):
+        # Process data + add encoding and mask
+        for key, data in data_dict.items():
             data = self.zero_center_of_mass(data)
-
-            # Compute std on only train data
-            weighted_vars.append(data.var() * num_samples)
-
-            train_data_dict[key] = data
-
-        self.std = torch.sqrt(torch.sum(torch.tensor(weighted_vars)) / len(weighted_vars))
-
-        # normalize + pad all the data
-        for key, data in train_data_dict.items():
             data = self.normalize(data)
-
             mask = self.create_mask(data)
-
             data = self.pad_data(data)
-
-            train_data_dict[key] = data
-
+            data_dict[key] = data
             encoding = self.pad_encoding(self.encoding_dict[key])
-
-            train_data_dict[key] = {
+            data_dict[key] = {
                 "x": data,
                 "encoding": encoding,
                 "mask": mask,
             }
 
-        breakpoint()
+        # Convert into individual data samples
+        data_list = []
+        for key, data in data_dict.items():
+            for i in range(data["x"].shape[0]):  # Iterate over each batch item
+                data_list.append(
+                    {
+                        "x": data["x"][i],
+                        "encoding": data["encoding"],
+                        "mask": data["mask"][i],
+                    }
+                )
 
-        # Randomized ordering of val samples
-        val_rng = np.random.default_rng(0)
-        self.data_val = torch.tensor(val_rng.permutation(self.data_val))
+        return data_list
 
-        # Randomized ordering / subset of test samples
-        test_rng = np.random.default_rng(1)
-        self.data_test = torch.tensor(test_rng.permutation(self.data_test))[self.hparams.num_test_samples :]
+    def setup_data(self):
+        train_data_dict, self.max_num_particles = self.load_data_as_tensor_dict(self.train_data_path)
+        val_data_dict, _ = self.load_data_as_tensor_dict(self.val_data_path)
 
-        breakpoint()
+        weighted_vars = [x.var() * x.shape[0] for x in train_data_dict.values()]
+        self.std = torch.sqrt(torch.sum(torch.tensor(weighted_vars)) / len(weighted_vars))
 
-        # Create training dataset with transforms applied
-        self.data_train = PeptideDataset(train_data, transform=self.transforms, encodings=self.encodings)
+        train_data_list = self.preprocess_data(train_data_dict)
+        val_data_list = self.preprocess_data(val_data_dict)
 
-        # I actually thought better to apply transforms to val and test data too
-        self.data_val = PeptideDataset(self.data_val, transform=self.transforms, encodings=self.encodings)
-        self.data_test = PeptideDataset(self.data_test, transform=self.transforms, encodings=self.encodings)
+        self.data_train = PeptideDataset(train_data_list, transform=self.transforms)
+        self.data_val = PeptideDataset(val_data_list, transform=None)
+
+        self.val_data_dict = val_data_dict  # stored for eval
 
     def setup(self, stage: Optional[str] = None) -> None:
         """Load data. Set variables: `self.data_train`, `self.data_val`, `self.data_test`.
@@ -233,11 +236,12 @@ class TransferablePeptideDataModule(BaseDataModule):
         self.setup_topolgy()
         self.setup_atom_encoding()
         self.setup_data()
-        self.setup_atom_types()
-        self.setup_adj_list()
+        # self.setup_atom_types()
+        # self.setup_adj_list()
 
-    def setup_potential(self):
+    def setup_potential(self, val_sequence: str):
         # TODO!! CHECK THIS
+        # MAJDI DO NOT LET ME MERGE THIS WITHOUT CHECKING LOL
 
         forcefield = openmm.app.ForceField("amber99sbildn.xml", "tip3p.xml", "amber99_obc.xml")
         nonbondedMethod = openmm.app.NoCutoff
@@ -246,7 +250,7 @@ class TransferablePeptideDataModule(BaseDataModule):
 
         # Initalize forcefield system
         system = forcefield.createSystem(
-            pdb.topology,
+            self.pdb_dict[val_sequence].topology,
             nonbondedMethod=nonbondedMethod,
             nonbondedCutoff=nonbondedCutoff,
             constraints=None,
@@ -261,6 +265,14 @@ class TransferablePeptideDataModule(BaseDataModule):
 
         # Initialize potential
         potential = OpenMMEnergy(bridge=OpenMMBridge(system, integrator, platform_name="CUDA"))
+
+        return potential
+
+    def prepare_eval(self, val_sequence: str):
+        true_data = self.val_data_dict[val_sequence]
+        potential = self.setup_potential(val_sequence)
+
+        return true_data, potential
 
     def metrics_and_plots(
         self,

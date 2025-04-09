@@ -5,13 +5,13 @@ import scipy
 import torch
 from bgflow import NormalDistribution
 
-from src.models.boltzmann_generator_module import BoltzmannGeneratorLitModule
+from src.models.transferable_boltzmann_generator_module import TransferableBoltzmannGeneratorLitModule
 
 torch.backends.cuda.matmul.allow_tf32 = False
 torch.backends.cudnn.allow_tf32 = False
 
 
-class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
+class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
     def __init__(
         self,
         force_gaussian_loss: bool = True,
