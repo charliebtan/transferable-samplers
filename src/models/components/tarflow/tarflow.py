@@ -4,6 +4,8 @@
 #
 import torch
 
+from .embed import ConditionalEmbedder
+
 
 class Permutation(torch.nn.Module):
     def __init__(self, seq_length: int):
@@ -146,15 +148,16 @@ class MetaBlock(torch.nn.Module):
         head_dim: int = 64,
         expansion: int = 4,
         nvp: bool = True,
+        conditional: bool = False,
         num_classes: int = 0,
     ):
         super().__init__()
         self.proj_in = torch.nn.Linear(in_channels, channels)
+
+        if conditional:
+            self.proj_cond = torch.nn.Linear(channels, channels)
+
         self.pos_embed = torch.nn.Parameter(torch.randn(num_patches, channels) * 1e-2)
-        if num_classes:
-            self.class_embed = torch.nn.Parameter(torch.randn(num_classes, 1, channels) * 1e-2)
-        else:
-            self.class_embed = None
         self.attn_blocks = torch.nn.ModuleList(
             [AttentionBlock(channels, head_dim, expansion) for _ in range(num_layers)]
         )
@@ -165,24 +168,38 @@ class MetaBlock(torch.nn.Module):
         self.permutation = permutation
         self.register_buffer("attn_mask", torch.tril(torch.ones(num_patches, num_patches)))
 
-    def forward(self, x: torch.Tensor, y: torch.Tensor | None = None) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward(
+        self,
+        x: torch.Tensor,
+        cond: torch.Tensor,
+        mask: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         x = self.permutation(x)
         pos_embed = self.permutation(self.pos_embed, dim=0)
         x_in = x
         x = self.proj_in(x) + pos_embed
-        if self.class_embed is not None:
-            if y is not None:
-                if (y < 0).any():
-                    m = (y < 0).float().view(-1, 1, 1)
-                    class_embed = (1 - m) * self.class_embed[y] + m * self.class_embed.mean(dim=0)
-                else:
-                    class_embed = self.class_embed[y]
-                x = x + class_embed
-            else:
-                x = x + self.class_embed.mean(dim=0)
+
+        if cond is not None:
+            cond = self.permutation(cond)
+            cond_emb = self.proj_cond(cond)
+            x = x + cond_emb
+
+        attn_mask = self.attn_mask
+        if mask is not None:
+            assert mask.shape[:1] == x.shape[:1], (
+                f"First two dimensions of mask {mask.shape[:1]} and x {x.shape[:1]} do not match"
+            )
+            mask = self.permutation(mask)
+            attn_mask = attn_mask.unsqueeze(0) * mask
+            attn_mask = attn_mask.unsqueeze(1)
+            x = x * mask
 
         for block in self.attn_blocks:
-            x = block(x, self.attn_mask)
+            x = block(x, attn_mask)
+            if mask is not None:
+                x = x * mask
+                assert x[torch.where(mask == 0)].sum() == 0, "Masked positions are nonzero"
+
         x = self.proj_out(x)
         x = torch.cat([torch.zeros_like(x[:, :1]), x[:, :-1]], dim=1)
 
@@ -198,19 +215,23 @@ class MetaBlock(torch.nn.Module):
     def reverse_step(
         self,
         x: torch.Tensor,
+        cond: torch.Tensor,
         pos_embed: torch.Tensor,
         i: int,
-        y: torch.Tensor | None = None,
+        mask: torch.Tensor | None = None,
         attn_temp: float = 1.0,
         which_cache: str = "cond",
     ) -> tuple[torch.Tensor, torch.Tensor]:
         x_in = x[:, i : i + 1]  # get i-th patch but keep the sequence dimension
         x = self.proj_in(x_in) + pos_embed[i : i + 1]
-        if self.class_embed is not None:
-            if y is not None:
-                x = x + self.class_embed[y]
-            else:
-                x = x + self.class_embed.mean(dim=0)
+
+        if cond is not None:
+            cond_in = cond[:, i : i + 1]
+            cond_emb = self.proj_cond(cond_in)
+            x = x + cond_emb
+
+        if mask is not None:
+            mask = mask[:, i : i + 1]
 
         for block in self.attn_blocks:
             x = block(x, attn_temp=attn_temp, which_cache=which_cache)  # here we use kv caching, so no attn_mask
@@ -233,36 +254,28 @@ class MetaBlock(torch.nn.Module):
     def reverse(
         self,
         x: torch.Tensor,
-        y: torch.Tensor | None = None,
-        guidance: float = 0,
-        guide_what: str = "ab",
-        attn_temp: float = 1.0,
-        annealed_guidance: bool = False,
+        cond: torch.Tensor | None = None,
+        mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         x = self.permutation(x)
         pos_embed = self.permutation(self.pos_embed, dim=0)
+        if cond is not None:
+            cond = self.permutation(cond)
+        if mask is not None:
+            mask = self.permutation(mask)
+
         self.set_sample_mode(True)
-        T = x.size(1)
         # 512 x 8 x 1
         xs = [x[:, i] for i in range(x.size(1))]
         for i in range(x.size(1) - 1):
-            za, zb = self.reverse_step(x, pos_embed, i, y, which_cache="cond")
-            if guidance > 0 and guide_what:
-                za_u, zb_u = self.reverse_step(x, pos_embed, i, None, attn_temp=attn_temp, which_cache="uncond")
-                if annealed_guidance:
-                    g = (i + 1) / (T - 1) * guidance
-                else:
-                    g = guidance
-                if "a" in guide_what:
-                    za = za + g * (za - za_u)
-                if "b" in guide_what:
-                    zb = zb + g * (zb - zb_u)
-
+            za, zb = self.reverse_step(x, cond, pos_embed, i, mask, which_cache="cond")
             scale = za[:, 0].float().exp().type(za.dtype)  # get rid of the sequence dimension
             xs[i + 1] = xs[i + 1] * scale + zb[:, 0]
             x = torch.stack(xs, dim=1)
         self.set_sample_mode(False)
-        return self.permutation(x, inverse=True)
+        x = self.permutation(x, inverse=True)
+
+        return x
 
 
 class TarFlow(torch.nn.Module):
@@ -277,6 +290,7 @@ class TarFlow(torch.nn.Module):
         channels: int,
         num_blocks: int,
         layers_per_block: int,
+        conditional: bool = False,
         nvp: bool = True,
         num_classes: int = 0,
     ):
@@ -290,6 +304,9 @@ class TarFlow(torch.nn.Module):
             PermutationFlip(self.num_patches),
         ]
 
+        if conditional:
+            self.cond_embed = ConditionalEmbedder(channels=channels)
+
         blocks = []
         for i in range(num_blocks):
             blocks.append(
@@ -301,6 +318,7 @@ class TarFlow(torch.nn.Module):
                     permutations[i % 2],
                     layers_per_block,
                     nvp=nvp,
+                    conditional=conditional,
                     num_classes=num_classes,
                 )
             )
@@ -308,55 +326,74 @@ class TarFlow(torch.nn.Module):
         # prior for nvp mode should be all ones, but needs to be learnd for the vp mode
         self.register_buffer("var", torch.ones(self.num_patches, in_channels * patch_size**2))
         self.in_channels = in_channels
+        self.channels = channels
         self.img_size = img_size
+        self.conditional = conditional
         if self.in_channels != 1:
-            assert not self.img_size % self.in_channels
-
-    def patchify(self, x: torch.Tensor) -> torch.Tensor:
-        """Convert an image (N,C',H,W) to a sequence of patches (N,T,C')"""
-        if self.in_channels != 1:
-            u = x.reshape(-1, self.img_size // self.in_channels, self.in_channels)
-        elif x.ndim == 2:
-            # TODO I think this can be done with a reshape because we only have one channel, I'm not sure if the
-            # memory layout is the same though or if this is important
-            x = x.reshape(-1, 1, self.img_size, 1)  # B x 1 x D x 1
-            u = torch.nn.functional.unfold(x, self.patch_size, stride=self.patch_size)
-            u = u.transpose(1, 2)
-        return u
-
-    def unpatchify(self, x: torch.Tensor) -> torch.Tensor:
-        """Convert a sequence of patches (N,T,C) to an image (N,C',H,W)"""
-        x = x.reshape(-1, self.img_size)
-        return x
+            if self.img_size % self.in_channels != 0:
+                raise ValueError(
+                    f"img_size ({self.img_size}) must be divisible by in_channels ({self.in_channels}). "
+                    "Ensure that the input dimensions are compatible."
+                )
 
     def forward(
-        self, x: torch.Tensor, y: torch.Tensor | None = None
+        self,
+        x: torch.Tensor,
+        encodings: dict[str, torch.Tensor] | None = None,
+        mask: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor], torch.Tensor]:
-        x = self.patchify(x)
+        # patchify
+        x = x.reshape(-1, self.img_size // self.in_channels, self.in_channels)
+
+        cond = None
+        if encodings is not None:
+            assert self.conditional, (
+                f"Passed in encodings for transferrability, but conditional={self.conditional}."
+                + " Set conditional attribute to True"
+            )
+
+            # (batch_size, seq_len, channels)
+            cond = self.cond_embed(
+                atom_type=encodings["atom_type"], aa_type=encodings["aa_type"], aa_pos=encodings["aa_pos"]
+            )
+
         logdets = torch.zeros((), device=x.device)
         for block in self.blocks:
-            x, logdet = block(x, y)
+            x, logdet = block(x, cond, mask)
             logdets = logdets + logdet
-        x_pred = self.unpatchify(x)
+
+        # un-patch
+        x_pred = x.reshape(-1, self.img_size)
         return x_pred, logdets
 
     def reverse(
         self,
         x: torch.Tensor,
-        y: torch.Tensor | None = None,
-        guidance: float = 0,
-        guide_what: str = "ab",
-        attn_temp: float = 1.0,
-        annealed_guidance: bool = False,
+        encodings: dict[str, torch.Tensor] | None = None,
+        mask: torch.Tensor | None = None,
         return_sequence: bool = False,
     ) -> torch.Tensor | list[torch.Tensor]:
-        x = self.patchify(x)
-        seq = [self.unpatchify(x)]
+        # patchify
+        x = x.reshape(-1, self.img_size // self.in_channels, self.in_channels)
+
+        cond = None
+        if encodings is not None:
+            assert self.conditional, (
+                f"Passed in encodings for transferrability, but conditional={self.conditional}."
+                + " Set conditional attribute to True"
+            )
+            cond = self.cond_embed(
+                atom_type=encodings["atom_type"], aa_type=encodings["aa_type"], aa_pos=encodings["aa_pos"]
+            )
+
+        seq = [x.reshape(-1, self.img_size)]
         x = x * self.var.sqrt()
         for block in reversed(self.blocks):
-            x = block.reverse(x, y, guidance, guide_what, attn_temp, annealed_guidance)
-            seq.append(self.unpatchify(x))
-        x = self.unpatchify(x)
+            x = block.reverse(x, cond, mask)
+            seq.append(x.reshape(-1, self.img_size))
+
+        # un-patch
+        x = x.reshape(-1, self.img_size)
         if not return_sequence:
             return x
         else:
@@ -364,36 +401,136 @@ class TarFlow(torch.nn.Module):
 
 
 if __name__ == "__main__":
+    torch.manual_seed(1)
+
     img_size = 66
     in_channels = 3
+    conditional = False
     patch_size = 1
     channels = 64
     num_blocks = 3
     layers_per_block = 2
-    model = TarFlow(in_channels, img_size, patch_size, channels, num_blocks, layers_per_block)
+    batch_size = 32
 
-    x = torch.randn([128, img_size])
-    x_pred, _ = model.forward(x)
-    x_recon = model.reverse(x_pred)
+    model = TarFlow(in_channels, img_size, patch_size, channels, num_blocks, layers_per_block, conditional)
+
+    x = torch.randn([batch_size, img_size])
+    cond = None
+    x_pred, _ = model.forward(x, cond)
+    x_recon = model.reverse(x_pred, cond)
 
     print(torch.abs(x - x_recon).mean())
     print(torch.mean((x - x_recon) ** 2))
     print(torch.max(abs(x - x_recon)))
 
-    assert torch.allclose(x, x_recon), "Invertibility test failed"
+    assert torch.allclose(x, x_recon, atol=1e-7), "Invertibility test failed"
     print("Invertibility test passed")
 
     for i in range(16):
         x_i = x[i : i + 1]
-
         with torch.no_grad():
             x_pred = model.reverse(x_i)
             x_recon, fwd_logdets = model(x_pred)
             fwd_logdets = fwd_logdets * img_size  # rescale from mean to sum
 
         rev_jac_true = torch.autograd.functional.jacobian(model.reverse, x_i, vectorize=True)
-
         rev_logdets_true = torch.logdet(rev_jac_true.squeeze())
 
         assert torch.allclose(-fwd_logdets, rev_logdets_true)
+    print("logdet test passed")
+
+    print("\nTest for Conditional TarFlow")
+
+    encodings = {
+        "atom_type": torch.ones(batch_size, img_size // in_channels, dtype=torch.long),
+        "aa_type": torch.ones(batch_size, img_size // in_channels, dtype=torch.long),
+        "aa_pos": torch.arange(0, img_size // in_channels, dtype=torch.long).unsqueeze(0).repeat(batch_size, 1),
+    }
+
+    model = TarFlow(in_channels, img_size, patch_size, channels, num_blocks, layers_per_block, conditional=True)
+
+    x = torch.randn([batch_size, img_size])
+    x_pred, _ = model.forward(x, encodings=encodings)
+    x_recon = model.reverse(x_pred, encodings=encodings)
+
+    print(torch.abs(x - x_recon).mean())
+    print(torch.mean((x - x_recon) ** 2))
+    print(torch.max(abs(x - x_recon)))
+
+    assert torch.allclose(x, x_recon, atol=1e-7), "Invertibility test failed"
+    print("Invertibility test passed")
+
+    for i in range(16):
+        x_i = x[i : i + 1]
+        enc_i = {k: v[i : i + 1] for k, v in encodings.items()}
+        with torch.no_grad():
+            x_pred = model.reverse(x_i, enc_i)
+            x_recon, fwd_logdets = model(x_pred, enc_i)
+            fwd_logdets = fwd_logdets * img_size  # rescale from mean to sum
+
+        reverse_func = lambda x: model.reverse(x=x, encodings=enc_i)
+        rev_jac_true = torch.autograd.functional.jacobian(reverse_func, x_i, vectorize=True)
+        rev_logdets_true = torch.logdet(rev_jac_true[0].squeeze())
+
+        logdets_diff = torch.mean(abs(-fwd_logdets - rev_logdets_true))
+        assert torch.allclose(-fwd_logdets, rev_logdets_true, atol=1e-7), f"Log Dets Diff: {logdets_diff}"
+    print("logdet test passed")
+
+    print("\nTest for Conditional TarFlow w/ Mask")
+    from torch.nn.functional import pad
+
+    img_size1 = 33
+    img_size2 = 66
+
+    img_size = max(img_size1, img_size2)
+    in_channels = 3
+    cond_in_channels = channels
+    patch_size = 1
+    channels = 64
+    num_blocks = 3
+    layers_per_block = 2
+    batch_size = 16
+
+    x1 = torch.randn([batch_size // 2, img_size1])
+    x2 = torch.randn([batch_size // 2, img_size2])
+
+    x1 = pad(x1, (0, img_size - img_size1), "constant", 0)
+    x2 = pad(x2, (0, img_size - img_size2), "constant", 0)
+
+    x = torch.concat([x1, x2], axis=0)
+    mask = (x != 0).reshape(-1, img_size // in_channels, in_channels).any(dim=-1, keepdim=True).type(torch.float32)
+
+    encodings = {
+        "atom_type": torch.ones(batch_size, img_size // in_channels, dtype=torch.long),
+        "aa_type": torch.ones(batch_size, img_size // in_channels, dtype=torch.long),
+        "aa_pos": torch.arange(0, img_size // in_channels, dtype=torch.long).unsqueeze(0).repeat(batch_size, 1),
+    }
+
+    model = TarFlow(in_channels, img_size, patch_size, channels, num_blocks, layers_per_block, conditional=True)
+
+    x_pred, _ = model.forward(x, encodings, mask)
+    x_recon = model.reverse(x_pred, encodings, mask)
+
+    print(torch.abs(x - x_recon).mean())
+    print(torch.mean((x - x_recon) ** 2))
+    print(torch.max(abs(x - x_recon)))
+
+    assert torch.allclose(x, x_recon, atol=1e-7), "Invertibility test failed"
+    print("Invertibility test passed")
+
+    for i in range(16):
+        x_i = x[i : i + 1]
+        enc_i = {k: v[i : i + 1] for k, v in encodings.items()}
+        mask_i = mask[i : i + 1]
+        with torch.no_grad():
+            x_pred = model.reverse(x_i, enc_i, mask_i)
+            x_recon, fwd_logdets = model(x_pred, enc_i, mask_i)
+            fwd_logdets = fwd_logdets * img_size  # rescale from mean to sum
+
+        reverse_func = lambda x: model.reverse(x=x, encodings=enc_i, mask=mask_i)
+        rev_jac_true = torch.autograd.functional.jacobian(reverse_func, x_i, vectorize=True)
+        rev_logdets_true = torch.logdet(rev_jac_true[0].squeeze())
+
+        logdets_diff = torch.mean(abs(-fwd_logdets - rev_logdets_true))
+        assert torch.allclose(-fwd_logdets, rev_logdets_true, atol=1e-7), f"Log Dets Diff: {logdets_diff}"
     print("logdet test passed")
