@@ -14,4 +14,4 @@ dim: 126
 energy_hist_config:
   x_min: -20
   x_max: 80
-  ylim: 0.1
+  ylim: null

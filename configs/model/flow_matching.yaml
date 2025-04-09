@@ -3,6 +3,7 @@ defaults:
   - net: egnn_dynamics_large
 
 _target_: src.models.flow_matching_module.FlowMatchLitModule
+mean_free_prior: True
 atol: 1e-4
 rtol: 1e-4
 div_estimator: "exact"

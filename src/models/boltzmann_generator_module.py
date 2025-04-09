@@ -235,14 +235,16 @@ class BoltzmannGeneratorLitModule(LightningModule):
 
         if prefix.startswith("test"):
             num_proposal_samples = self.hparams.sampling_config.num_test_proposal_samples
-            true_samples, encodings = self.datamodule.data_test.data, self.datamodule.data_test.encodings  # noqa: F841
+            true_samples = self.datamodule.data_test.data
+            encodings = self.datamodule.data_test.encodings  # noqa: F841
         else:
             num_proposal_samples = self.hparams.sampling_config.num_proposal_samples
-            true_samples, encodings = self.datamodule.data_val.data, self.datamodule.data_val.encodings  # noqa: F841
+            true_samples = self.datamodule.data_val.data
+            encodings = self.datamodule.data_val.encodings  # noqa: F841
 
         true_data = SamplesData(
             self.datamodule.as_pointcloud(self.datamodule.unnormalize(true_samples)),
-            -self.datamodule.energy(true_samples),
+            self.datamodule.energy(true_samples),
         )
 
         # Generate samples and record time
@@ -265,6 +267,15 @@ class BoltzmannGeneratorLitModule(LightningModule):
         logging.info(f"Saving {len(proposal_samples)} samples to {output_dir}/{prefix}_samples.pt")
         torch.save(samples_dict, f"{output_dir}/{prefix}_samples.pt")
 
+        # Compute energy
+        proposal_samples_energy = self.datamodule.energy(proposal_samples)
+
+        # Datatype for easier metrics and plotting
+        proposal_data = SamplesData(
+            self.datamodule.as_pointcloud(self.datamodule.unnormalize(proposal_samples)),
+            proposal_samples_energy,
+        )
+
         # Compute proposal center of mass std - TODO should this just be 1 / sqrt(N) ?
         coms = self.datamodule.center_of_mass(proposal_samples).mean(dim=1)
         proposal_com_std = coms.std()
@@ -275,41 +286,29 @@ class BoltzmannGeneratorLitModule(LightningModule):
         if self.hparams.sampling_config.use_com_adjustment:
             proposal_log_p = proposal_log_p - self.com_energy_adjustment(proposal_samples)
 
-        # Compute energy
-        proposal_samples_energy = -self.datamodule.energy(proposal_samples)
-
-        # Datatype for easier metrics and plotting
-        proposal_data = SamplesData(
-            self.datamodule.as_pointcloud(self.datamodule.unnormalize(proposal_samples)),
-            proposal_samples_energy,
-        )
-
         # Compute resampling index
-        resampling_logits = proposal_samples_energy - proposal_log_p  # TODO CoM
+        resampling_logits = -proposal_samples_energy - proposal_log_p
 
-        # Filter samples based on logit clipping
-        # This only affects the reweighted sampling metrics (not input to Jarzyinski)
+        # Filter samples based on logit clipping - this affects both IS and SMC
         if self.hparams.sampling_config.clip_reweighting_logits:
             clipped_logits_mask = resampling_logits > torch.quantile(
                 resampling_logits,
                 1 - float(self.hparams.sampling_config.clip_reweighting_logits),
             )
-            proposal_samples_clipped = proposal_samples[~clipped_logits_mask]
-            resampling_logits_clipped = resampling_logits[~clipped_logits_mask]
+            proposal_samples = proposal_samples[~clipped_logits_mask]
+            proposal_samples_energy = proposal_samples_energy[~clipped_logits_mask]
+            resampling_logits = resampling_logits[~clipped_logits_mask]
             logging.info("Clipped logits for resampling")
 
-        _, resampling_index = resample(proposal_samples_clipped, resampling_logits_clipped, return_index=True)
+        _, resampling_index = resample(proposal_samples, resampling_logits, return_index=True)
 
         reweighted_data = SamplesData(
             self.datamodule.as_pointcloud(self.datamodule.unnormalize(proposal_samples[resampling_index])),
             proposal_samples_energy[resampling_index],
-            logits=resampling_logits_clipped,
+            logits=resampling_logits,
         )
 
         if self.smc_sampler is not None and self.smc_sampler.enabled:
-            # TODO remove this once refactored
-            self.smc_sampler.use_com_energy = self.hparams.use_com_energy
-
             logging.info("SMC sampling enabled")
 
             num_smc_samples = min(self.hparams.sampling_config.num_smc_samples, len(proposal_samples))
@@ -336,7 +335,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
             # Datatype for easier metrics and plotting
             smc_data = SamplesData(
                 self.datamodule.as_pointcloud(self.datamodule.unnormalize(smc_samples)),
-                -self.datamodule.energy(smc_samples),
+                self.datamodule.energy(smc_samples),
                 logits=smc_logits,
             )
 
