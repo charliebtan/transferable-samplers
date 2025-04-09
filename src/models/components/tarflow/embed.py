@@ -12,7 +12,7 @@ class ConditionalEmbedder(nn.Module):
         self.residue_embed = nn.Embedding(num_embeddings=num_residue_emb, embedding_dim=channels)
         self.residue_pos_embed = nn.Embedding(num_embeddings=num_residue_pos, embedding_dim=channels)
 
-        self.mlp = nn.Sequential(nn.Linear(3 * channels, 3 * channels), nn.GELU(), nn.Linear(3 * channels, channels))
+        self.mlp = nn.Sequential(nn.Linear(3 * channels, channels), nn.GELU(), nn.Linear(channels, channels))
 
     def forward(self, atom_type, aa_type, aa_pos):
         atom_emb = self.atom_embed(atom_type)
