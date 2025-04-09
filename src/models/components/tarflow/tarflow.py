@@ -405,14 +405,14 @@ if __name__ == "__main__":
 
     img_size = 66
     in_channels = 3
-    cond_in_channels = None
+    conditional = False
     patch_size = 1
     channels = 64
     num_blocks = 3
     layers_per_block = 2
     batch_size = 32
 
-    model = TarFlow(in_channels, img_size, patch_size, channels, num_blocks, layers_per_block, cond_in_channels)
+    model = TarFlow(in_channels, img_size, patch_size, channels, num_blocks, layers_per_block, conditional)
 
     x = torch.randn([batch_size, img_size])
     cond = None
@@ -532,5 +532,5 @@ if __name__ == "__main__":
         rev_logdets_true = torch.logdet(rev_jac_true[0].squeeze())
 
         logdets_diff = torch.mean(abs(-fwd_logdets - rev_logdets_true))
-        assert torch.allclose(-fwd_logdets, rev_logdets_true, atol=1e-7), print(f"Log Dets Diff: {logdets_diff}")
+        assert torch.allclose(-fwd_logdets, rev_logdets_true, atol=1e-7), f"Log Dets Diff: {logdets_diff}"
     print("logdet test passed")
