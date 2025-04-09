@@ -59,7 +59,7 @@ class BaseDataModule(LightningDataModule):
             num_workers=self.hparams.num_workers,
             pin_memory=self.hparams.pin_memory,
             shuffle=True,
-            persistent_workers=True,
+            persistent_workers=True if self.hparams.num_workers > 0 else False,
         )
 
     def val_dataloader(self) -> DataLoader[Any]:
@@ -73,7 +73,7 @@ class BaseDataModule(LightningDataModule):
             num_workers=self.hparams.num_workers,
             pin_memory=self.hparams.pin_memory,
             shuffle=False,
-            persistent_workers=True,
+            persistent_workers=True if self.hparams.num_workers > 0 else False,
         )
 
     def test_dataloader(self) -> DataLoader[Any]:
@@ -87,7 +87,7 @@ class BaseDataModule(LightningDataModule):
             num_workers=self.hparams.num_workers,
             pin_memory=self.hparams.pin_memory,
             shuffle=False,
-            persistent_workers=True,
+            persistent_workers=True if self.hparams.num_workers > 0 else False,
         )
 
     def teardown(self, stage: Optional[str] = None) -> None:

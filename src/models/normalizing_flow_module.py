@@ -1,5 +1,6 @@
 import logging
 import math
+from typing import Optional
 
 import scipy
 import torch
@@ -31,7 +32,10 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
         batch: torch.Tensor,
     ) -> torch.Tensor:
         x1, encodings = batch
-        x0, dlogp = self.net(x1)
+        if not self.hparams.transferable:
+            encodings = None
+
+        x0, dlogp = self.net(x1, encodings=encodings)
 
         loss = self.prior.energy(x0).mean() - dlogp.mean()
 
@@ -79,6 +83,7 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
     def generate_samples(
         self,
         batch_size: int,
+        encodings: Optional[dict[str, torch.Tensor]] = None,
         n_timesteps: int = None,
         dummy_ll=False,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -95,10 +100,15 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
         prior_samples = self.prior.sample(local_batch_size).to(self.device)
         # for MF this is actually not log_p as missing - log(Z) - doesn't matter for bias
         prior_log_p = -self.prior.energy(prior_samples)
+        if encodings is not None:
+            encodings = {
+                key: tensor.unsqueeze(0).repeat(local_batch_size, 1).to(self.device)
+                for key, tensor in encodings.items()
+            }
 
         with torch.no_grad():
-            x_pred = self.net.reverse(prior_samples)
-            x_recon, fwd_logdets = self.net(x_pred)
+            x_pred = self.net.reverse(prior_samples, encodings=encodings)
+            x_recon, fwd_logdets = self.net(x_pred, encodings=encodings)
             fwd_logdets = fwd_logdets * self.datamodule.hparams.dim  # rescale from mean to sum
 
             # TODO refector these all into a metrics
