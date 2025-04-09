@@ -1,9 +1,9 @@
 import logging
 import math
+from typing import Optional
 
 import scipy
 import torch
-from bgflow import NormalDistribution
 
 from src.models.transferable_boltzmann_generator_module import TransferableBoltzmannGeneratorLitModule
 
@@ -14,8 +14,6 @@ torch.backends.cudnn.allow_tf32 = False
 class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
     def __init__(
         self,
-        force_gaussian_loss: bool = True,
-        energy_kl_loss: bool = False,
         energy_kl_weight: float = 0.01,
         log_invertibility_error: bool = True,
         *args,
@@ -34,12 +32,12 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
         batch: torch.Tensor,
     ) -> torch.Tensor:
         x1, encodings = batch
-        x0, dlogp = self.net(x1)
+        if not self.hparams.transferable:
+            encodings = None
 
-        if self.hparams.force_gaussian_loss:  # TODO can we remove this now?
-            loss = (0.5 * x0.pow(2)).mean() - dlogp.mean()
-        else:
-            loss = self.prior.energy(x0).mean() - dlogp.mean()
+        x0, dlogp = self.net(x1, encodings=encodings)
+
+        loss = self.prior.energy(x0).mean() - dlogp.mean()
 
         if self.hparams.energy_kl_weight:
             samples, log_p, _ = self.generate_samples(x1.shape[0])
@@ -85,6 +83,7 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
     def generate_samples(
         self,
         batch_size: int,
+        encodings: Optional[dict[str, torch.Tensor]] = None,
         n_timesteps: int = None,
         dummy_ll=False,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -96,16 +95,20 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
         :return: A tuple containing the generated samples, the prior samples, and the log
             probability.
         """
-        self.prior = NormalDistribution(self.datamodule.hparams.dim)
 
         local_batch_size = batch_size // self.trainer.world_size
         prior_samples = self.prior.sample(local_batch_size).to(self.device)
         # for MF this is actually not log_p as missing - log(Z) - doesn't matter for bias
         prior_log_p = -self.prior.energy(prior_samples)
+        if encodings is not None:
+            encodings = {
+                key: tensor.unsqueeze(0).repeat(local_batch_size, 1).to(self.device)
+                for key, tensor in encodings.items()
+            }
 
         with torch.no_grad():
-            x_pred = self.net.reverse(prior_samples)
-            x_recon, fwd_logdets = self.net(x_pred)
+            x_pred = self.net.reverse(prior_samples, encodings=encodings)
+            x_recon, fwd_logdets = self.net(x_pred, encodings=encodings)
             fwd_logdets = fwd_logdets * self.datamodule.hparams.dim  # rescale from mean to sum
 
             # TODO refector these all into a metrics

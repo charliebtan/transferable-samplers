@@ -24,6 +24,7 @@ from src.evaluation.metrics.evaluate_peptide_data import evaluate_peptide_data
 from src.evaluation.plots.plot_atom_distances import plot_atom_distances
 from src.evaluation.plots.plot_energies import plot_energies
 from src.evaluation.plots.plot_ramachandran import plot_ramachandran
+from src.evaluation.plots.plot_tica import plot_tica
 
 
 class PeptideDataModule(BaseDataModule):
@@ -37,6 +38,7 @@ class PeptideDataModule(BaseDataModule):
         num_particles: int,
         num_dimensions: int,
         dim: int,
+        tica_lagtime: int,
         make_iid: bool = False,
         com_augmentation: bool = False,
         # TODO maybe make this all just *args?
@@ -155,18 +157,18 @@ class PeptideDataModule(BaseDataModule):
         test_data = self.normalize(test_data)
 
         # Split val and test data
-        self.data_val, self.data_test = (
+        self.data_val_ordered, self.data_test_ordered = (
             test_data[: self.hparams.num_val_samples],
             test_data[self.hparams.num_val_samples :],
         )
 
         # Randomized ordering of val samples
         val_rng = np.random.default_rng(0)
-        self.data_val = torch.tensor(val_rng.permutation(self.data_val))
+        data_val = torch.tensor(val_rng.permutation(self.data_val_ordered))
 
         # Randomized ordering / subset of test samples
         test_rng = np.random.default_rng(1)
-        self.data_test = torch.tensor(test_rng.permutation(self.data_test))[: self.hparams.num_test_samples]
+        data_test = torch.tensor(test_rng.permutation(self.data_test_ordered))[: self.hparams.num_test_samples]
 
         # Create training dataset with transforms applied
         self.data_train = PeptideDataset(train_data, transform=self.transforms, encodings=self.encoding)
@@ -193,6 +195,8 @@ class PeptideDataModule(BaseDataModule):
                     "the number of devices ({self.trainer.world_size})."
                 )
             self.batch_size_per_device = self.hparams.batch_size // self.trainer.world_size
+        else:
+            self.batch_size_per_device = self.hparams.batch_size
 
         self.setup_potential()
         self.encoding = get_atom_encoding(self.topology)
@@ -217,8 +221,22 @@ class PeptideDataModule(BaseDataModule):
 
         metrics = {}
 
+        if prefix.startswith("val"):
+            true_traj_samples = self.as_pointcloud(self.unnormalize(self.data_val_ordered))
+        elif prefix.startswith("test"):
+            true_traj_samples = self.as_pointcloud(self.unnormalize(self.data_test_ordered))
+
         plot_ramachandran(
             log_image_fn, true_data.samples[: self.hparams.num_eval_samples], self.topology, prefix=prefix + "true"
+        )
+
+        plot_tica(
+            log_image_fn,
+            true_traj_samples,
+            true_data.samples[: self.hparams.num_eval_samples],
+            self.topology,
+            self.hparams.tica_lagtime,
+            prefix=prefix + "true",
         )
 
         for data, name in [
@@ -247,6 +265,14 @@ class PeptideDataModule(BaseDataModule):
                     evaluate_peptide_data(true_data, data, self.topology, self.hparams.num_eval_samples, prefix + name)
                 )
                 plot_ramachandran(log_image_fn, data.samples, self.topology, prefix=prefix + name)
+                plot_tica(
+                    log_image_fn,
+                    true_traj_samples,
+                    data.samples,
+                    self.topology,
+                    self.hparams.tica_lagtime,
+                    prefix=prefix + name,
+                )
 
         logging.info("Plotting energies")
         plot_energies(

@@ -11,6 +11,8 @@ num_particles: 42
 num_dimensions: 3
 dim: 126
 
+tica_lagtime: 100
+
 energy_hist_config:
   x_min: -20
   x_max: 80
