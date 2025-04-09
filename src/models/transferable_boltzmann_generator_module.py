@@ -1,4 +1,5 @@
 import logging
+import os
 import time
 from typing import Any, Optional
 
@@ -222,20 +223,23 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
 
     def evaluate_all(self, prefix):
         for val_sequence in self.datamodule.val_sequences:
-            true_data, potential = self.datamodule.prepare_eval()
+            true_data, topology, energy_fn = self.datamodule.prepare_eval(val_sequence)
+            logging.info(f"Evaluating {val_sequence} samples")
             self.evaluate(
                 true_data,
-                potential,
+                val_sequence,
+                energy_fn,
                 prefix=f"{prefix}/{val_sequence}",
                 proposal_generator=self.batched_generate_samples,
             )
 
     @torch.no_grad()
-    def evaluate(self, true_data, potential, prefix: str = "val", proposal_generator=None, output_dir=None) -> None:
+    def evaluate(
+        self, true_data, sequence, energy_fn, prefix: str = "val", proposal_generator=None, output_dir=None
+    ) -> None:
         """Generates samples from the proposal and runs SMC if enabled.
         Also computes metrics, through the datamodule function "metrics_and_plots".
         """
-        logging.info("Evaluating sampling")
 
         # Define proposal generator
         if proposal_generator is None:
@@ -249,13 +253,11 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             num_proposal_samples = self.hparams.sampling_config.num_proposal_samples
 
         true_samples = true_data["x"]
-        encoding = true_data["encoding"][0]
-
-        breakpoint()
+        encodings = true_data["encoding"]  # noqa: F841
 
         true_data = SamplesData(
             self.datamodule.as_pointcloud(self.datamodule.unnormalize(true_samples)),
-            -potential(true_samples),
+            energy_fn(true_samples),
         )
 
         # Generate samples and record time
@@ -275,8 +277,18 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         }
         if output_dir is None:
             output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
+        os.makedirs(f"{output_dir}/{prefix}")
         logging.info(f"Saving {len(proposal_samples)} samples to {output_dir}/{prefix}_samples.pt")
-        torch.save(samples_dict, f"{output_dir}/{prefix}_samples.pt")
+        torch.save(samples_dict, f"{output_dir}/{prefix}/samples.pt")
+
+        # Compute energy
+        proposal_samples_energy = energy_fn(proposal_samples)
+
+        # Datatype for easier metrics and plotting
+        proposal_data = SamplesData(
+            self.datamodule.as_pointcloud(self.datamodule.unnormalize(proposal_samples)),
+            proposal_samples_energy,
+        )
 
         # Compute proposal center of mass std - TODO should this just be 1 / sqrt(N) ?
         coms = self.datamodule.center_of_mass(proposal_samples).mean(dim=1)
@@ -288,41 +300,29 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         if self.hparams.sampling_config.use_com_adjustment:
             proposal_log_p = proposal_log_p - self.com_energy_adjustment(proposal_samples)
 
-        # Compute energy
-        proposal_samples_energy = -self.datamodule.energy(proposal_samples)
-
-        # Datatype for easier metrics and plotting
-        proposal_data = SamplesData(
-            self.datamodule.as_pointcloud(self.datamodule.unnormalize(proposal_samples)),
-            proposal_samples_energy,
-        )
-
         # Compute resampling index
-        resampling_logits = proposal_samples_energy - proposal_log_p  # TODO CoM
+        resampling_logits = -proposal_samples_energy - proposal_log_p
 
-        # Filter samples based on logit clipping
-        # This only affects the reweighted sampling metrics (not input to Jarzyinski)
+        # Filter samples based on logit clipping - this affects both IS and SMC
         if self.hparams.sampling_config.clip_reweighting_logits:
             clipped_logits_mask = resampling_logits > torch.quantile(
                 resampling_logits,
                 1 - float(self.hparams.sampling_config.clip_reweighting_logits),
             )
-            proposal_samples_clipped = proposal_samples[~clipped_logits_mask]
-            resampling_logits_clipped = resampling_logits[~clipped_logits_mask]
+            proposal_samples = proposal_samples[~clipped_logits_mask]
+            proposal_samples_energy = proposal_samples_energy[~clipped_logits_mask]
+            resampling_logits = resampling_logits[~clipped_logits_mask]
             logging.info("Clipped logits for resampling")
 
-        _, resampling_index = resample(proposal_samples_clipped, resampling_logits_clipped, return_index=True)
+        _, resampling_index = resample(proposal_samples, resampling_logits, return_index=True)
 
         reweighted_data = SamplesData(
             self.datamodule.as_pointcloud(self.datamodule.unnormalize(proposal_samples[resampling_index])),
             proposal_samples_energy[resampling_index],
-            logits=resampling_logits_clipped,
+            logits=resampling_logits,
         )
 
         if self.smc_sampler is not None and self.smc_sampler.enabled:
-            # TODO remove this once refactored
-            self.smc_sampler.use_com_energy = self.hparams.use_com_energy
-
             logging.info("SMC sampling enabled")
 
             num_smc_samples = min(self.hparams.sampling_config.num_smc_samples, len(proposal_samples))
@@ -344,12 +344,12 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
                 "smc_logits": smc_logits,
             }
             logging.info(f"Saving {len(smc_samples)} samples to {output_dir}/{prefix}_smc_samples.pt")
-            torch.save(smc_samples_dict, f"{output_dir}/{prefix}_smc_samples.pt")
+            torch.save(smc_samples_dict, f"{output_dir}/{prefix}/smc_samples.pt")
 
             # Datatype for easier metrics and plotting
             smc_data = SamplesData(
                 self.datamodule.as_pointcloud(self.datamodule.unnormalize(smc_samples)),
-                -self.datamodule.energy(smc_samples),
+                energy_fn(smc_samples),
                 logits=smc_logits,
             )
 
@@ -358,8 +358,8 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
 
         # log dataset metrics
         metrics = self.datamodule.metrics_and_plots(
-            self.log_dict,
             self.log_image,
+            sequence,
             true_data,
             proposal_data,
             reweighted_data,

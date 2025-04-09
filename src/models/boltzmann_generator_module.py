@@ -344,7 +344,6 @@ class BoltzmannGeneratorLitModule(LightningModule):
 
         # log dataset metrics
         metrics = self.datamodule.metrics_and_plots(
-            self.log_dict,
             self.log_image,
             true_data,
             proposal_data,

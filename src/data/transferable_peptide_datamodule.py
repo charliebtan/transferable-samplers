@@ -19,6 +19,9 @@ from src.data.components.data_types import SamplesData
 from src.data.components.encodings import AA_CODE_CONVERSION, get_atom_encoding
 from src.data.components.peptide_dataset import PeptideDataset
 from src.data.components.rotation import Random3DRotationTransform
+from src.data.components.symmetry import resolve_chirality
+from src.data.components.utils import get_adj_list, get_atom_types
+from src.evaluation.metrics.evaluate_peptide_data import evaluate_peptide_data
 from src.evaluation.plots.plot_atom_distances import plot_atom_distances
 from src.evaluation.plots.plot_energies import plot_energies
 from src.evaluation.plots.plot_ramachandran import plot_ramachandran
@@ -40,10 +43,7 @@ class TransferablePeptideDataModule(BaseDataModule):
         make_iid: bool = False,
         com_augmentation: bool = False,
         # TODO maybe make this all just *args?
-        num_train_samples: int = 100_000,  # First N trajectory samples
-        num_val_samples: int = 20_000,  # Following M trajectory samples
-        num_test_samples: int = 100_000,  # Random K trajectory samples from the rest
-        num_test_samples_small: int = 10_000,  # Smaller subset for plotting etc
+        num_samples_per_seq: int = 10_000,
         batch_size: int = 64,
         num_workers: int = 0,
         pin_memory: bool = False,
@@ -135,12 +135,6 @@ class TransferablePeptideDataModule(BaseDataModule):
         for name, topology in self.topology_dict.items():
             self.encoding_dict[name] = get_atom_encoding(topology)
 
-    def create_mask(self, x):
-        assert len(x.shape) == 2
-        true_mask = torch.ones((x.shape[0], x.shape[1]))
-        false_mask = torch.zeros((x.shape[0], self.max_num_particles * self.hparams.num_dimensions - x.shape[1]))
-        return torch.cat([true_mask, false_mask], dim=1)
-
     def pad_data(self, x):
         assert len(x.shape) == 2
         pad_tensor = torch.zeros((x.shape[0], self.max_num_particles * self.hparams.num_dimensions - x.shape[1]))
@@ -151,6 +145,12 @@ class TransferablePeptideDataModule(BaseDataModule):
             encoding[key] = torch.cat([value, torch.zeros(self.max_num_particles - value.shape[0])])
         return encoding
 
+    def create_mask(self, x):
+        assert len(x.shape) == 1
+        true_mask = torch.ones_like(x)
+        false_mask = torch.zeros(self.max_num_particles * self.hparams.num_dimensions - x.shape[0])
+        return torch.cat([true_mask, false_mask])
+
     def load_data_as_tensor_dict(self, path):
         data = np.load(path, allow_pickle=True).item()
 
@@ -159,44 +159,62 @@ class TransferablePeptideDataModule(BaseDataModule):
         max_num_particles = 0
 
         # Load + center + tensorize data
+        i = 0
         for key, data in data.items():
             num_samples = data.shape[0]
             num_particles = data.shape[1] // self.hparams.num_dimensions
             max_num_particles = max(max_num_particles, num_particles)
             assert not data.shape[1] // num_samples
             data = torch.tensor(data).float()
+            data = self.zero_center_of_mass(data)
+
+            rng = np.random.default_rng(seed=i)
+            data = torch.tensor(rng.permutation(data))[: self.hparams.num_samples_per_seq]  # TODO - need to copy Leon
 
             tensor_dict[key] = data
 
         return tensor_dict, max_num_particles
 
-    def preprocess_data(self, data_dict):
-        # Process data + add encoding and mask
-        for key, data in data_dict.items():
-            data = self.zero_center_of_mass(data)
-            data = self.normalize(data)
-            mask = self.create_mask(data)
-            data = self.pad_data(data)
-            data_dict[key] = data
-            encoding = self.pad_encoding(self.encoding_dict[key])
-            data_dict[key] = {
+    def normalize_tensor_dict(self, tensor_dict):
+        # TODO check the normalization
+        for key, data in tensor_dict.items():
+            tensor_dict[key] = self.normalize(data)
+        return tensor_dict
+
+    def add_encodings_to_tensor_dict(self, tensor_dict):
+        for key, data in tensor_dict.items():
+            encoding = self.encoding_dict[key]
+            tensor_dict[key] = {
                 "x": data,
+                "encoding": encoding,
+            }
+        return tensor_dict
+
+    def pad_and_mask_tensor_dict(self, tensor_dict):
+        for key, data in tensor_dict.items():
+            x = self.pad_data(data["x"])
+            encoding = self.pad_encoding(data["encoding"])
+
+            mask = self.create_mask(data["x"][0])
+
+            tensor_dict[key] = {
+                "x": x,
                 "encoding": encoding,
                 "mask": mask,
             }
 
-        # Convert into individual data samples
+        return tensor_dict
+
+    def tensor_dict_to_samples_list(self, tensor_dict):
         data_list = []
-        for key, data in data_dict.items():
+        for data in tensor_dict.values():
             for i in range(data["x"].shape[0]):  # Iterate over each batch item
                 data_list.append(
                     {
                         "x": data["x"][i],
-                        "encoding": data["encoding"],
-                        "mask": data["mask"][i],
+                        **data,
                     }
                 )
-
         return data_list
 
     def setup_data(self):
@@ -206,13 +224,33 @@ class TransferablePeptideDataModule(BaseDataModule):
         weighted_vars = [x.var() * x.shape[0] for x in train_data_dict.values()]
         self.std = torch.sqrt(torch.sum(torch.tensor(weighted_vars)) / len(weighted_vars))
 
-        train_data_list = self.preprocess_data(train_data_dict)
-        val_data_list = self.preprocess_data(val_data_dict)
+        train_data_dict = self.normalize_tensor_dict(train_data_dict)
+        val_data_dict = self.normalize_tensor_dict(val_data_dict)
+
+        train_data_dict = self.add_encodings_to_tensor_dict(train_data_dict)
+        val_data_dict = self.add_encodings_to_tensor_dict(val_data_dict)
+
+        train_data_dict = self.pad_and_mask_tensor_dict(train_data_dict)
+
+        train_data_list = self.tensor_dict_to_samples_list(train_data_dict)
+        val_data_list = self.tensor_dict_to_samples_list(val_data_dict)
 
         self.data_train = PeptideDataset(train_data_list, transform=self.transforms)
         self.data_val = PeptideDataset(val_data_list, transform=None)
 
-        self.val_data_dict = val_data_dict  # stored for eval
+        self.val_data_dict = val_data_dict
+
+    def setup_atom_types(self):
+        self.atom_types_dict = {}
+        for name, topology in self.topology_dict.items():
+            atom_types = get_atom_types(topology)
+            self.atom_types_dict[name] = atom_types
+
+    def setup_adj_list(self):
+        self.adj_list_dict = {}
+        for name, topology in self.topology_dict.items():
+            adj_list = get_adj_list(topology)
+            self.adj_list_dict[name] = adj_list
 
     def setup(self, stage: Optional[str] = None) -> None:
         """Load data. Set variables: `self.data_train`, `self.data_val`, `self.data_test`.
@@ -236,8 +274,8 @@ class TransferablePeptideDataModule(BaseDataModule):
         self.setup_topolgy()
         self.setup_atom_encoding()
         self.setup_data()
-        # self.setup_atom_types()
-        # self.setup_adj_list()
+        self.setup_atom_types()
+        self.setup_adj_list()
 
     def setup_potential(self, val_sequence: str):
         # TODO!! CHECK THIS
@@ -248,7 +286,7 @@ class TransferablePeptideDataModule(BaseDataModule):
         nonbondedCutoff = 0.9 * openmm.unit.nanometer
         temperature = 300
 
-        # Initalize forcefield system
+        # Initalize forcefield systemq
         system = forcefield.createSystem(
             self.pdb_dict[val_sequence].topology,
             nonbondedMethod=nonbondedMethod,
@@ -270,14 +308,17 @@ class TransferablePeptideDataModule(BaseDataModule):
 
     def prepare_eval(self, val_sequence: str):
         true_data = self.val_data_dict[val_sequence]
+        topology = self.topology_dict[val_sequence]
         potential = self.setup_potential(val_sequence)
 
-        return true_data, potential
+        energy_fn = lambda x: potential.energy(x).flatten()
+
+        return true_data, topology, energy_fn
 
     def metrics_and_plots(
         self,
-        log_dict_fn: Callable,
         log_image_fn: Callable,
+        sequence: str,
         true_data: SamplesData,
         proposal_data: SamplesData,
         resampled_data: SamplesData,
@@ -292,7 +333,10 @@ class TransferablePeptideDataModule(BaseDataModule):
         metrics = {}
 
         plot_ramachandran(
-            log_image_fn, true_data.samples[: self.hparams.num_eval_samples], self.topology, prefix=prefix + "true"
+            log_image_fn,
+            true_data.samples[: self.hparams.num_eval_samples],
+            self.topology_dict[sequence],
+            prefix=prefix + "true",
         )
 
         for data, name in [
@@ -308,15 +352,25 @@ class TransferablePeptideDataModule(BaseDataModule):
 
             data = data[: self.hparams.num_eval_samples * 2]  # slice out extra samples for those lost to symmetry
 
-            symmetry_metrics, symmetry_change = self.resolve_chirality(true_data.samples, data.samples, prefix + name)
+            symmetry_metrics, symmetry_change = resolve_chirality(
+                true_data.samples,
+                data.samples,
+                self.adj_list_dict[sequence],
+                self.atom_types_dict[sequence],
+                prefix + name,
+            )
             data = data[~symmetry_change]
             metrics.update(symmetry_metrics)
 
             if len(data) == 0:
                 logging.warning(f"No {name} samples left after symmetry correction.")
             else:
-                metrics.update(self.compute_all_metrics(true_data, data, prefix + name))
-                plot_ramachandran(log_image_fn, data.samples, self.topology, prefix=prefix + name)
+                metrics.update(
+                    evaluate_peptide_data(
+                        true_data, data, self.topology_dict[sequence], self.hparams.num_eval_samples, prefix + name
+                    )
+                )
+                plot_ramachandran(log_image_fn, data.samples, self.topology_dict[sequence], prefix=prefix + name)
 
         logging.info("Plotting energies")
         plot_energies(

@@ -144,7 +144,8 @@ class BaseDataModule(LightningDataModule):
         return x
 
     def as_pointcloud(self, x: torch.Tensor) -> torch.Tensor:
-        return x.view(-1, self.hparams.num_particles, self.hparams.num_dimensions)
+        num_samples = x.shape[0]
+        return x.view(num_samples, -1, self.hparams.num_dimensions)
 
     def energy(self, x):
         x = self.unnormalize(x)
