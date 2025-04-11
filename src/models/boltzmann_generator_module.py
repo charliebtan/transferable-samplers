@@ -6,7 +6,8 @@ import hydra
 import matplotlib.pyplot as plt
 import torch
 import torchmetrics
-from bgflow import NormalDistribution
+
+# from bgflow import NormalDistribution
 from lightning import LightningDataModule, LightningModule
 from lightning.pytorch.loggers import WandbLogger
 from torchmetrics import MeanMetric
@@ -14,6 +15,7 @@ from tqdm import tqdm
 
 from src.data.components.data_types import SamplesData
 from src.models.components.ema import EMA
+from src.models.components.priors import NormalDistribution
 from src.models.components.smc_sampler import SMCSampler
 from src.models.components.utils import resample
 
