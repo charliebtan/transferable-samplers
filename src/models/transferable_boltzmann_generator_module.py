@@ -227,16 +227,20 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         plt.close("all")
 
     def evaluate_all(self, prefix):
+        metrics = {}
         for val_sequence in self.datamodule.val_sequences:
             true_data, energy_fn = self.datamodule.prepare_eval(val_sequence)
             logging.info(f"Evaluating {val_sequence} samples")
-            self.evaluate(
-                true_data,
-                val_sequence,
-                energy_fn,
-                prefix=f"{prefix}/{val_sequence}",
-                proposal_generator=self.batched_generate_samples,
+            metrics.update(
+                self.evaluate(
+                    true_data,
+                    val_sequence,
+                    energy_fn,
+                    prefix=f"{prefix}/{val_sequence}",
+                    proposal_generator=self.batched_generate_samples,
+                )
             )
+        self.log_dict(metrics)
 
     @torch.no_grad()
     def evaluate(
@@ -371,7 +375,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             smc_data,
             prefix=prefix,
         )
-        self.log_dict(metrics)
+        return metrics
 
     def on_train_epoch_start(self) -> None:
         logging.info("Train epoch start")

@@ -46,7 +46,7 @@ class TransferablePeptideDataModule(BaseDataModule):
         num_workers: int = 0,
         pin_memory: bool = False,
         num_eval_samples: int = 10_000,
-        num_val_sequences: int = 10,
+        num_val_sequences: int = 80,
         energy_hist_config: Optional[dict[str, Any]] = None,
     ):
         super().__init__()
@@ -402,7 +402,11 @@ class TransferablePeptideDataModule(BaseDataModule):
             else:
                 metrics.update(
                     evaluate_peptide_data(
-                        true_data, data, self.topology_dict[sequence], self.hparams.num_eval_samples, prefix + name
+                        true_data,
+                        data,
+                        topology=self.topology_dict[sequence],
+                        num_eval_samples=self.hparams.num_eval_samples,
+                        prefix=prefix + name,
                     )
                 )
                 # plot_ramachandran(log_image_fn, data.samples, self.topology_dict[sequence], prefix=prefix + name)
