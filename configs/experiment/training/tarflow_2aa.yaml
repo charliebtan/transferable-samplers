@@ -5,11 +5,13 @@ defaults:
   - override /data: 2aa
 
 model:
+  transferable: true
   net:
     in_channels: 3
     channels: 256
     num_blocks: 6
     layers_per_block: 6
+    conditional: ${model.transferable}
   optimizer:
     lr: 1e-4
     weight_decay: 4e-4

@@ -31,11 +31,11 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
         self,
         batch: torch.Tensor,
     ) -> torch.Tensor:
-        x1, encodings = batch
-        if not self.hparams.transferable:
-            encodings = None
+        x1 = batch["x"]
+        encodings = batch["encoding"]
+        mask = batch.get("mask", None)
 
-        x0, dlogp = self.net(x1, encodings=encodings)
+        x0, dlogp = self.net(x1, encodings=encodings, mask=mask)
 
         loss = self.prior.energy(x0).mean() - dlogp.mean()
 
@@ -105,6 +105,9 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
                 key: tensor.unsqueeze(0).repeat(local_batch_size, 1).to(self.device)
                 for key, tensor in encodings.items()
             }
+
+        num_particles = encodings["atom_type"].size(1)
+        prior_samples = prior_samples[:, : num_particles * self.datamodule.hparams.num_dimensions]
 
         with torch.no_grad():
             x_pred = self.net.reverse(prior_samples, encodings=encodings)

@@ -145,7 +145,11 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         return samples, log_p, prior_samples
 
     def batched_generate_samples(
-        self, total_size: int, batch_size: Optional[int] = None, dummy_ll: bool = False
+        self,
+        total_size: int,
+        encodings: Optional[dict[str, torch.Tensor]] = None,
+        batch_size: Optional[int] = None,
+        dummy_ll: bool = False,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         if batch_size is None:
             batch_size = self.hparams.sampling_config.batch_size
@@ -153,12 +157,12 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         log_ps = []
         prior_samples = []
         for _ in tqdm(range(total_size // batch_size)):
-            s, lp, ps = self.generate_samples(batch_size, dummy_ll=dummy_ll)
+            s, lp, ps = self.generate_samples(batch_size, encodings=encodings, dummy_ll=dummy_ll)
             samples.append(s)
             log_ps.append(lp)
             prior_samples.append(ps)
         if total_size % batch_size > 0:
-            s, lp, ps = self.generate_samples(total_size % batch_size, dummy_ll=dummy_ll)
+            s, lp, ps = self.generate_samples(total_size % batch_size, encodings=encodings, dummy_ll=dummy_ll)
             samples.append(s)
             log_ps.append(lp)
             prior_samples.append(ps)
@@ -168,7 +172,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         return samples, log_ps, prior_samples
 
     def generate_samples(
-        self, batch_size: int, n_timesteps: int = None
+        self, batch_size: int, encodings: Optional[dict[str, torch.Tensor]] = None, n_timesteps: int = None
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Generate samples from the model.
 
@@ -187,12 +191,11 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         batch_idx: int,
         prefix: str = "val",
     ) -> None:
-        if "skip_eval_step" in self.hparams and not self.hparams.skip_eval_step:
-            loss = self.model_step(batch)
-            if prefix == "val":
-                self.val_metrics.update(loss)
-            elif prefix == "test":
-                self.test_metrics.update(loss)
+        loss = self.model_step(batch)
+        if prefix == "val":
+            self.val_metrics.update(loss)
+        elif prefix == "test":
+            self.test_metrics.update(loss)
 
     def validation_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
         """Perform a single validation step on a batch of data from the validation set.
@@ -263,7 +266,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         # Generate samples and record time
         torch.cuda.synchronize()
         start_time = time.time()
-        proposal_samples, proposal_log_p, prior_samples = proposal_generator(num_proposal_samples)
+        proposal_samples, proposal_log_p, prior_samples = proposal_generator(num_proposal_samples, encodings)
         torch.cuda.synchronize()
         time_duration = time.time() - start_time
         self.log(f"{prefix}/samples_walltime", time_duration)

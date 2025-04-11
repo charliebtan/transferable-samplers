@@ -72,6 +72,7 @@ class BoltzmannGeneratorLitModule(LightningModule):
         self.val_metrics = self.train_metrics.clone(prefix="val/")
         self.test_metrics = self.train_metrics.clone(prefix="test/")
 
+        # TODO re-add mean free prior
         self.prior = NormalDistribution(
             self.datamodule.hparams.dim  # for transferable this will be the dim of the largest peptide
         )

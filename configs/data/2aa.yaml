@@ -11,7 +11,8 @@ num_workers: 2
 pin_memory: False
 num_aa: 2
 num_dimensions: 3
-dim: 120 # dim of largest system
+num_particles: 51
+dim: 153 # dim of largest system
 energy_hist_config:
   x_min: -200
   x_max: -100

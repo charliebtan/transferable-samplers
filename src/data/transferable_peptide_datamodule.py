@@ -39,6 +39,7 @@ class TransferablePeptideDataModule(BaseDataModule):
         val_pdb_zip_url: str,  # expects a dir of pdbs
         num_aa: int,
         num_dimensions: int,
+        num_particles: int,
         dim: int,  # dim of largest system
         make_iid: bool = False,
         com_augmentation: bool = False,
@@ -142,14 +143,15 @@ class TransferablePeptideDataModule(BaseDataModule):
 
     def pad_encoding(self, encoding):
         for key, value in encoding.items():
-            encoding[key] = torch.cat([value, torch.zeros(self.max_num_particles - value.shape[0])])
+            encoding[key] = torch.cat([value, torch.zeros(self.max_num_particles - value.shape[0], dtype=torch.int64)])
         return encoding
 
     def create_mask(self, x):
         assert len(x.shape) == 1
-        true_mask = torch.ones_like(x)
-        false_mask = torch.zeros(self.max_num_particles * self.hparams.num_dimensions - x.shape[0])
-        return torch.cat([true_mask, false_mask])
+        num_particles = x.shape[0] // self.hparams.num_dimensions
+        true_mask = torch.ones(num_particles)
+        false_mask = torch.zeros(self.max_num_particles - num_particles)
+        return torch.cat([true_mask, false_mask]).bool()
 
     def load_data_as_tensor_dict(self, path):
         data = np.load(path, allow_pickle=True).item()
@@ -211,8 +213,8 @@ class TransferablePeptideDataModule(BaseDataModule):
             for i in range(data["x"].shape[0]):  # Iterate over each batch item
                 data_list.append(
                     {
-                        "x": data["x"][i],
                         **data,
+                        "x": data["x"][i],
                     }
                 )
         return data_list
@@ -220,6 +222,10 @@ class TransferablePeptideDataModule(BaseDataModule):
     def setup_data(self):
         train_data_dict, self.max_num_particles = self.load_data_as_tensor_dict(self.train_data_path)
         val_data_dict, _ = self.load_data_as_tensor_dict(self.val_data_path)
+
+        # Need to check here so TarFlow is correctly initalized for data
+        assert self.hparams.dim == self.max_num_particles * self.hparams.num_dimensions
+        assert self.hparams.num_particles == self.max_num_particles
 
         weighted_vars = [x.var() * x.shape[0] for x in train_data_dict.values()]
         self.std = torch.sqrt(torch.sum(torch.tensor(weighted_vars)) / len(weighted_vars))

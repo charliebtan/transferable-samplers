@@ -8,9 +8,8 @@ from .embed import ConditionalEmbedder
 
 
 class Permutation(torch.nn.Module):
-    def __init__(self, seq_length: int):
+    def __init__(self):
         super().__init__()
-        self.seq_length = seq_length
 
     def forward(self, x: torch.Tensor, dim: int = 1, inverse: bool = False) -> torch.Tensor:
         raise NotImplementedError("Overload me")
@@ -177,12 +176,12 @@ class MetaBlock(torch.nn.Module):
         x = self.permutation(x)
         pos_embed = self.permutation(self.pos_embed, dim=0)
         x_in = x
-        x = self.proj_in(x) + pos_embed
+        x = self.proj_in(x) + pos_embed[: x.shape[1]]
 
         if cond is not None:
             cond = self.permutation(cond)
             cond_emb = self.proj_cond(cond)
-            x = x + cond_emb
+            x = x + cond_emb[:, : x.shape[1]]
 
         attn_mask = self.attn_mask
         if mask is not None:
@@ -194,10 +193,11 @@ class MetaBlock(torch.nn.Module):
             attn_mask = attn_mask.unsqueeze(1)
             x = x * mask
 
+        attn_mask = attn_mask[..., : x.shape[1], : x.shape[1]]
         for block in self.attn_blocks:
             x = block(x, attn_mask)
             if mask is not None:
-                x = x * mask
+                x = x * mask[:, : x.shape[1]]
                 assert x[torch.where(mask == 0)].sum() == 0, "Masked positions are nonzero"
 
         x = self.proj_out(x)
@@ -297,11 +297,10 @@ class TarFlow(torch.nn.Module):
         super().__init__()
         self.img_size = img_size
         self.patch_size = patch_size
-        # self.num_patches = (img_size // patch_size) ** 2
         self.num_patches = img_size // patch_size // in_channels
         permutations = [
-            PermutationIdentity(self.num_patches),
-            PermutationFlip(self.num_patches),
+            PermutationIdentity(),
+            PermutationFlip(),
         ]
 
         if conditional:
@@ -342,8 +341,13 @@ class TarFlow(torch.nn.Module):
         encodings: dict[str, torch.Tensor] | None = None,
         mask: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor], torch.Tensor]:
+        batch_size = x.shape[0]
+
         # patchify
-        x = x.reshape(-1, self.img_size // self.in_channels, self.in_channels)
+        x = x.reshape(batch_size, -1, self.in_channels)
+
+        if mask is not None:
+            mask = mask.view(x.shape[0], -1, 1)  # needs to be this shape
 
         cond = None
         if encodings is not None:
@@ -363,7 +367,7 @@ class TarFlow(torch.nn.Module):
             logdets = logdets + logdet
 
         # un-patch
-        x_pred = x.reshape(-1, self.img_size)
+        x_pred = x.reshape(batch_size, -1)
         return x_pred, logdets
 
     def reverse(
@@ -373,8 +377,13 @@ class TarFlow(torch.nn.Module):
         mask: torch.Tensor | None = None,
         return_sequence: bool = False,
     ) -> torch.Tensor | list[torch.Tensor]:
+        batch_size = x.shape[0]
+
         # patchify
-        x = x.reshape(-1, self.img_size // self.in_channels, self.in_channels)
+        x = x.reshape(batch_size, -1, self.in_channels)
+
+        if mask is not None:
+            mask = mask.view(x.shape[0], -1, 1)  # needs to be this shape
 
         cond = None
         if encodings is not None:
@@ -386,14 +395,15 @@ class TarFlow(torch.nn.Module):
                 atom_type=encodings["atom_type"], aa_type=encodings["aa_type"], aa_pos=encodings["aa_pos"]
             )
 
-        seq = [x.reshape(-1, self.img_size)]
-        x = x * self.var.sqrt()
+        seq = [x.reshape(batch_size, -1)]
+        x = x * self.var.sqrt()[: x.shape[1]]
         for block in reversed(self.blocks):
             x = block.reverse(x, cond, mask)
-            seq.append(x.reshape(-1, self.img_size))
+            seq.append(x.reshape(batch_size, -1))
 
         # un-patch
-        x = x.reshape(-1, self.img_size)
+        x = x.reshape(batch_size, -1)
+
         if not return_sequence:
             return x
         else:

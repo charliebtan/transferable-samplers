@@ -136,9 +136,9 @@ def get_atom_encoding(topology):
 
             atom_type_encoding.append(ATOM_TYPE_ENCODING_DICT[atom.name])
 
-    atom_type_encoding = torch.tensor(atom_type_encoding)
-    aa_pos_encoding = torch.tensor(aa_pos_encoding)
-    aa_type_encoding = torch.tensor(aa_type_encoding)
+    atom_type_encoding = torch.tensor(atom_type_encoding, dtype=torch.int64)
+    aa_pos_encoding = torch.tensor(aa_pos_encoding, dtype=torch.int64)
+    aa_type_encoding = torch.tensor(aa_type_encoding, dtype=torch.int64)
 
     encodings = {
         "atom_type": atom_type_encoding,
