@@ -70,6 +70,8 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         self.val_metrics = self.train_metrics.clone(prefix="val/")
         self.test_metrics = self.train_metrics.clone(prefix="test/")
 
+        assert not self.hparams.mean_free_prior, "mean free prior is not supported yet"
+
         self.prior = NormalDistribution(
             self.datamodule.hparams.dim  # for transferable this will be the dim of the largest peptide
         )

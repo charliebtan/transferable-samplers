@@ -22,9 +22,6 @@ from src.data.components.rotation import Random3DRotationTransform
 from src.data.components.symmetry import resolve_chirality
 from src.data.components.utils import get_adj_list, get_atom_types
 from src.evaluation.metrics.evaluate_peptide_data import evaluate_peptide_data
-from src.evaluation.plots.plot_atom_distances import plot_atom_distances
-from src.evaluation.plots.plot_energies import plot_energies
-from src.evaluation.plots.plot_ramachandran import plot_ramachandran
 
 
 class TransferablePeptideDataModule(BaseDataModule):
@@ -338,12 +335,12 @@ class TransferablePeptideDataModule(BaseDataModule):
 
         metrics = {}
 
-        plot_ramachandran(
-            log_image_fn,
-            true_data.samples[: self.hparams.num_eval_samples],
-            self.topology_dict[sequence],
-            prefix=prefix + "true",
-        )
+        # plot_ramachandran(
+        #     log_image_fn,
+        #     true_data.samples[: self.hparams.num_eval_samples],
+        #     self.topology_dict[sequence],
+        #     prefix=prefix + "true",
+        # )
 
         for data, name in [
             [proposal_data, "proposal"],
@@ -376,27 +373,27 @@ class TransferablePeptideDataModule(BaseDataModule):
                         true_data, data, self.topology_dict[sequence], self.hparams.num_eval_samples, prefix + name
                     )
                 )
-                plot_ramachandran(log_image_fn, data.samples, self.topology_dict[sequence], prefix=prefix + name)
+                # plot_ramachandran(log_image_fn, data.samples, self.topology_dict[sequence], prefix=prefix + name)
 
-        logging.info("Plotting energies")
-        plot_energies(
-            log_image_fn,
-            true_data.energy[: self.hparams.num_eval_samples],
-            proposal_data.energy if len(proposal_data) > 0 else None,
-            resampled_data.energy if len(resampled_data) > 0 else None,
-            smc_data.energy if (smc_data is not None and len(smc_data) > 0) else None,
-            **self.hparams.energy_hist_config,
-            prefix=prefix,
-        )
+        # logging.info("Plotting energies")
+        # plot_energies(
+        #     log_image_fn,
+        #     true_data.energy[: self.hparams.num_eval_samples],
+        #     proposal_data.energy if len(proposal_data) > 0 else None,
+        #     resampled_data.energy if len(resampled_data) > 0 else None,
+        #     smc_data.energy if (smc_data is not None and len(smc_data) > 0) else None,
+        #     **self.hparams.energy_hist_config,
+        #     prefix=prefix,
+        # )
 
-        logging.info("Plotting interatomic distances")
-        plot_atom_distances(
-            log_image_fn,
-            true_data.samples[: self.hparams.num_eval_samples],
-            proposal_data.samples if len(proposal_data) > 0 else None,
-            resampled_data.samples if len(resampled_data) > 0 else None,
-            smc_data.samples if (smc_data is not None and len(smc_data) > 0) else None,
-            prefix=prefix,
-        )
+        # logging.info("Plotting interatomic distances")
+        # plot_atom_distances(
+        #     log_image_fn,
+        #     true_data.samples[: self.hparams.num_eval_samples],
+        #     proposal_data.samples if len(proposal_data) > 0 else None,
+        #     resampled_data.samples if len(resampled_data) > 0 else None,
+        #     smc_data.samples if (smc_data is not None and len(smc_data) > 0) else None,
+        #     prefix=prefix,
+        # )
 
         return metrics
