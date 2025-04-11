@@ -7,8 +7,8 @@
 #SBATCH -t 3:00:00                  # Time limit (hh:mm:ss)
 #SBATCH --partition=short-unkillable               # Request partition
 #SBATCH --ntasks-per-node=4
-#SBATCH --gres=gpu:l40s:4                  # Type/number of GPUs needed
-#SBATCH -c 16
+#SBATCH --gres=gpu:h100:4                  # Type/number of GPUs needed
+#SBATCH -c 4
 #SBATCH --open-mode=append            # Do not overwrite logs
 #SBATCH --requeue                     # Requeue upon pre-emption
 #SBATCH --signal=SIGUSR1@90
