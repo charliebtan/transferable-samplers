@@ -7,7 +7,6 @@ import hydra
 import matplotlib.pyplot as plt
 import torch
 import torchmetrics
-from bgflow import NormalDistribution
 from lightning import LightningDataModule, LightningModule
 from lightning.pytorch.loggers import WandbLogger
 from torchmetrics import MeanMetric
@@ -15,6 +14,7 @@ from tqdm import tqdm
 
 from src.data.components.data_types import SamplesData
 from src.models.components.ema import EMA
+from src.models.components.priors import NormalDistribution
 from src.models.components.smc_sampler import SMCSampler
 from src.models.components.utils import resample
 
@@ -73,7 +73,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         assert not self.hparams.mean_free_prior, "mean free prior is not supported yet"
 
         self.prior = NormalDistribution(
-            self.datamodule.hparams.dim  # for transferable this will be the dim of the largest peptide
+            self.datamodule.hparams.num_dimensions  # for transferable this will be the dim of the largest peptide
         )
 
     def log_image(self, img: torch.Tensor, title: str = None) -> None:
@@ -228,7 +228,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
 
     def evaluate_all(self, prefix):
         for val_sequence in self.datamodule.val_sequences:
-            true_data, topology, energy_fn = self.datamodule.prepare_eval(val_sequence)
+            true_data, energy_fn = self.datamodule.prepare_eval(val_sequence)
             logging.info(f"Evaluating {val_sequence} samples")
             self.evaluate(
                 true_data,

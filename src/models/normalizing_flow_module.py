@@ -36,14 +36,15 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
         mask = batch.get("mask", None)
 
         x0, dlogp = self.net(x1, encodings=encodings, mask=mask)
-
-        loss = self.prior.energy(x0).mean() - dlogp.mean()
+        loss = self.prior.energy(x0, mask=mask).mean() - dlogp.mean()
 
         if self.hparams.energy_kl_weight:
+            raise NotImplementedError()
             samples, log_p, _ = self.generate_samples(x1.shape[0])
             energy_loss = self.energy_kl(samples, log_p).mean()
             loss = loss + self.hparams.energy_kl_weight * energy_loss
             self.log("Energy Loss", energy_loss.item(), prog_bar=True, sync_dist=True)
+
         return loss
 
     def com_energy_adjustment(self, x: torch.Tensor) -> torch.Tensor:
@@ -61,8 +62,8 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
 
         return com_energy
 
-    def proposal_energy(self, x: torch.Tensor) -> torch.Tensor:
-        x_pred, fwd_logdets = self.net(x)
+    def proposal_energy(self, x: torch.Tensor, encoding: dict[str, torch.Tensor]) -> torch.Tensor:
+        x_pred, fwd_logdets = self.net(x, encoding=encoding)
         fwd_logdets = fwd_logdets * self.datamodule.hparams.dim  # rescale from mean to sum
 
         energy = -(-self.prior.energy(x_pred).view(-1) + fwd_logdets.view(-1))
@@ -96,8 +97,10 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
             probability.
         """
 
+        num_particles = encodings["atom_type"].size(0)
+
         local_batch_size = batch_size // self.trainer.world_size
-        prior_samples = self.prior.sample(local_batch_size).to(self.device)
+        prior_samples = self.prior.sample(local_batch_size, num_particles).to(self.device)
         # for MF this is actually not log_p as missing - log(Z) - doesn't matter for bias
         prior_log_p = -self.prior.energy(prior_samples)
         if encodings is not None:
@@ -105,9 +108,6 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
                 key: tensor.unsqueeze(0).repeat(local_batch_size, 1).to(self.device)
                 for key, tensor in encodings.items()
             }
-
-        num_particles = encodings["atom_type"].size(1)
-        prior_samples = prior_samples[:, : num_particles * self.datamodule.hparams.num_dimensions]
 
         with torch.no_grad():
             x_pred = self.net.reverse(prior_samples, encodings=encodings)

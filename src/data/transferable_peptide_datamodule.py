@@ -46,6 +46,7 @@ class TransferablePeptideDataModule(BaseDataModule):
         num_workers: int = 0,
         pin_memory: bool = False,
         num_eval_samples: int = 10_000,
+        num_val_sequences: int = 10,
         energy_hist_config: Optional[dict[str, Any]] = None,
     ):
         super().__init__()
@@ -107,6 +108,8 @@ class TransferablePeptideDataModule(BaseDataModule):
 
         self.pdb_dict = {}
         self.topology_dict = {}
+
+        self.train_sequences = []
         self.val_sequences = []
 
         for filelist, pdb_path in zip([train_pdb_files, val_pdb_files], [self.train_pdb_path, self.val_pdb_path]):
@@ -122,7 +125,9 @@ class TransferablePeptideDataModule(BaseDataModule):
 
                 name = "".join([AA_CODE_CONVERSION[aa.name] for aa in pdb.topology.residues()])
 
-                if pdb_path == self.val_pdb_path:
+                if pdb_path == self.train_pdb_path:
+                    self.train_sequences.append(name)
+                else:
                     self.val_sequences.append(name)
 
                 self.pdb_dict[name] = pdb
@@ -220,6 +225,30 @@ class TransferablePeptideDataModule(BaseDataModule):
         train_data_dict, self.max_num_particles = self.load_data_as_tensor_dict(self.train_data_path)
         val_data_dict, _ = self.load_data_as_tensor_dict(self.val_data_path)
 
+        new_val_data_dict = {}
+        for key in val_data_dict.keys():
+            if key in self.train_sequences:
+                logging.info(f"Key {key} found in train_sequences, removing from val_sequences")
+            else:
+                assert key in self.val_sequences, f"Key {key} not found in val_sequences"
+                new_val_data_dict[key] = val_data_dict[key]
+        val_data_dict = new_val_data_dict
+
+        for key in train_data_dict.keys():
+            assert key in self.train_sequences, f"Key {key} not found in train_sequences"
+            assert key not in self.val_sequences, f"Key {key} found in val_sequences"
+
+        for key in self.val_sequences:
+            assert key in val_data_dict, f"Key {key} not found in val_data_dict"
+            assert key not in train_data_dict, f"Key {key} found in train_data_dict"
+
+        for key in self.train_sequences:
+            assert key in train_data_dict, f"Key {key} not found in train_data_dict"
+            assert key not in val_data_dict, f"Key {key} found in val_data_dict"
+
+        common_keys = set(train_data_dict.keys()).intersection(set(val_data_dict.keys()))
+        logging.info(f"Common keys between train and val data dict: {common_keys}")
+
         # Need to check here so TarFlow is correctly initalized for data
         assert self.hparams.dim == self.max_num_particles * self.hparams.num_dimensions
         assert self.hparams.num_particles == self.max_num_particles
@@ -229,6 +258,12 @@ class TransferablePeptideDataModule(BaseDataModule):
 
         train_data_dict = self.normalize_tensor_dict(train_data_dict)
         val_data_dict = self.normalize_tensor_dict(val_data_dict)
+
+        # slice out subset of val_data_dict
+        val_data_dict = {
+            key: val for i, (key, val) in enumerate(val_data_dict.items()) if i < self.hparams.num_val_sequences
+        }
+        self.val_sequences = list(val_data_dict.keys())
 
         train_data_dict = self.add_encodings_to_tensor_dict(train_data_dict)
         val_data_dict = self.add_encodings_to_tensor_dict(val_data_dict)
@@ -311,12 +346,9 @@ class TransferablePeptideDataModule(BaseDataModule):
 
     def prepare_eval(self, val_sequence: str):
         true_data = self.val_data_dict[val_sequence]
-        topology = self.topology_dict[val_sequence]
         potential = self.setup_potential(val_sequence)
-
         energy_fn = lambda x: potential.energy(x).flatten()
-
-        return true_data, topology, energy_fn
+        return true_data, energy_fn
 
     def metrics_and_plots(
         self,
