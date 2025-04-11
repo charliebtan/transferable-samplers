@@ -253,8 +253,9 @@ class TransferablePeptideDataModule(BaseDataModule):
         assert self.hparams.dim == self.max_num_particles * self.hparams.num_dimensions
         assert self.hparams.num_particles == self.max_num_particles
 
-        weighted_vars = [x.var() * x.shape[0] for x in train_data_dict.values()]
-        self.std = torch.sqrt(torch.sum(torch.tensor(weighted_vars)) / len(weighted_vars))
+        weighted_vars = [x.var(unbiased=False) * x.shape[0] for x in train_data_dict.values()]
+        total_samples = sum(x.shape[0] for x in train_data_dict.values())
+        self.std = torch.sqrt(torch.sum(torch.tensor(weighted_vars)) / total_samples)
 
         train_data_dict = self.normalize_tensor_dict(train_data_dict)
         val_data_dict = self.normalize_tensor_dict(val_data_dict)

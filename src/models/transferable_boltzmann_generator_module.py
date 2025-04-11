@@ -240,7 +240,8 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
                     proposal_generator=self.batched_generate_samples,
                 )
             )
-        self.log_dict(metrics)
+        if self.local_rank == 0:
+            self.log_dict(metrics)
 
     @torch.no_grad()
     def evaluate(
@@ -365,17 +366,18 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         else:
             smc_data = None
 
-        # log dataset metrics
-        metrics = self.datamodule.metrics_and_plots(
-            self.log_image,
-            sequence,
-            true_data,
-            proposal_data,
-            reweighted_data,
-            smc_data,
-            prefix=prefix,
-        )
-        return metrics
+        if self.local_rank == 0:
+            # log dataset metrics
+            metrics = self.datamodule.metrics_and_plots(
+                self.log_image,
+                sequence,
+                true_data,
+                proposal_data,
+                reweighted_data,
+                smc_data,
+                prefix=prefix,
+            )
+            return metrics
 
     def on_train_epoch_start(self) -> None:
         logging.info("Train epoch start")
