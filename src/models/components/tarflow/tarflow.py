@@ -192,24 +192,54 @@ class MetaBlock(torch.nn.Module):
                 f"First two dimensions of mask {mask.shape[:1]} and x {x.shape[:1]} do not match"
             )
             mask = self.permutation(mask)
-            attn_mask = attn_mask.unsqueeze(0) * mask
-            attn_mask = attn_mask.unsqueeze(1)
             x = x * mask
+
+            attn_mask = attn_mask.unsqueeze(0)
+            if type(self.permutation) == PermutationIdentity:
+                # mask out final rows
+                attn_mask = attn_mask * mask
+            else:
+                # mask out first columns
+                attn_mask = attn_mask * mask.permute(0, 2, 1)
+            attn_mask = attn_mask.unsqueeze(1)
+            # print(attn_mask[0])
+            # breakpoint()
+            # print(attn_mask.shape)
+
+            # print(attn_mask[0])
 
         attn_mask = attn_mask[..., : x.shape[1], : x.shape[1]]
         for block in self.attn_blocks:
+
+            # if mask is None:
+            #     print(x[0, :, 0:4])
+            # else:
+            #     print(x[0, :, 0:4])
+            # breakpoint()
+
             x = block(x, attn_mask)
             if mask is not None:
                 x = x * mask[:, : x.shape[1]]
                 assert x[torch.where(mask == 0)].sum() == 0, "Masked positions are nonzero"
 
+        print(x[0, :, 0:4])
+        if mask is not None:
+            breakpoint()
+
         x = self.proj_out(x)
-
-        # print(x)
-        # breakpoint()
-
         x = torch.cat([torch.zeros_like(x[:, :1]), x[:, :-1]], dim=1) # shift one token w/ zero pad
-        x = x * mask[:, : x.shape[1]] if mask is not None else x # apply mask after shift
+
+        if mask is not None:
+            if type(self.permutation) == PermutationIdentity:
+                # keep the mask as is - first real token is already masked
+                temp_mask = mask
+            elif type(self.permutation) == PermutationFlip:
+                # shift the mask by one token so first real token is masked
+                temp_mask = torch.cat([torch.zeros_like(mask[:, :1]), mask[:, :-1]], dim=1)
+            else:
+                raise ValueError("Permutation type not yet supported")
+
+        x = x * temp_mask[:, : x.shape[1]] if mask is not None else x # apply mask after shift
 
         if self.nvp:
             xa, xb = x.chunk(2, dim=-1)
@@ -217,17 +247,6 @@ class MetaBlock(torch.nn.Module):
             xb = x
             xa = torch.zeros_like(x)
 
-        if mask is not None:
-            if type(self.permutation) == PermutationIdentity:
-                # keep the mask as is - first real token is already masked
-                xa_mask = mask
-            elif type(self.permutation) == PermutationFlip:
-                # shift the mask by one token so first real token is masked
-                xa_mask = torch.cat([torch.zeros_like(mask[:, :1]), mask[:, :-1]], dim=1)
-            else:
-                raise ValueError("Permutation type not yet supported")
-            xa = xa * xa_mask
-        
         scale = (-xa.float()).exp().type(xa.dtype)
         x_out = self.permutation((x_in - xb) * scale, inverse=True)
 
@@ -329,7 +348,9 @@ class TarFlow(torch.nn.Module):
         self.patch_size = patch_size
         self.num_patches = img_size // patch_size // in_channels
         permutations = [
-            PermutationIdentity(),
+            # PermutationIdentity(),
+            # PermutationIdentity(),
+            PermutationFlip(),
             PermutationFlip(),
         ]
 
@@ -526,14 +547,15 @@ def test_logdet_mask(model, model_pad, x_i, x_i_pad, enc_i, enc_i_pad, mask_i, n
     print("Masked log det test passed")
 
 if __name__ == "__main__":
+    torch.set_printoptions(sci_mode=True, precision=0)
     torch.manual_seed(1)
 
     batch_size = 4
-    img_size = 66
+    img_size = 15
     in_channels = 3
     patch_size = 1
     channels = 64
-    num_blocks = 2 # needs to be at least 2 to cover both permutations
+    num_blocks = 1 # needs to be at least 2 to cover both permutations
     layers_per_block = 2
 
     ### Dummy data
@@ -547,7 +569,7 @@ if __name__ == "__main__":
 
     ### Padded data with mask
     
-    pad_tokens = 4
+    pad_tokens = 2
     pad_dim = pad_tokens * in_channels
 
     x_pad = torch.cat([x, torch.zeros([batch_size, pad_dim])], dim=1)
