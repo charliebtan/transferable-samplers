@@ -265,12 +265,27 @@ class MetaBlock(torch.nn.Module):
             x = x + cond_emb
 
         if mask is not None:
-            mask = mask[:, i + 1 : i + 2]  # need the mask one position ahead
+            mask = mask[:, i : i + 1]
             x = x * mask
 
         for block in self.attn_blocks:
+            # if mask is None:
+            #     if i == 0:
+            #         print(x[0, :, 0:4])
+            # else:
+            #     print(x[0, :, 0:4])
+
             x = block(x, attn_temp=attn_temp, which_cache=which_cache)  # here we use kv caching, so no attn_mask
+
             x = x * mask if mask is not None else x
+
+            # if mask is None:
+            #     if i == 0:
+            #         print(x[0, :, 0:4])
+            # else:
+            #     print(x[0, :, 0:4])
+            #     breakpoint()
+
         x = self.proj_out(x)
         x = x * mask if mask is not None else x
 
@@ -304,9 +319,19 @@ class MetaBlock(torch.nn.Module):
         self.set_sample_mode(True)
         xs = [x[:, i] for i in range(x.size(1))]
         for i in range(x.size(1) - 1):
+            # if mask is None:
+            #     if i < 3:
+            #         print(x[0, :, 0:4])
+            # else:
+            #     print(x[0, :, 0:4])
+            #     breakpoint()
             za, zb = self.reverse_step(x, cond, pos_embed, i, mask, which_cache="cond")
             scale = za[:, 0].float().exp().type(za.dtype)  # get rid of the sequence dimension
-            xs[i + 1] = xs[i + 1] * scale + zb[:, 0]
+            new = xs[i + 1] * scale + zb[:, 0]
+            xs[i + 1] = new
+            print(new[0])
+            if mask is not None:
+                breakpoint()
             x = torch.stack(xs, dim=1)
         self.set_sample_mode(False)
         x = self.permutation(x, inverse=True)
@@ -417,9 +442,6 @@ class TarFlow(torch.nn.Module):
         # un-patch
         x_pred = x.reshape(batch_size, -1)
 
-        print(x_pred[0])
-        breakpoint()
-
         return x_pred, logdets
 
     def reverse(
@@ -498,11 +520,11 @@ def test_invertibility(model, x, encodings, mask=None):
     # Helpful prints for debugging
     # I often found it's clear that source of error is a few token positions
 
-    print()
-    print("mae:", torch.abs(x - x_recon).mean())
-    print("mse:", torch.mean((x - x_recon) ** 2))
-    print("max abs:", torch.max(abs(x - x_recon)))
-    print("position wise MAE", torch.abs(x - x_recon).mean(dim=0))
+    # print()
+    # print("mae:", torch.abs(x - x_recon).mean())
+    # print("mse:", torch.mean((x - x_recon) ** 2))
+    # print("max abs:", torch.max(abs(x - x_recon)))
+    # print("position wise MAE", torch.abs(x - x_recon).mean(dim=0))
 
     assert torch.allclose(x, x_recon, atol=1e-6), "Invertibility test failed"
     print("Invertibility test passed")
@@ -548,7 +570,7 @@ if __name__ == "__main__":
     patch_size = 1
     channels = 64
     num_blocks = 1  # needs to be at least 2 to cover both permutations
-    layers_per_block = 2
+    layers_per_block = 1
 
     ### Dummy data
 
