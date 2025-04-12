@@ -3,7 +3,6 @@
 # Copyright (C) 2024 Apple Inc. All Rights Reserved.
 #
 import torch
-
 from embed import ConditionalEmbedder
 
 
@@ -192,7 +191,7 @@ class MetaBlock(torch.nn.Module):
                 f"First two dimensions of mask {mask.shape[:1]} and x {x.shape[:1]} do not match"
             )
             mask = self.permutation(mask)
-            x = x * mask
+            x = x * mask  # TODO remove? see how many can be taken out?
 
             attn_mask = attn_mask.unsqueeze(0)
             if type(self.permutation) == PermutationIdentity:
@@ -202,44 +201,30 @@ class MetaBlock(torch.nn.Module):
                 # mask out first columns
                 attn_mask = attn_mask * mask.permute(0, 2, 1)
             attn_mask = attn_mask.unsqueeze(1)
-            # print(attn_mask[0])
-            # breakpoint()
-            # print(attn_mask.shape)
-
-            # print(attn_mask[0])
 
         attn_mask = attn_mask[..., : x.shape[1], : x.shape[1]]
         for block in self.attn_blocks:
-
-            # if mask is None:
-            #     print(x[0, :, 0:4])
-            # else:
-            #     print(x[0, :, 0:4])
-            # breakpoint()
-
             x = block(x, attn_mask)
             if mask is not None:
-                x = x * mask[:, : x.shape[1]]
+                x = x * mask
                 assert x[torch.where(mask == 0)].sum() == 0, "Masked positions are nonzero"
 
-        print(x[0, :, 0:4])
-        if mask is not None:
-            breakpoint()
-
         x = self.proj_out(x)
-        x = torch.cat([torch.zeros_like(x[:, :1]), x[:, :-1]], dim=1) # shift one token w/ zero pad
+        x = x * mask if mask is not None else x
 
-        if mask is not None:
-            if type(self.permutation) == PermutationIdentity:
-                # keep the mask as is - first real token is already masked
-                temp_mask = mask
-            elif type(self.permutation) == PermutationFlip:
-                # shift the mask by one token so first real token is masked
-                temp_mask = torch.cat([torch.zeros_like(mask[:, :1]), mask[:, :-1]], dim=1)
-            else:
-                raise ValueError("Permutation type not yet supported")
+        x = torch.cat([torch.zeros_like(x[:, :1]), x[:, :-1]], dim=1)  # shift one token w/ zero pad
 
-        x = x * temp_mask[:, : x.shape[1]] if mask is not None else x # apply mask after shift
+        # if mask is not None:
+        #     if type(self.permutation) == PermutationIdentity:
+        #         # keep the mask as is - first real token is already masked
+        #         temp_mask = mask
+        #     elif type(self.permutation) == PermutationFlip:
+        #         # shift the mask by one token so first real token is masked
+        #         temp_mask = torch.cat([torch.zeros_like(mask[:, :1]), mask[:, :-1]], dim=1)
+        #     else:
+        #         raise ValueError("Permutation type not yet supported")
+
+        # x = x * temp_mask[:, : x.shape[1]] if mask is not None else x # apply mask after shift
 
         if self.nvp:
             xa, xb = x.chunk(2, dim=-1)
@@ -249,6 +234,10 @@ class MetaBlock(torch.nn.Module):
 
         scale = (-xa.float()).exp().type(xa.dtype)
         x_out = self.permutation((x_in - xb) * scale, inverse=True)
+
+        # print(x_out[0, :, 0:4])
+        # if mask is not None:
+        #     breakpoint()
 
         if mask is None:
             logdet = -xa.mean(dim=[1, 2])
@@ -276,7 +265,7 @@ class MetaBlock(torch.nn.Module):
             x = x + cond_emb
 
         if mask is not None:
-            mask = mask[:, i + 1 : i + 2] # need the mask one position ahead
+            mask = mask[:, i + 1 : i + 2]  # need the mask one position ahead
             x = x * mask
 
         for block in self.attn_blocks:
@@ -340,9 +329,9 @@ class TarFlow(torch.nn.Module):
         conditional: bool = False,
         nvp: bool = True,
         num_classes: int = 0,
-        debug: bool = False, # stops the weight initialization from being zero so tokens are not all the same
+        debug: bool = False,  # stops the weight initialization from being zero so tokens are not all the same
     ):
-        # assert num_blocks >=2, "num_blocks must be at least 2 to cover both permutations"
+        # assert num_blocks >=2, "num_blocks must be at least 2 to cover both permutations"
         super().__init__()
         self.img_size = img_size
         self.patch_size = patch_size
@@ -399,7 +388,6 @@ class TarFlow(torch.nn.Module):
         x = x.reshape(batch_size, -1, self.in_channels)
 
         if mask is not None:
-
             assert torch.all(x.sum(dim=-1)[mask == 0] == 0), "x is not zero where mask is zero"
             assert torch.all(encodings["atom_type"][mask == 0] == 0), "atom_type is not zero where mask is zero"
             assert torch.all(encodings["aa_type"][mask == 0] == 0), "aa_type is not zero where mask is zero"
@@ -419,7 +407,7 @@ class TarFlow(torch.nn.Module):
                 atom_type=encodings["atom_type"], aa_type=encodings["aa_type"], aa_pos=encodings["aa_pos"]
             )
             if mask is not None:
-                cond = cond * mask # mask out the padding tokens
+                cond = cond * mask  # mask out the padding tokens
 
         logdets = torch.zeros((), device=x.device)
         for block in self.blocks:
@@ -428,6 +416,10 @@ class TarFlow(torch.nn.Module):
 
         # un-patch
         x_pred = x.reshape(batch_size, -1)
+
+        print(x_pred[0])
+        breakpoint()
+
         return x_pred, logdets
 
     def reverse(
@@ -443,7 +435,6 @@ class TarFlow(torch.nn.Module):
         x = x.reshape(batch_size, -1, self.in_channels)
 
         if mask is not None:
-
             assert torch.all(x.sum(dim=-1)[mask == 0] == 0), "x is not zero where mask is zero"
             assert torch.all(encodings["atom_type"][mask == 0] == 0), "atom_type is not zero where mask is zero"
             assert torch.all(encodings["aa_type"][mask == 0] == 0), "aa_type is not zero where mask is zero"
@@ -461,7 +452,7 @@ class TarFlow(torch.nn.Module):
                 atom_type=encodings["atom_type"], aa_type=encodings["aa_type"], aa_pos=encodings["aa_pos"]
             )
             if mask is not None:
-                cond = cond * mask # mask out the padding tokens
+                cond = cond * mask  # mask out the padding tokens
 
         seq = [x.reshape(batch_size, -1)]
         x = x * self.var.sqrt()[: x.shape[1]]
@@ -477,8 +468,8 @@ class TarFlow(torch.nn.Module):
         else:
             return seq
 
-def load_padded_model_weights(model_pad, model):
 
+def load_padded_model_weights(model_pad, model):
     state_dict = model_pad.state_dict()
     new_state_dict = {}
 
@@ -498,9 +489,9 @@ def load_padded_model_weights(model_pad, model):
 
     return model
 
+
 @torch.no_grad()
 def test_invertibility(model, x, encodings, mask=None):
-
     x_pred, _ = model.forward(x, encodings=encodings, mask=mask)
     x_recon = model.reverse(x_pred, encodings=encodings, mask=mask)
 
@@ -516,9 +507,9 @@ def test_invertibility(model, x, encodings, mask=None):
     assert torch.allclose(x, x_recon, atol=1e-6), "Invertibility test failed"
     print("Invertibility test passed")
 
+
 @torch.no_grad()
 def test_logdet(model, x_i, enc_i, mask_i=None):
-
     x_pred = model.reverse(x_i, enc_i, mask_i)
     _, fwd_logdets = model(x_pred, enc_i, mask_i)
     fwd_logdets = fwd_logdets * x_i.shape[1]  # rescale from mean to sum
@@ -531,12 +522,12 @@ def test_logdet(model, x_i, enc_i, mask_i=None):
     assert torch.allclose(-fwd_logdets, rev_logdets_true, atol=1e-7), f"Log Dets Diff: {logdets_diff}"
     print("Log det test passed")
 
+
 @torch.no_grad()
 def test_logdet_mask(model, model_pad, x_i, x_i_pad, enc_i, enc_i_pad, mask_i, num_dimensions=3):
-
     x_pred = model.reverse(x_i, enc_i)
     _, fwd_logdets = model_pad(x_pred, enc_i)
-    fwd_logdets = fwd_logdets * x_i.shape[1] # rescale from mean to sum
+    fwd_logdets = fwd_logdets * x_i.shape[1]  # rescale from mean to sum
 
     x_pred_pad = model_pad.reverse(x_i_pad, enc_i_pad, mask_i)
     _, fwd_logdets_pad = model_pad(x_pred_pad, enc_i_pad, mask_i)
@@ -545,6 +536,7 @@ def test_logdet_mask(model, model_pad, x_i, x_i_pad, enc_i, enc_i_pad, mask_i, n
     logdets_diff = torch.mean(abs(fwd_logdets - fwd_logdets_pad))
     assert torch.allclose(fwd_logdets, fwd_logdets_pad, atol=1e-7), f"Log Dets Diff: {logdets_diff}"
     print("Masked log det test passed")
+
 
 if __name__ == "__main__":
     torch.set_printoptions(sci_mode=True, precision=0)
@@ -555,7 +547,7 @@ if __name__ == "__main__":
     in_channels = 3
     patch_size = 1
     channels = 64
-    num_blocks = 1 # needs to be at least 2 to cover both permutations
+    num_blocks = 1  # needs to be at least 2 to cover both permutations
     layers_per_block = 2
 
     ### Dummy data
@@ -568,34 +560,51 @@ if __name__ == "__main__":
     }
 
     ### Padded data with mask
-    
+
     pad_tokens = 2
     pad_dim = pad_tokens * in_channels
 
     x_pad = torch.cat([x, torch.zeros([batch_size, pad_dim])], dim=1)
     encodings_pad = {
-        "atom_type": torch.cat([encodings["atom_type"].clone(), torch.zeros([batch_size, pad_tokens], dtype=torch.long)], dim=1),
-        "aa_type": torch.cat([encodings["aa_type"].clone(), torch.zeros([batch_size, pad_tokens], dtype=torch.long)], dim=1),
-        "aa_pos": torch.cat([encodings["aa_pos"].clone(), torch.zeros([batch_size, pad_tokens], dtype=torch.long)], dim=1),
+        "atom_type": torch.cat(
+            [encodings["atom_type"].clone(), torch.zeros([batch_size, pad_tokens], dtype=torch.long)], dim=1
+        ),
+        "aa_type": torch.cat(
+            [encodings["aa_type"].clone(), torch.zeros([batch_size, pad_tokens], dtype=torch.long)], dim=1
+        ),
+        "aa_pos": torch.cat(
+            [encodings["aa_pos"].clone(), torch.zeros([batch_size, pad_tokens], dtype=torch.long)], dim=1
+        ),
     }
     mask = torch.cat(
         [torch.ones([batch_size, img_size // in_channels], dtype=torch.float32), torch.zeros([batch_size, pad_tokens])],
-        dim=1,)
+        dim=1,
+    )
 
-    model_pad = TarFlow(in_channels, img_size + pad_dim, patch_size, channels, num_blocks, layers_per_block, conditional=True, debug=True)
-    model = TarFlow(in_channels, img_size, patch_size, channels, num_blocks, layers_per_block, conditional=True, debug=True)
+    model_pad = TarFlow(
+        in_channels,
+        img_size + pad_dim,
+        patch_size,
+        channels,
+        num_blocks,
+        layers_per_block,
+        conditional=True,
+        debug=True,
+    )
+    model = TarFlow(
+        in_channels, img_size, patch_size, channels, num_blocks, layers_per_block, conditional=True, debug=True
+    )
 
     model = load_padded_model_weights(model_pad, model)
 
     print("\nstandard")
-    test_invertibility(model, x, encodings) # test invertibility of the original model
+    test_invertibility(model, x, encodings)  # test invertibility of the original model
     print("\npad + mask")
-    test_invertibility(model_pad, x_pad, encodings_pad, mask) # test invertibility of the padded model
+    test_invertibility(model_pad, x_pad, encodings_pad, mask)  # test invertibility of the padded model
     print("\npad model with non-pad data")
-    test_invertibility(model_pad, x, encodings) # test invertibility of the padded model with non-padded data
+    test_invertibility(model_pad, x, encodings)  # test invertibility of the padded model with non-padded data
 
     for i in range(batch_size):
-
         x_i = x[i : i + 1]
         enc_i = {k: v[i : i + 1] for k, v in encodings.items()}
 
@@ -604,8 +613,8 @@ if __name__ == "__main__":
         mask_i = mask[i : i + 1]
 
         print("\nstandard")
-        test_logdet(model, x_i, enc_i) # test logdet of the original model
+        test_logdet(model, x_i, enc_i)  # test logdet of the original model
         print("\npad + mask")
-        test_logdet_mask(model, model_pad, x_i, x_pad_i, enc_i, enc_pad_i, mask_i) # test logdet of the padded model
+        test_logdet_mask(model, model_pad, x_i, x_pad_i, enc_i, enc_pad_i, mask_i)  # test logdet of the padded model
         print("\npad model with non-pad data")
-        test_logdet(model_pad, x_i, enc_i) # test logdet of the padded model with non-padded data
+        test_logdet(model_pad, x_i, enc_i)  # test logdet of the padded model with non-padded data
