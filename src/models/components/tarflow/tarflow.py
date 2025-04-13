@@ -256,7 +256,6 @@ class MetaBlock(torch.nn.Module):
         attn_temp: float = 1.0,
         which_cache: str = "cond",
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        a = x
         x_in = x[:, i : i + 1]  # get i-th patch but keep the sequence dimension
         x = self.proj_in(x_in) + pos_embed[i : i + 1]
 
@@ -269,19 +268,20 @@ class MetaBlock(torch.nn.Module):
             mask = mask[:, i : i + 1]
             x = x * mask
 
+        # print()
         for block in self.attn_blocks:
-            print(x[0, :, 0:4])
+            # print(x[0, :, 0:4])
 
             x = block(x, attn_temp=attn_temp, which_cache=which_cache)  # here we use kv caching, so no attn_mask
 
-            print(x[0, :, 0:4])  # this is wrong when using pad + mask
-
-            breakpoint()
+            # print(x[0, :, 0:4])
 
             x = x * mask if mask is not None else x
 
         x = self.proj_out(x)
         x = x * mask if mask is not None else x
+
+        # print(x[0, :, 0:4])
 
         if self.nvp:
             xa, xb = x.chunk(2, dim=-1)
@@ -309,18 +309,28 @@ class MetaBlock(torch.nn.Module):
             cond = self.permutation(cond)
         if mask is not None:
             mask = self.permutation(mask)
+            if type(self.permutation) == PermutationFlip:
+                n_pad_tokens = mask.sum(dim=1)
+                temp_mask = mask.clone()
+                for i in range(x.shape[0]):  # TODO optimize this - SLOW!, maybe a vmap over cat?
+                    x[i] = torch.roll(x[i], shifts=int(n_pad_tokens[i]), dims=0)
+                    cond[i] = torch.roll(cond[i], shifts=int(n_pad_tokens[i]), dims=0)
+                    temp_mask[i] = torch.roll(temp_mask[i], shifts=int(n_pad_tokens[i]), dims=0)
+                pos_embed = torch.roll(pos_embed, shifts=int(n_pad_tokens[i]), dims=0)
+        else:
+            temp_mask = None
 
         self.set_sample_mode(True)
         xs = [x[:, i] for i in range(x.size(1))]
         for i in range(x.size(1) - 1):
-            print(x[0, :, 0:4])
+            # print(x[0, :, 0:4])
             # if mask is None:
             #     if i < 3:
             #         print(x[0, :, 0:4])
             # else:
             #     print(x[0, :, 0:4])
             #     breakpoint()
-            za, zb = self.reverse_step(x, cond, pos_embed, i, mask, which_cache="cond")
+            za, zb = self.reverse_step(x, cond, pos_embed, i, temp_mask, which_cache="cond")
             scale = za[:, 0].float().exp().type(za.dtype)  # get rid of the sequence dimension
             old = xs[i + 1]
             new = xs[i + 1] * scale + zb[:, 0]
@@ -331,15 +341,18 @@ class MetaBlock(torch.nn.Module):
             if mask is None:
                 xs[i + 1] = new
             else:
-                idx_mask = mask[:, i].squeeze(-1)  # get rid of dummy dim
+                idx_mask = temp_mask[:, i].squeeze(-1)  # get rid of dummy dim
                 idx_mask = idx_mask.bool()
                 xs[i + 1][idx_mask] = new[idx_mask]  # only update if mask is nonzero
 
             x = torch.stack(xs, dim=1)
 
-        print(x[0, :, 0:4])
         if mask is not None:
-            breakpoint()
+            x = x * temp_mask
+            if type(self.permutation) == PermutationFlip:
+                n_pad_tokens = mask.sum(dim=1)
+                for i in range(x.shape[0]):  # TODO optimize this - SLOW!, maybe a vmap over cat?
+                    x[i] = torch.roll(x[i], shifts=int(-n_pad_tokens[i]), dims=0)
 
         self.set_sample_mode(False)
         x = self.permutation(x, inverse=True)
