@@ -256,6 +256,7 @@ class MetaBlock(torch.nn.Module):
         attn_temp: float = 1.0,
         which_cache: str = "cond",
     ) -> tuple[torch.Tensor, torch.Tensor]:
+        a = x
         x_in = x[:, i : i + 1]  # get i-th patch but keep the sequence dimension
         x = self.proj_in(x_in) + pos_embed[i : i + 1]
 
@@ -269,22 +270,15 @@ class MetaBlock(torch.nn.Module):
             x = x * mask
 
         for block in self.attn_blocks:
-            # if mask is None:
-            #     if i == 0:
-            #         print(x[0, :, 0:4])
-            # else:
-            #     print(x[0, :, 0:4])
+            print(x[0, :, 0:4])
 
             x = block(x, attn_temp=attn_temp, which_cache=which_cache)  # here we use kv caching, so no attn_mask
 
-            x = x * mask if mask is not None else x
+            print(x[0, :, 0:4])  # this is wrong when using pad + mask
 
-            # if mask is None:
-            #     if i == 0:
-            #         print(x[0, :, 0:4])
-            # else:
-            #     print(x[0, :, 0:4])
-            #     breakpoint()
+            breakpoint()
+
+            x = x * mask if mask is not None else x
 
         x = self.proj_out(x)
         x = x * mask if mask is not None else x
@@ -319,6 +313,7 @@ class MetaBlock(torch.nn.Module):
         self.set_sample_mode(True)
         xs = [x[:, i] for i in range(x.size(1))]
         for i in range(x.size(1) - 1):
+            print(x[0, :, 0:4])
             # if mask is None:
             #     if i < 3:
             #         print(x[0, :, 0:4])
@@ -327,12 +322,25 @@ class MetaBlock(torch.nn.Module):
             #     breakpoint()
             za, zb = self.reverse_step(x, cond, pos_embed, i, mask, which_cache="cond")
             scale = za[:, 0].float().exp().type(za.dtype)  # get rid of the sequence dimension
+            old = xs[i + 1]
             new = xs[i + 1] * scale + zb[:, 0]
-            xs[i + 1] = new
-            print(new[0])
-            if mask is not None:
-                breakpoint()
+
+            # print(scale[0], zb[0, 0])
+            # print(new[0])
+
+            if mask is None:
+                xs[i + 1] = new
+            else:
+                idx_mask = mask[:, i].squeeze(-1)  # get rid of dummy dim
+                idx_mask = idx_mask.bool()
+                xs[i + 1][idx_mask] = new[idx_mask]  # only update if mask is nonzero
+
             x = torch.stack(xs, dim=1)
+
+        print(x[0, :, 0:4])
+        if mask is not None:
+            breakpoint()
+
         self.set_sample_mode(False)
         x = self.permutation(x, inverse=True)
 
@@ -515,12 +523,15 @@ def load_padded_model_weights(model_pad, model):
 @torch.no_grad()
 def test_invertibility(model, x, encodings, mask=None):
     x_pred, _ = model.forward(x, encodings=encodings, mask=mask)
+
     x_recon = model.reverse(x_pred, encodings=encodings, mask=mask)
 
     # Helpful prints for debugging
     # I often found it's clear that source of error is a few token positions
 
     # print()
+    # print(x_pred[0, 0:8])
+    # print(x_recon[0, 0:8])
     # print("mae:", torch.abs(x - x_recon).mean())
     # print("mse:", torch.mean((x - x_recon) ** 2))
     # print("max abs:", torch.max(abs(x - x_recon)))
@@ -561,11 +572,11 @@ def test_logdet_mask(model, model_pad, x_i, x_i_pad, enc_i, enc_i_pad, mask_i, n
 
 
 if __name__ == "__main__":
-    torch.set_printoptions(sci_mode=True, precision=0)
+    torch.set_printoptions(sci_mode=True, precision=1)
     torch.manual_seed(1)
 
     batch_size = 4
-    img_size = 15
+    img_size = 12
     in_channels = 3
     patch_size = 1
     channels = 64
