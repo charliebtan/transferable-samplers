@@ -260,10 +260,13 @@ class MetaBlock(torch.nn.Module):
         i: int,
         mask: torch.Tensor | None = None,
         attn_temp: float = 1.0,
+        missing_left_pad_tokens: int = 0, # these are pad tokens that would be expected but are not present
         which_cache: str = "cond",
     ) -> tuple[torch.Tensor, torch.Tensor]:
+
+        assert type(missing_left_pad_tokens) == int, "missing_left_pad_tokens must be an int, only supports generation of single molecule in this way"
         x_in = x[:, i : i + 1]  # get i-th patch but keep the sequence dimension
-        x = self.proj_in(x_in) + pos_embed[i : i + 1]
+        x = self.proj_in(x_in) + pos_embed[i + missing_left_pad_tokens: i + missing_left_pad_tokens + 1]
 
         if cond is not None:
             cond_in = cond[:, i : i + 1]
@@ -328,30 +331,31 @@ class MetaBlock(torch.nn.Module):
         else:
             temp_mask = None
 
+        # here we check if the input is not the correct shape as the pos_embed
+        # this occurs when you pass in a shorter sequence in generation than the pad length expected
+        # if the permutation is a flip, we need to account for the "missing" pad tokens on the left
+        # and shift the pos_embed accordinly
+        if x.shape[1] != self.pos_embed.shape[0] and type(self.permutation) == PermutationFlip:
+            missing_left_pad_tokens = self.pos_embed.shape[0] - x.shape[1] 
+        else:
+            missing_left_pad_tokens = 0
+
         self.set_sample_mode(True)
         xs = [x[:, i] for i in range(x.size(1))]
         for i in range(x.size(1) - 1):
-            # print(x[0, :, 0:4])
-            # if mask is None:
-            #     if i < 3:
-            #         print(x[0, :, 0:4])
-            # else:
-            #     print(x[0, :, 0:4])
-            #     breakpoint()
-            za, zb = self.reverse_step(x, cond, pos_embed, i, temp_mask, which_cache="cond")
+            za, zb = self.reverse_step(x, cond, pos_embed, i, temp_mask, missing_left_pad_tokens=missing_left_pad_tokens, which_cache="cond")
             scale = za[:, 0].float().exp().type(za.dtype)  # get rid of the sequence dimension
-            old = xs[i + 1]
-            new = xs[i + 1] * scale + zb[:, 0]
+            new_xs = xs[i + 1] * scale + zb[:, 0]
 
             # print(scale[0], zb[0, 0])
             # print(new[0])
 
             if mask is None:
-                xs[i + 1] = new
+                xs[i + 1] = new_xs
             else:
                 idx_mask = temp_mask[:, i].squeeze(-1)  # get rid of dummy dim
                 idx_mask = idx_mask.bool()
-                xs[i + 1][idx_mask] = new[idx_mask]  # only update if mask is nonzero
+                xs[i + 1][idx_mask] = new_xs[idx_mask]  # only update if mask is nonzero
 
             x = torch.stack(xs, dim=1)
 
@@ -612,7 +616,7 @@ if __name__ == "__main__":
     in_channels = 3
     patch_size = 1
     channels = 64
-    num_blocks = 4  # needs to be at least 2 to cover both permutations
+    num_blocks = 2 # needs to be at least 2 to cover both permutations
     layers_per_block = 2
 
     ### Dummy data
@@ -666,8 +670,8 @@ if __name__ == "__main__":
     test_invertibility(model, x, encodings)  # test invertibility of the original model
     print("\npad + mask")
     test_invertibility(model_pad, x_pad, encodings_pad, mask)  # test invertibility of the padded model
-    # print("\npad model with non-pad data")
-    # test_invertibility(model_pad, x, encodings)  # test invertibility of the padded model with non-padded data
+    print("\npad model with non-pad data")
+    test_invertibility(model_pad, x, encodings)  # test invertibility of the padded model with non-padded data
 
     for i in range(batch_size):
         x_i = x[i : i + 1]
@@ -681,5 +685,5 @@ if __name__ == "__main__":
         test_logdet(model, x_i, enc_i)  # test logdet of the original model
         print("\npad + mask")
         test_logdet_mask(model, model_pad, x_i, x_pad_i, enc_i, enc_pad_i, mask_i)  # test logdet of the padded model
-        # print("\npad model with non-pad data")
-        # test_logdet(model_pad, x_i, enc_i)  # test logdet of the padded model with non-padded data
+        print("\npad model with non-pad data")
+        test_logdet(model_pad, x_i, enc_i)  # test logdet of the padded model with non-padded data
