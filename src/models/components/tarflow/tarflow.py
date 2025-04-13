@@ -175,10 +175,14 @@ class MetaBlock(torch.nn.Module):
         cond: torch.Tensor,
         mask: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
+        x_in = self.permutation(x)  # store permuted input for later
+
+        # by permuting after projection + pos_embed sum, we can have the same
+        # output with / without padding tokens for PermutationFlip
+        # without this, the pos_embed is flipped but then the "first" token
+        # pos_embed is applied to a pad token
+        x = self.proj_in(x) + self.pos_embed[: x.shape[1]]
         x = self.permutation(x)
-        pos_embed = self.permutation(self.pos_embed, dim=0)
-        x_in = x
-        x = self.proj_in(x) + pos_embed[: x.shape[1]]
 
         if cond is not None:
             cond = self.permutation(cond)
@@ -208,12 +212,13 @@ class MetaBlock(torch.nn.Module):
             if mask is not None:
                 x = x * mask
                 assert x[torch.where(mask == 0)].sum() == 0, "Masked positions are nonzero"
+            # print(x[0, :, 0:4])
 
         x = self.proj_out(x)
 
-        x = x * mask if mask is not None else x # yes we mask both before and after
-        x = torch.cat([torch.zeros_like(x[:, :1]), x[:, :-1]], dim=1)  # shift one token w/ zero pad 
-        x = x * mask if mask is not None else x # yes we mask both before and after
+        x = x * mask if mask is not None else x  # yes we mask both before and after
+        x = torch.cat([torch.zeros_like(x[:, :1]), x[:, :-1]], dim=1)  # shift one token w/ zero pad
+        x = x * mask if mask is not None else x  # yes we mask both before and after
 
         #         # keep the mask as is - first real token is already masked
         #         temp_mask = mask
@@ -234,9 +239,9 @@ class MetaBlock(torch.nn.Module):
         scale = (-xa.float()).exp().type(xa.dtype)
         x_out = self.permutation((x_in - xb) * scale, inverse=True)
 
-        print()
-        print("x_out", x_out[0])
-        print("xa", xa[0])
+        # print()
+        # print("x_out", x_out[0])
+        # print("xa", xa[0])
         # if mask is not None:
         #     breakpoint()
 
@@ -271,7 +276,6 @@ class MetaBlock(torch.nn.Module):
 
         # print()
         for block in self.attn_blocks:
-
             # print(x[0, :, 0:4])
 
             x = block(x, attn_temp=attn_temp, which_cache=which_cache)  # here we use kv caching, so no attn_mask
@@ -283,7 +287,7 @@ class MetaBlock(torch.nn.Module):
         x = self.proj_out(x)
         x = x * mask if mask is not None else x
 
-        # print(x[0, :, 0:4])
+        # print(x[0, :, 0:4])
 
         if self.nvp:
             xa, xb = x.chunk(2, dim=-1)
@@ -314,7 +318,7 @@ class MetaBlock(torch.nn.Module):
             if type(self.permutation) == PermutationFlip:
                 n_pad_tokens = mask.sum(dim=1)
                 temp_mask = mask.clone()
-                for i in range(x.shape[0]): # TODO optimize this - SLOW!, maybe a vmap over cat?
+                for i in range(x.shape[0]):  # TODO optimize this - SLOW!, maybe a vmap over cat?
                     x[i] = torch.roll(x[i], shifts=int(n_pad_tokens[i]), dims=0)
                     cond[i] = torch.roll(cond[i], shifts=int(n_pad_tokens[i]), dims=0)
                     temp_mask[i] = torch.roll(temp_mask[i], shifts=int(n_pad_tokens[i]), dims=0)
@@ -327,20 +331,20 @@ class MetaBlock(torch.nn.Module):
         self.set_sample_mode(True)
         xs = [x[:, i] for i in range(x.size(1))]
         for i in range(x.size(1) - 1):
-            # print(x[0, :, 0:4])
-            #if mask is None:
-            #     if i < 3:
-            #         print(x[0, :, 0:4])
-            # else:
-            #     print(x[0, :, 0:4])
-            #     breakpoint()
+            # print(x[0, :, 0:4])
+            # if mask is None:
+            #     if i < 3:
+            #         print(x[0, :, 0:4])
+            # else:
+            #     print(x[0, :, 0:4])
+            #     breakpoint()
             za, zb = self.reverse_step(x, cond, pos_embed, i, temp_mask, which_cache="cond")
             scale = za[:, 0].float().exp().type(za.dtype)  # get rid of the sequence dimension
             old = xs[i + 1]
             new = xs[i + 1] * scale + zb[:, 0]
 
             # print(scale[0], zb[0, 0])
-            # print(new[0])
+            # print(new[0])
 
             if mask is None:
                 xs[i + 1] = new
@@ -355,7 +359,7 @@ class MetaBlock(torch.nn.Module):
             x = x * temp_mask
             if type(self.permutation) == PermutationFlip:
                 n_pad_tokens = mask.sum(dim=1)
-                for i in range(x.shape[0]): # TODO optimize this - SLOW!, maybe a vmap over cat?
+                for i in range(x.shape[0]):  # TODO optimize this - SLOW!, maybe a vmap over cat?
                     x[i] = torch.roll(x[i], shifts=int(-n_pad_tokens[i]), dims=0)
 
         self.set_sample_mode(False)
@@ -539,7 +543,7 @@ def load_padded_model_weights(model_pad, model):
 def test_invertibility(model, x, encodings, mask=None):
     x_pred, _ = model.forward(x, encodings=encodings, mask=mask)
 
-    # print("x_pred", x_pred[0])
+    # print("x_pred", x_pred[0])
 
     x_recon = model.reverse(x_pred, encodings=encodings, mask=mask)
 
@@ -575,23 +579,32 @@ def test_logdet(model, x_i, enc_i, mask_i=None):
 
 @torch.no_grad()
 def test_logdet_mask(model, model_pad, x_i, x_i_pad, enc_i, enc_i_pad, mask_i, num_dimensions=3):
+    print("\nrunning normal model")
     x_pred = model.reverse(x_i, enc_i)
     _, fwd_logdets = model_pad(x_pred, enc_i)
     fwd_logdets = fwd_logdets * x_i.shape[1]  # rescale from mean to sum
 
+    print("\nrunning pad + mask model")
     x_pred_pad = model_pad.reverse(x_i_pad, enc_i_pad, mask_i)
     _, fwd_logdets_pad = model_pad(x_pred_pad, enc_i_pad, mask_i)
     fwd_logdets_pad = fwd_logdets_pad * mask_i.sum(dim=-1) * num_dimensions  # rescale from mean to sum
 
+    print("x_pred max error:", torch.max(abs(x_pred - x_pred_pad[:, :12])))
+    print("x_pred mae:", torch.mean(abs(x_pred - x_pred_pad[:, :12])))
+    assert torch.allclose(x_pred, x_pred_pad[:, :12], atol=1e-6), "Models do not generate the same x_pred"
+
     logdets_diff = torch.mean(abs(fwd_logdets - fwd_logdets_pad))
-    # assert torch.allclose(fwd_logdets, fwd_logdets_pad, atol=1e-7), f"Log Dets Diff: {logdets_diff}"
     print(f"fwd_logdets: {fwd_logdets.item()}")
     print(f"Log Dets Diff: {logdets_diff}")
+    assert torch.allclose(fwd_logdets, fwd_logdets_pad, atol=1e-7), f"Log Dets Diff: {logdets_diff}"
     print("Masked log det test passed")
 
 
 if __name__ == "__main__":
-    torch.set_printoptions(sci_mode=True, precision=1)
+    torch.use_deterministic_algorithms(True)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    torch.set_printoptions(sci_mode=True, precision=2)
     torch.manual_seed(1)
 
     batch_size = 4
@@ -653,8 +666,8 @@ if __name__ == "__main__":
     test_invertibility(model, x, encodings)  # test invertibility of the original model
     print("\npad + mask")
     test_invertibility(model_pad, x_pad, encodings_pad, mask)  # test invertibility of the padded model
-    print("\npad model with non-pad data")
-    test_invertibility(model_pad, x, encodings)  # test invertibility of the padded model with non-padded data
+    # print("\npad model with non-pad data")
+    # test_invertibility(model_pad, x, encodings)  # test invertibility of the padded model with non-padded data
 
     for i in range(batch_size):
         x_i = x[i : i + 1]
@@ -668,5 +681,5 @@ if __name__ == "__main__":
         test_logdet(model, x_i, enc_i)  # test logdet of the original model
         print("\npad + mask")
         test_logdet_mask(model, model_pad, x_i, x_pad_i, enc_i, enc_pad_i, mask_i)  # test logdet of the padded model
-        print("\npad model with non-pad data")
-        test_logdet(model_pad, x_i, enc_i)  # test logdet of the padded model with non-padded data
+        # print("\npad model with non-pad data")
+        # test_logdet(model_pad, x_i, enc_i)  # test logdet of the padded model with non-padded data
