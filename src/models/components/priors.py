@@ -13,22 +13,32 @@ class NormalDistribution:
     def sample(self, num_samples: int, num_particles: int) -> torch.Tensor:
         x = self.distribution.sample((num_samples, num_particles, self.num_dimensions))
         if self.mean_free:
+            raise NotImplementedError("Do we need to account for masking here? I supsect so")
             x = x - x.mean(dim=-1, keepdim=True)
         return x.reshape(num_samples, -1)
 
     def energy(self, x: torch.Tensor, mask: torch.Tensor | None = None) -> torch.Tensor:
         assert x.dim() == 2
         if self.mean_free:
+            raise NotImplementedError("Do we need to account for masking here? I supsect so")
             x = x.reshape(x.shape[0], -1, self.num_dimensions)
             x = x - x.mean(dim=-1, keepdim=True)
             x = x.reshape(x.shape[0], -1)
 
         pointwise_energy = -self.distribution.log_prob(x)
 
-        if mask is not None:
-            pointwise_energy = pointwise_energy * torch.repeat_interleave(mask, self.num_dimensions, dim=-1)
+        if mask is None:
+            energy = pointwise_energy.mean(dim=-1, keepdims=True)  # training code expects the mean not sum
 
-        return pointwise_energy.sum(dim=-1, keepdims=True)
+        else:
+            pointwise_energy = pointwise_energy.reshape(x.shape[0], -1, self.num_dimensions)
+            pointwise_energy = pointwise_energy * mask.unsqueeze(-1)
+            pointwise_energy = pointwise_energy.reshape(x.shape[0], -1)
+            num_particles = mask.sum(dim=-1, keepdim=True)
+            # account for the pad tokens when taking the mean
+            energy = pointwise_energy.sum(dim=-1, keepdims=True) / (num_particles * self.num_dimensions)
+
+        return energy
 
 
 if __name__ == "__main__":
