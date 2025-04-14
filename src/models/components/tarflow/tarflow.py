@@ -163,7 +163,9 @@ class MetaBlock(torch.nn.Module):
         self.nvp = nvp
         output_dim = in_channels * 2 if nvp else in_channels
         self.proj_out = torch.nn.Linear(channels, output_dim)
-        if not debug:
+        if debug:
+            self.proj_out.weight.data = self.proj_out.weight.data * 1e-3
+        else:
             self.proj_out.weight.data.fill_(0.0)
         self.permutation = permutation
         self.register_buffer("attn_mask", torch.tril(torch.ones(num_patches, num_patches)))
@@ -246,7 +248,7 @@ class MetaBlock(torch.nn.Module):
         missing_left_pad_tokens: int = 0,  # these are pad tokens that would be expected but are not present
         which_cache: str = "cond",
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        assert missing_left_pad_tokens is int, (
+        assert type(missing_left_pad_tokens) is int, (
             "missing_left_pad_tokens must be an int, only supports generation of single molecule in this way"
         )
         x_in = x[:, i : i + 1]  # get i-th patch but keep the sequence dimension
