@@ -9,7 +9,7 @@ class PeptideDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         sample = self.data[idx]
         if self.transform is not None:
-            sample = {**sample, "x": self.transform(sample["x"])}
+            sample = self.transform(sample)
         return sample
 
     def __len__(self):
