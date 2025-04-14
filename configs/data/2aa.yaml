@@ -17,3 +17,4 @@ energy_hist_config:
   x_min: -200
   x_max: -100
   ylim: 0.1
+num_eval_sequences: 20
