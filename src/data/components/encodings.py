@@ -113,7 +113,7 @@ def get_atom_encoding(topology):
 
     for i, aa in enumerate(topology.residues):
         for atom in aa.atoms:
-            aa_pos_encoding.append(i)
+            aa_pos_encoding.append(i + 1)  # shifted to account for pad tokens
             aa_type_encoding.append(AA_TYPE_ENCODING_DICT[aa.name])
 
             # TODO double check this with Leon

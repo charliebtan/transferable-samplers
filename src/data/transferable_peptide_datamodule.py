@@ -122,6 +122,9 @@ class TransferablePeptideDataModule(BaseDataModule):
                 pdb = openmm.app.PDBFile(filepath)
 
                 assert len(list(pdb.topology.chains())) == 1, "Only single chain PDBs are supported"
+                assert len(list(pdb.topology.residues())) == self.hparams.num_aa, (
+                    "PDB does not match the number of amino acids"
+                )
 
                 name = "".join([AA_CODE_CONVERSION[aa.name] for aa in pdb.topology.residues()])
 
