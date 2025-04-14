@@ -3,7 +3,11 @@
 # Copyright (C) 2024 Apple Inc. All Rights Reserved.
 #
 import torch
-from embed import ConditionalEmbedder
+
+if __name__ == "__main__":
+    from embed import ConditionalEmbedder
+else:
+    from src.models.components.tarflow.embed import ConditionalEmbedder
 
 
 class Permutation(torch.nn.Module):
@@ -164,7 +168,7 @@ class MetaBlock(torch.nn.Module):
         output_dim = in_channels * 2 if nvp else in_channels
         self.proj_out = torch.nn.Linear(channels, output_dim)
         if debug:
-            self.proj_out.weight.data = self.proj_out.weight.data * 1e-3
+            self.proj_out.weight.data = self.proj_out.weight.data * 1e-1
         else:
             self.proj_out.weight.data.fill_(0.0)
         self.permutation = permutation
@@ -217,9 +221,11 @@ class MetaBlock(torch.nn.Module):
 
         x = self.proj_out(x)
 
-        x = x * mask if mask is not None else x  # yes we mask both before and after
+        if isinstance(self.permutation, PermutationFlip):
+            x = x * mask if mask is not None else x
         x = torch.cat([torch.zeros_like(x[:, :1]), x[:, :-1]], dim=1)  # shift one token w/ zero pad
-        x = x * mask if mask is not None else x  # yes we mask both before and after
+        if isinstance(self.permutation, PermutationIdentity):
+            x = x * mask if mask is not None else x
 
         if self.nvp:
             xa, xb = x.chunk(2, dim=-1)
