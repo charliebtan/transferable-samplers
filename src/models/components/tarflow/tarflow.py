@@ -4,7 +4,7 @@
 #
 import torch
 
-from .embed import ConditionalEmbedder
+from .embed import ConditionalEmbedder, MultiheadAttnAndTransition
 
 
 class Permutation(torch.nn.Module):
@@ -148,6 +148,8 @@ class MetaBlock(torch.nn.Module):
         expansion: int = 4,
         nvp: bool = True,
         conditional: bool = False,
+        use_adaln: bool = False,
+        num_heads: int = 8,
         num_classes: int = 0,
     ):
         super().__init__()
@@ -155,6 +157,10 @@ class MetaBlock(torch.nn.Module):
 
         if conditional:
             self.proj_cond = torch.nn.Linear(channels, channels)
+
+        self.use_adaln = use_adaln
+        if use_adaln:
+            self.adaln = MultiheadAttnAndTransition(channels=channels, num_heads=num_heads)
 
         self.pos_embed = torch.nn.Parameter(torch.randn(num_patches, channels) * 1e-2)
         self.attn_blocks = torch.nn.ModuleList(
@@ -181,7 +187,12 @@ class MetaBlock(torch.nn.Module):
         if cond is not None:
             cond = self.permutation(cond)
             cond_emb = self.proj_cond(cond)
-            x = x + cond_emb[:, : x.shape[1]]
+            if self.use_adaln:
+                if mask is None:
+                    mask = torch.ones(x.shape[:2], device=x.device, dtype=torch.bool)
+                x = self.adaln(x, cond_emb, mask)
+            else:
+                x = x + cond_emb[:, : x.shape[1]]
 
         attn_mask = self.attn_mask
         if mask is not None:
@@ -189,15 +200,15 @@ class MetaBlock(torch.nn.Module):
                 f"First two dimensions of mask {mask.shape[:1]} and x {x.shape[:1]} do not match"
             )
             mask = self.permutation(mask)
-            attn_mask = attn_mask.unsqueeze(0) * mask
+            attn_mask = attn_mask.unsqueeze(0) * mask[..., None]
             attn_mask = attn_mask.unsqueeze(1)
-            x = x * mask
+            x = x * mask[..., None]
 
         attn_mask = attn_mask[..., : x.shape[1], : x.shape[1]]
         for block in self.attn_blocks:
             x = block(x, attn_mask)
             if mask is not None:
-                x = x * mask[:, : x.shape[1]]
+                x = x * mask[:, : x.shape[1], None]
                 assert x[torch.where(mask == 0)].sum() == 0, "Masked positions are nonzero"
 
         x = self.proj_out(x)
@@ -291,6 +302,8 @@ class TarFlow(torch.nn.Module):
         num_blocks: int,
         layers_per_block: int,
         conditional: bool = False,
+        use_adaln: bool = False,
+        num_heads: int = 8,
         nvp: bool = True,
         num_classes: int = 0,
     ):
@@ -318,6 +331,8 @@ class TarFlow(torch.nn.Module):
                     layers_per_block,
                     nvp=nvp,
                     conditional=conditional,
+                    use_adaln=use_adaln,
+                    num_heads=num_heads,
                     num_classes=num_classes,
                 )
             )
@@ -345,9 +360,8 @@ class TarFlow(torch.nn.Module):
 
         # patchify
         x = x.reshape(batch_size, -1, self.in_channels)
-
         if mask is not None:
-            mask = mask.view(x.shape[0], -1, 1)  # needs to be this shape
+            assert mask.ndim == 2, "Mask should be 2D"
 
         cond = None
         if encodings is not None:
@@ -457,7 +471,9 @@ if __name__ == "__main__":
         "aa_pos": torch.arange(0, img_size // in_channels, dtype=torch.long).unsqueeze(0).repeat(batch_size, 1),
     }
 
-    model = TarFlow(in_channels, img_size, patch_size, channels, num_blocks, layers_per_block, conditional=True)
+    model = TarFlow(
+        in_channels, img_size, patch_size, channels, num_blocks, layers_per_block, conditional=True, use_adaln=True
+    )
 
     x = torch.randn([batch_size, img_size])
     x_pred, _ = model.forward(x, encodings=encodings)
@@ -508,7 +524,8 @@ if __name__ == "__main__":
     x2 = pad(x2, (0, img_size - img_size2), "constant", 0)
 
     x = torch.concat([x1, x2], axis=0)
-    mask = (x != 0).reshape(-1, img_size // in_channels, in_channels).any(dim=-1, keepdim=True).type(torch.float32)
+    mask = (x != 0).reshape(-1, img_size // in_channels, in_channels).any(dim=-1, keepdim=True).type(torch.bool)
+    mask = mask.squeeze(-1)
 
     encodings = {
         "atom_type": torch.ones(batch_size, img_size // in_channels, dtype=torch.long),
@@ -516,7 +533,9 @@ if __name__ == "__main__":
         "aa_pos": torch.arange(0, img_size // in_channels, dtype=torch.long).unsqueeze(0).repeat(batch_size, 1),
     }
 
-    model = TarFlow(in_channels, img_size, patch_size, channels, num_blocks, layers_per_block, conditional=True)
+    model = TarFlow(
+        in_channels, img_size, patch_size, channels, num_blocks, layers_per_block, conditional=True, use_adaln=True
+    )
 
     x_pred, _ = model.forward(x, encodings, mask)
     x_recon = model.reverse(x_pred, encodings, mask)
