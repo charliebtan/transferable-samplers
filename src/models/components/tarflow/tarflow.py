@@ -582,7 +582,7 @@ if __name__ == "__main__":
     in_channels = 3
     patch_size = 1
     channels = 64
-    num_blocks = 1  # needs to be at least 2 to cover both permutations
+    num_blocks = 2  # needs to be at least 2 to cover both permutations
     layers_per_block = 1
 
     ### Dummy data
