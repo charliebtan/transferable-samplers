@@ -201,7 +201,6 @@ class MetaBlock(torch.nn.Module):
                 f"First two dimensions of mask {mask.shape[:1]} and x {x.shape[:1]} do not match"
             )
             mask = self.permutation(mask)
-            x = x * mask  # TODO remove? see how many can be taken out?
 
             attn_mask = attn_mask.unsqueeze(0)
             if isinstance(self.permutation, PermutationIdentity):
@@ -397,8 +396,6 @@ class TarFlow(torch.nn.Module):
             cond = self.cond_embed(
                 atom_type=encodings["atom_type"], aa_type=encodings["aa_type"], aa_pos=encodings["aa_pos"]
             )
-            if mask is not None:
-                cond = cond * mask  # mask out the padding tokens
 
         logdets = torch.zeros((), device=x.device)
         for block in self.blocks:
