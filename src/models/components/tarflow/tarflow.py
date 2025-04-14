@@ -310,6 +310,7 @@ class MetaBlock(torch.nn.Module):
                     x[i] = torch.roll(x[i], shifts=int(n_pad_tokens[i]), dims=0)
                     cond[i] = torch.roll(cond[i], shifts=int(n_pad_tokens[i]), dims=0)
                     temp_mask[i] = torch.roll(temp_mask[i], shifts=int(n_pad_tokens[i]), dims=0)
+                raise NotImplementedError("pos_embed roll broken - need per batch")
                 pos_embed = torch.roll(pos_embed, shifts=int(n_pad_tokens[i]), dims=0)
             else:
                 temp_mask = mask
@@ -521,7 +522,7 @@ def load_padded_model_weights(model_pad, model):
 
 @torch.no_grad()
 def test_invertibility(model, x, encodings, mask=None):
-    x_pred, _ = model.forward(x, encodings=encodings, mask=mask)
+    x_pred, _ = model(x, encodings=encodings, mask=mask)
 
     # print("x_pred", x_pred[0])
 
@@ -543,8 +544,8 @@ def test_invertibility(model, x, encodings, mask=None):
 
 
 def test_mask_model(model, x, encodings, model_pad, x_pad, encodings_pad, mask):
-    x_fwd, _ = model.forward(x, encodings=encodings)
-    x_fwd_pad, _ = model_pad.forward(x_pad, encodings=encodings_pad, mask=mask)
+    x_fwd, _ = model(x, encodings=encodings)
+    x_fwd_pad, _ = model_pad(x_pad, encodings=encodings_pad, mask=mask)
 
     # print("x_fwd max error:", torch.max(abs(x_fwd - x_fwd_pad[:, :12])))
     # print("x_fwd mae:", torch.mean(abs(x_fwd - x_fwd_pad[:, :12])))
@@ -554,8 +555,8 @@ def test_mask_model(model, x, encodings, model_pad, x_pad, encodings_pad, mask):
 
 
 def test_mask_model_no_pad(model, x, encodings, model_pad):
-    x_fwd, _ = model.forward(x, encodings=encodings)
-    x_fwd_no_pad, _ = model_pad.forward(x, encodings=encodings)
+    x_fwd, _ = model(x, encodings=encodings)
+    x_fwd_no_pad, _ = model_pad(x, encodings=encodings)
 
     # print("x_fwd max error:", torch.max(abs(x_fwd - x_fwd_no_pad)))
     # print("x_fwd mae:", torch.mean(abs(x_fwd - x_fwd_no_pad)))
