@@ -66,12 +66,14 @@ if __name__ == "__main__":
 
     # test center of mass with mask
     def com_test():
-        x = torch.randn((16, 10, 3))
-        random_pad = torch.randn((16, 2, 3))
+        num_particles = 10
+        num_pad = 2
+        x = torch.randn((16, num_particles, 3))
+        random_pad = torch.randn((16, num_pad, 3))
 
         x_padded = torch.concat([x, random_pad], dim=1)
-        mask = torch.ones((16, 10))
-        mask = torch.concat([mask, torch.zeros((16, 2))], dim=-1)
+        mask = torch.ones((16, num_particles))
+        mask = torch.concat([mask, torch.zeros((16, num_pad))], dim=-1)
 
         com = x.mean(dim=1, keepdims=True)
         com_padded = (x_padded * mask[..., None]).sum(dim=1, keepdims=True) / mask.sum(dim=1, keepdims=True)[..., None]
@@ -84,9 +86,15 @@ if __name__ == "__main__":
         x -= com
         x_padded -= com_padded
         x_padded *= mask[..., None]
-        x_padded = x_padded[:, :10, :]
+        x_padded = x_padded[:, :num_particles, :]
 
         print(f"x and x_padded error: {abs(x - x_padded).sum()}")
         assert torch.allclose(x, x_padded)
+
+        samples = normal_dist.sample(num_samples=16, num_particles=12, mask=mask)
+        samples = samples.reshape(16, num_particles + num_pad, 3)
+        com = samples[:, :num_particles].mean(dim=1, keepdims=True)
+        print(f"COM: {com}")
+        assert torch.allclose(com, torch.zeros_like(com), atol=1e-7), "COM is not zero after sampling with mask"
 
     com_test()
