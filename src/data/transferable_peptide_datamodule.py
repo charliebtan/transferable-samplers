@@ -257,8 +257,17 @@ class TransferablePeptideDataModule(BaseDataModule):
         logging.info(f"Common keys between train and val data dict: {common_keys}")
 
         # Need to check here so TarFlow is correctly initalized for data
-        assert self.hparams.dim > self.max_num_particles * self.hparams.num_dimensions
-        assert self.hparams.num_particles > self.max_num_particles
+        assert self.hparams.num_particles > self.max_num_particles, (
+            "TarFlow num_particles must be greater than the largest system size. "
+            + f"Max num particles={self.max_num_particles}. Set num_particles in data config "
+            + f"to {self.max_num_particles + 1}."
+        )
+
+        # TarFlow dim is the dim of the largest system + a single padded token
+        assert self.hparams.dim > self.max_num_particles * self.hparams.num_dimensions, (
+            "TarFlow dim must be greater than the largest system size + a single padded token. "
+            + f"Set dim in data config to {(self.max_num_particles + 1) * self.hparams.num_dimensions}."
+        )
 
         weighted_vars = [x.var(unbiased=False) * x.shape[0] for x in train_data_dict.values()]
         total_samples = sum(x.shape[0] for x in train_data_dict.values())
