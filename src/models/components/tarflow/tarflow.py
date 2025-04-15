@@ -5,6 +5,7 @@
 import torch
 
 if __name__ == "__main__":
+    # This is when we run the script directly to test model
     from embed import ConditionalEmbedder
 else:
     from src.models.components.tarflow.embed import ConditionalEmbedder
