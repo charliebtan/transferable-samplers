@@ -11,9 +11,10 @@ num_workers: 2
 pin_memory: False
 num_aa: 2
 num_dimensions: 3
-num_particles: 51
-dim: 153 # dim of largest system
+num_particles: 52       # Max number of particles + at least a single padding token
+dim: 156                # num_dimensions * num_particles 
 energy_hist_config:
   x_min: -200
   x_max: -100
   ylim: 0.1
+num_val_sequences: 20
