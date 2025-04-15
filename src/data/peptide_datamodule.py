@@ -174,8 +174,8 @@ class PeptideDataModule(BaseDataModule):
         self.data_train = PeptideDataset(train_data, transform=self.transforms, encodings=self.encoding)
 
         # I actually thought better to apply transforms to val and test data too
-        self.data_val = PeptideDataset(self.data_val, transform=self.transforms, encodings=self.encoding)
-        self.data_test = PeptideDataset(self.data_test, transform=self.transforms, encodings=self.encoding)
+        self.data_val = PeptideDataset(data_val, transform=self.transforms, encodings=self.encoding)
+        self.data_test = PeptideDataset(data_test, transform=self.transforms, encodings=self.encoding)
 
     def setup(self, stage: Optional[str] = None) -> None:
         """Load data. Set variables: `self.data_train`, `self.data_val`, `self.data_test`.
