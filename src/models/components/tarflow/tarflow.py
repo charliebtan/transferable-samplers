@@ -582,7 +582,7 @@ if __name__ == "__main__":
     in_channels = 3
     patch_size = 1
     channels = 64
-    num_blocks = 1  # needs to be at least 2 to cover both permutations
+    num_blocks = 2  # needs to be at least 2 to cover both permutations
     layers_per_block = 1
 
     ### Dummy data
@@ -616,6 +616,8 @@ if __name__ == "__main__":
         dim=1,
     )
 
+    cond_embed = ConditionalEmbedder(channels=channels)
+
     model_pad = TarFlow(
         in_channels,
         img_size + pad_dim,
@@ -623,11 +625,11 @@ if __name__ == "__main__":
         channels,
         num_blocks,
         layers_per_block,
-        conditional=True,
+        cond_embed=cond_embed,
         debug=True,
     )
     model = TarFlow(
-        in_channels, img_size, patch_size, channels, num_blocks, layers_per_block, conditional=True, debug=True
+        in_channels, img_size, patch_size, channels, num_blocks, layers_per_block, cond_embed=cond_embed, debug=True
     )
     model = load_padded_model_weights(model_pad, model)
 
