@@ -211,6 +211,9 @@ class MetaBlock(torch.nn.Module):
                 attn_mask = attn_mask * mask.permute(0, 2, 1)
             attn_mask = attn_mask.unsqueeze(1)
 
+            # First mask for consistency inside the loop below
+            x = x * mask
+
         attn_mask = attn_mask[..., : x.shape[1], : x.shape[1]]
         for block in self.attn_blocks:
             x = block(x, attn_mask)
