@@ -8,7 +8,7 @@ model:
   transferable: true
   net:
     in_channels: 3
-    channels: 512
+    channels: 384
     num_blocks: 6
     layers_per_block: 6
     cond_embed:
@@ -26,8 +26,10 @@ model:
 data:
   batch_size: 512
   com_augmentation: True
+  num_samples_per_seq: 20_000
 
 trainer:
-  check_val_every_n_epoch: 100
-  max_epochs: 2_000
+  check_val_every_n_epoch: 50
+  limit_train_batches: 0.5
+  max_epochs: 500
   num_sanity_val_steps: 1

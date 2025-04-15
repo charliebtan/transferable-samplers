@@ -424,6 +424,7 @@ class TransferablePeptideDataModule(BaseDataModule):
                         topology=self.topology_dict[sequence],
                         num_eval_samples=self.hparams.num_eval_samples,
                         prefix=prefix + name,
+                        compute_distribution_distances=False,
                     )
                 )
                 # plot_ramachandran(log_image_fn, data.samples, self.topology_dict[sequence], prefix=prefix + name)
