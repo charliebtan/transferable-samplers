@@ -14,6 +14,7 @@ import wget
 from bgflow import OpenMMBridge, OpenMMEnergy
 
 from src.data.base_datamodule import BaseDataModule
+from src.data.components.atom_noise import AtomNoiseTransform
 from src.data.components.center_of_mass import CenterOfMassTransform
 from src.data.components.data_types import SamplesData
 from src.data.components.encodings import AA_CODE_CONVERSION, get_atom_encoding
@@ -22,6 +23,10 @@ from src.data.components.rotation import Random3DRotationTransform
 from src.data.components.symmetry import resolve_chirality
 from src.data.components.utils import get_adj_list, get_atom_types
 from src.evaluation.metrics.evaluate_peptide_data import evaluate_peptide_data
+
+MEAN_MIN_DIST_DICT = {
+    2: 0.4658  # can be comptued using commented out code below
+}
 
 
 class TransferablePeptideDataModule(BaseDataModule):
@@ -40,6 +45,7 @@ class TransferablePeptideDataModule(BaseDataModule):
         dim: int,  # dim of largest system
         make_iid: bool = False,
         com_augmentation: bool = False,
+        atom_noise_augmentation_factor: float = 0.0,
         # TODO maybe make this all just *args?
         num_samples_per_seq: int = 10_000,
         batch_size: int = 64,
@@ -68,7 +74,13 @@ class TransferablePeptideDataModule(BaseDataModule):
             transform_list.append(
                 CenterOfMassTransform(
                     self.hparams.num_dimensions,
-                    1 / math.sqrt(10 * self.hparams.num_aa),  # TODO check this value
+                    1 / math.sqrt(17.67 * self.hparams.num_aa),
+                )
+            )
+        if self.hparams.atom_noise_augmentation_factor:
+            transform_list.append(
+                AtomNoiseTransform(
+                    self.hparams.atom_noise_augmentation_factor * MEAN_MIN_DIST_DICT[self.hparams.num_aa],
                 )
             )
         self.transforms = torchvision.transforms.Compose(transform_list)
@@ -275,6 +287,19 @@ class TransferablePeptideDataModule(BaseDataModule):
 
         train_data_dict = self.normalize_tensor_dict(train_data_dict)
         val_data_dict = self.normalize_tensor_dict(val_data_dict)
+
+        # if self.hparams.atom_noise_augmentation_factor:
+        #     from src.evaluation.plots.plot_atom_distances import interatomic_dist
+        #     mean_min_dists = []
+        #     for key, data in train_data_dict.items():
+        #         num_samples = data.shape[0]
+        #         data = data.reshape(num_samples, -1, self.hparams.num_dimensions)
+        #         dists = interatomic_dist(data, flatten=False)
+        #         mean_min_dist = dists.min(dim=1)[0].mean()
+        #         mean_min_dists.append(mean_min_dist)
+
+        #     # this is effectively just the length of a carbon-hydrogen bond
+        #     mean_min_dist = torch.mean(torch.tensor(mean_min_dists))
 
         # slice out subset of val_data_dict
         val_data_dict = {
