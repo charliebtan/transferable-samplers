@@ -46,10 +46,12 @@ class TransferablePeptideDataModule(BaseDataModule):
         num_workers: int = 0,
         pin_memory: bool = False,
         num_eval_samples: int = 10_000,
-        num_val_sequences: int = 80,
+        num_val_sequences: int = 20,
         energy_hist_config: Optional[dict[str, Any]] = None,
     ):
         super().__init__()
+
+        assert dim == num_dimensions * num_particles, "dim must be equal to num_dimensions * num_particles"
 
         self.train_data_path = f"{self.hparams.data_dir}/{self.hparams.train_data_filename}"
         self.val_data_path = f"{self.hparams.data_dir}/{self.hparams.val_data_filename}"
@@ -122,6 +124,9 @@ class TransferablePeptideDataModule(BaseDataModule):
                 pdb = openmm.app.PDBFile(filepath)
 
                 assert len(list(pdb.topology.chains())) == 1, "Only single chain PDBs are supported"
+                assert len(list(pdb.topology.residues())) == self.hparams.num_aa, (
+                    "PDB does not match the number of amino acids"
+                )
 
                 name = "".join([AA_CODE_CONVERSION[aa.name] for aa in pdb.topology.residues()])
 
@@ -140,19 +145,21 @@ class TransferablePeptideDataModule(BaseDataModule):
 
     def pad_data(self, x):
         assert len(x.shape) == 2
-        pad_tensor = torch.zeros((x.shape[0], self.max_num_particles * self.hparams.num_dimensions - x.shape[1]))
+        pad_tensor = torch.zeros((x.shape[0], self.hparams.num_particles * self.hparams.num_dimensions - x.shape[1]))
         return torch.cat([x, pad_tensor], dim=1)
 
     def pad_encoding(self, encoding):
         for key, value in encoding.items():
-            encoding[key] = torch.cat([value, torch.zeros(self.max_num_particles - value.shape[0], dtype=torch.int64)])
+            encoding[key] = torch.cat(
+                [value, torch.zeros(self.hparams.num_particles - value.shape[0], dtype=torch.int64)]
+            )
         return encoding
 
     def create_mask(self, x):
         assert len(x.shape) == 1
         num_particles = x.shape[0] // self.hparams.num_dimensions
         true_mask = torch.ones(num_particles)
-        false_mask = torch.zeros(self.max_num_particles - num_particles)
+        false_mask = torch.zeros(self.hparams.num_particles - num_particles)
         return torch.cat([true_mask, false_mask]).bool()
 
     def load_data_as_tensor_dict(self, path):
@@ -250,8 +257,17 @@ class TransferablePeptideDataModule(BaseDataModule):
         logging.info(f"Common keys between train and val data dict: {common_keys}")
 
         # Need to check here so TarFlow is correctly initalized for data
-        assert self.hparams.dim == self.max_num_particles * self.hparams.num_dimensions
-        assert self.hparams.num_particles == self.max_num_particles
+        assert self.hparams.num_particles > self.max_num_particles, (
+            "TarFlow num_particles must be greater than the largest system size. "
+            + f"Max num particles={self.max_num_particles}. Set num_particles in data config "
+            + f"to {self.max_num_particles + 1}."
+        )
+
+        # TarFlow dim is the dim of the largest system + a single padded token
+        assert self.hparams.dim > self.max_num_particles * self.hparams.num_dimensions, (
+            "TarFlow dim must be greater than the largest system size + a single padded token. "
+            + f"Set dim in data config to {(self.max_num_particles + 1) * self.hparams.num_dimensions}."
+        )
 
         weighted_vars = [x.var(unbiased=False) * x.shape[0] for x in train_data_dict.values()]
         total_samples = sum(x.shape[0] for x in train_data_dict.values())

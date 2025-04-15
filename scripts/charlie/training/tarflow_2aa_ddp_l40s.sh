@@ -13,7 +13,7 @@
 #SBATCH --requeue                     # Requeue upon pre-emption
 #SBATCH --signal=SIGUSR1@90
 
-RUN_NAME="2AA_ddp_v1"
+RUN_NAME="2AA_ddp_v2"
 
 srun python -u src/train.py \
 experiment=training/tarflow_2aa_ddp logger=wandb \

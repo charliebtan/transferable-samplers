@@ -8,8 +8,26 @@ class Random3DRotationTransform(torch.nn.Module):
         self.num_dimensions = num_dimensions
 
     def forward(self, data):
-        data = data.reshape(1, -1, self.num_dimensions)  # batch dimension needed for einsum
-        rot = torch.tensor(R.random(len(data)).as_matrix()).to(data)
-        data = torch.einsum("bij,bki->bkj", rot, data)
-        data = data.reshape(-1)  # don't want to return with batch dim
+        x = data["x"]
+        mask = data["mask"]
+
+        assert len(x.shape) == 1, "only process single molecules"
+
+        num_particles = mask.sum()
+
+        x = x.reshape(1, -1, self.num_dimensions)  # batch dimension needed for einsum
+        x, padding = x[:num_particles], x[num_particles:]  # slice out the data and padding
+
+        assert torch.sum(padding) == 0, "padding should be zero"
+
+        rot = torch.tensor(R.random(len(x)).as_matrix()).to(x)
+        x = torch.einsum("bij,bki->bkj", rot, x)
+
+        x = torch.cat([x, padding])  # re-add the padding back
+
+        # Reshape back to original shape
+        x = x.reshape(-1)
+
+        data.update({"x": x})
+
         return data

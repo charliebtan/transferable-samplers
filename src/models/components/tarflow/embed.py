@@ -4,9 +4,17 @@ import torch.nn as nn
 
 class ConditionalEmbedder(nn.Module):
     def __init__(
-        self, channels: int = 128, num_atom_emb: int = 55, num_residue_emb: int = 21, num_residue_pos: int = 24
+        self, channels: int = 128, num_atom_emb: int = 54, num_residue_emb: int = 20, num_residue_pos: int = 2
     ):
+        """
+        Input the value of the atom type, residue type, and residue position WITHOUT counting the padding token
+        """
+
         super().__init__()
+
+        num_atom_emb += 1  # for padding
+        num_residue_emb += 1
+        num_residue_pos += 1
 
         self.atom_embed = nn.Embedding(num_embeddings=num_atom_emb, embedding_dim=channels)
         self.residue_embed = nn.Embedding(num_embeddings=num_residue_emb, embedding_dim=channels)
