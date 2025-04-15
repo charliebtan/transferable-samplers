@@ -413,6 +413,8 @@ class TarFlow(torch.nn.Module):
         encodings: dict[str, torch.Tensor] | None = None,
         return_sequence: bool = False,
     ) -> torch.Tensor | list[torch.Tensor]:
+        """No masking in reverse since we assume the model generates a single peptide system as a time."""
+
         batch_size = x.shape[0]
 
         assert x.shape[1] == encodings["atom_type"].shape[1] * self.in_channels, "x and encodings do not match"
@@ -448,6 +450,11 @@ class TarFlow(torch.nn.Module):
             return x
         else:
             return seq
+
+
+########################################################
+""" Below are helper functions for testing the model """
+########################################################
 
 
 def load_padded_model_weights(model_pad, model):
