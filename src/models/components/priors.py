@@ -10,42 +10,83 @@ class NormalDistribution:
         self.distribution = Normal(mean, std)
         self.mean_free = mean_free
 
-    def sample(self, num_samples: int, num_particles: int) -> torch.Tensor:
+    def sample(self, num_samples: int, num_particles: int, mask: torch.Tensor | None = None) -> torch.Tensor:
         x = self.distribution.sample((num_samples, num_particles, self.num_dimensions))
         if self.mean_free:
-            raise NotImplementedError("Do we need to account for masking here? I supsect so")
-            x = x - x.mean(dim=-1, keepdim=True)
+            if mask is None:
+                mask = torch.ones((num_samples, num_particles), device=x.device)
+            com = (x * mask[..., None]).sum(dim=1, keepdims=True) / mask.sum(dim=1, keepdims=True)[..., None]
+            x = x - com
+            x *= mask[..., None]
         return x.reshape(num_samples, -1)
 
     def energy(self, x: torch.Tensor, mask: torch.Tensor | None = None) -> torch.Tensor:
         assert x.dim() == 2
+        num_samples = x.shape[0]
+        num_particles = x.shape[-1] // self.num_dimensions
+        if mask is None:
+            mask = torch.ones((num_samples, num_particles), device=x.device)
         if self.mean_free:
-            raise NotImplementedError("Do we need to account for masking here? I supsect so")
-            x = x.reshape(x.shape[0], -1, self.num_dimensions)
-            x = x - x.mean(dim=-1, keepdim=True)
-            x = x.reshape(x.shape[0], -1)
+            x = x.reshape(num_samples, -1, self.num_dimensions)
+            com = (x * mask[..., None]).sum(dim=1, keepdims=True) / mask.sum(dim=1, keepdims=True)[..., None]
+            x = x - com
+            x *= mask[..., None]
+            x = x.reshape(num_samples, -1)
 
         pointwise_energy = -self.distribution.log_prob(x)
 
-        if mask is None:
-            energy = pointwise_energy.mean(dim=-1, keepdims=True)  # training code expects the mean not sum
-
-        else:
-            pointwise_energy = pointwise_energy.reshape(x.shape[0], -1, self.num_dimensions)
-            pointwise_energy = pointwise_energy * mask.unsqueeze(-1)
-            pointwise_energy = pointwise_energy.reshape(x.shape[0], -1)
-            num_particles = mask.sum(dim=-1, keepdim=True)
-            # account for the pad tokens when taking the mean
-            energy = pointwise_energy.sum(dim=-1, keepdims=True) / (num_particles * self.num_dimensions)
+        pointwise_energy = pointwise_energy.reshape(num_samples, -1, self.num_dimensions)
+        pointwise_energy = pointwise_energy * mask.unsqueeze(-1)
+        pointwise_energy = pointwise_energy.reshape(num_samples, -1)
+        num_particles = mask.sum(dim=-1, keepdim=True)
+        # account for the pad tokens when taking the mean
+        energy = pointwise_energy.sum(dim=-1, keepdims=True) / (num_particles * self.num_dimensions)
 
         return energy
 
 
 if __name__ == "__main__":
-    normal_dist = NormalDistribution(dim=3, mean=0.0, std=1.0, mean_free=True)
-    samples = normal_dist.sample(num_samples=10, num_particles=5)
+    normal_dist = NormalDistribution(num_dimensions=3, mean=0.0, std=1.0, mean_free=True)
+    samples = normal_dist.sample(num_samples=10, num_particles=8)
     print("Samples", samples)
     print("Samples shape", samples.shape)
+
+    num_pad = 2
+    zero_pad = torch.zeros((samples.shape[0], 3 * num_pad))
+    samples_padded = torch.concat([samples, zero_pad], dim=-1)
+    mask = torch.ones((samples.shape[0], samples.shape[-1] // 3))
+    mask = torch.concat([mask, torch.zeros((samples.shape[0], num_pad))], dim=-1)
+
     energy = normal_dist.energy(samples)
-    print("Energy:", energy)
-    print("Energy shape", energy.shape)
+    energy_padded = normal_dist.energy(samples_padded, mask=mask)
+
+    energy_error = abs(energy - energy_padded).sum()
+    print(f"Energy Error between unpad and padded: {energy_error}")
+    assert torch.allclose(energy, energy_padded, atol=1e-8), f"Energy Error: {energy_error}"
+
+    # test center of mass with mask
+    def com_test():
+        x = torch.randn((16, 10, 3))
+        random_pad = torch.randn((16, 2, 3))
+
+        x_padded = torch.concat([x, random_pad], dim=1)
+        mask = torch.ones((16, 10))
+        mask = torch.concat([mask, torch.zeros((16, 2))], dim=-1)
+
+        com = x.mean(dim=1, keepdims=True)
+        com_padded = (x_padded * mask[..., None]).sum(dim=1, keepdims=True) / mask.sum(dim=1, keepdims=True)[..., None]
+
+        com_error = (abs(com - com_padded)).sum()
+        print(f"COM error: {com_error}")
+        assert com.shape == com_padded.shape
+        assert torch.allclose(com, com_padded, atol=1e-8), "com and com_padded do not match"
+
+        x -= com
+        x_padded -= com_padded
+        x_padded *= mask[..., None]
+        x_padded = x_padded[:, :10, :]
+
+        print(f"x and x_padded error: {abs(x - x_padded).sum()}")
+        assert torch.allclose(x, x_padded)
+
+    com_test()
