@@ -236,10 +236,10 @@ class MetaBlock(torch.nn.Module):
         x = self.proj_out(x)
 
         if isinstance(self.permutation, PermutationFlip):
-            x = x * mask if mask is not None else x
+            x = x * mask[..., None] if mask is not None else x
         x = torch.cat([torch.zeros_like(x[:, :1]), x[:, :-1]], dim=1)  # shift one token w/ zero pad
         if isinstance(self.permutation, PermutationIdentity):
-            x = x * mask if mask is not None else x
+            x = x * mask[..., None] if mask is not None else x
 
         if self.nvp:
             xa, xb = x.chunk(2, dim=-1)
@@ -253,7 +253,7 @@ class MetaBlock(torch.nn.Module):
         if mask is None:
             logdet = -xa.mean(dim=[1, 2])
         else:
-            logdet = -xa.sum(dim=[1, 2]) / (mask.sum(dim=[1, 2]) * self.in_channels)
+            logdet = -xa.sum(dim=[1, 2]) / (mask.sum(dim=-1) * self.in_channels)
 
         return x_out, logdet
 
@@ -272,7 +272,12 @@ class MetaBlock(torch.nn.Module):
         if cond is not None:
             cond_in = cond[:, i : i + 1]
             cond_emb = self.proj_cond(cond_in)
-            x = x + cond_emb
+
+            if self.use_adaln:
+                mask = torch.ones(x.shape[:2], device=x.device, dtype=torch.bool)
+                x = self.adaln(x, cond_emb, mask)
+            else:
+                x = x + cond_emb
 
         for block in self.attn_blocks:
             x = block(x, attn_temp=attn_temp, which_cache=which_cache)  # here we use kv caching, so no attn_mask
@@ -514,7 +519,7 @@ def test_invertibility(model, x, encodings, mask=None, num_pad_tokens=4, num_dim
         }
 
     x_recon = model.reverse(x_pred, encodings=encodings)
-
+    breakpoint()
     # print((x - x_recon).reshape(x.shape[0], -1, num_dimensions).mean(dim=0))
     # print((x - x_recon).reshape(x.shape[0], -1, num_dimensions).mean(dim=1))
     # print((x - x_recon).reshape(x.shape[0], -1, num_dimensions).mean(dim=2))
@@ -651,10 +656,19 @@ if __name__ == "__main__":
         num_blocks,
         layers_per_block,
         cond_embed=cond_embed,
+        use_adaln=True,
         debug=True,
     )
     model = TarFlow(
-        in_channels, img_size, patch_size, channels, num_blocks, layers_per_block, cond_embed=cond_embed, debug=True
+        in_channels,
+        img_size,
+        patch_size,
+        channels,
+        num_blocks,
+        layers_per_block,
+        cond_embed=cond_embed,
+        use_adaln=True,
+        debug=True,
     )
     model = load_padded_model_weights(model_pad, model)
 
