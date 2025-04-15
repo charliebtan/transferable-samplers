@@ -1,4 +1,5 @@
 import logging
+import os
 import time
 from typing import Any, Optional
 
@@ -6,7 +7,6 @@ import hydra
 import matplotlib.pyplot as plt
 import torch
 import torchmetrics
-from bgflow import MeanFreeNormalDistribution, NormalDistribution
 from lightning import LightningDataModule, LightningModule
 from lightning.pytorch.loggers import WandbLogger
 from torchmetrics import MeanMetric
@@ -14,13 +14,14 @@ from tqdm import tqdm
 
 from src.data.components.data_types import SamplesData
 from src.models.components.ema import EMA
+from src.models.components.priors import NormalDistribution
 from src.models.components.smc_sampler import SMCSampler
 from src.models.components.utils import resample
 
 logger = logging.getLogger(__name__)
 
 
-class BoltzmannGeneratorLitModule(LightningModule):
+class TransferableBoltzmannGeneratorLitModule(LightningModule):
     def __init__(
         self,
         net: torch.nn.Module,
@@ -28,12 +29,9 @@ class BoltzmannGeneratorLitModule(LightningModule):
         scheduler: torch.optim.lr_scheduler,
         datamodule: LightningDataModule,
         smc_sampler: SMCSampler,
-        sampling_config,
+        sampling_config: dict,
         ema_decay: float,
         compile: bool,
-        transferable: bool = False,
-        mean_free_prior: bool = True,
-        stabilize_training: bool = False,
         use_com_adjustment: bool = False,
         *args,
         **kwargs,
@@ -72,14 +70,11 @@ class BoltzmannGeneratorLitModule(LightningModule):
         self.val_metrics = self.train_metrics.clone(prefix="val/")
         self.test_metrics = self.train_metrics.clone(prefix="test/")
 
-        if self.hparams.mean_free_prior:
-            self.prior = MeanFreeNormalDistribution(
-                self.datamodule.hparams.dim,
-                self.datamodule.hparams.num_particles,
-                two_event_dims=False,
-            )
-        else:
-            self.prior = NormalDistribution(self.datamodule.hparams.dim)
+        assert not self.hparams.mean_free_prior, "mean free prior is not supported yet"
+
+        self.prior = NormalDistribution(
+            self.datamodule.hparams.num_dimensions  # for transferable this will be the dim of the largest peptide
+        )
 
     def log_image(self, img: torch.Tensor, title: str = None) -> None:
         """Log an image to the logger.
@@ -223,20 +218,38 @@ class BoltzmannGeneratorLitModule(LightningModule):
             if self.hparams.eval_ema:
                 self.net.backup()
                 self.net.copy_to_model()
-                self.evaluate(prefix)
+                self.evaluate_all(prefix)
                 self.net.restore_to_model()
             if self.hparams.eval_non_ema:
-                self.evaluate(prefix + "/non_ema")
+                self.evaluate_all(prefix + "/non_ema")
         else:
             self.evaluate(prefix)
         plt.close("all")
 
+    def evaluate_all(self, prefix):
+        metrics = {}
+        for val_sequence in self.datamodule.val_sequences:
+            true_data, energy_fn = self.datamodule.prepare_eval(val_sequence)
+            logging.info(f"Evaluating {val_sequence} samples")
+            metrics.update(
+                self.evaluate(
+                    true_data,
+                    val_sequence,
+                    energy_fn,
+                    prefix=f"{prefix}/{val_sequence}",
+                    proposal_generator=self.batched_generate_samples,
+                )
+            )
+        if self.local_rank == 0:
+            self.log_dict(metrics)
+
     @torch.no_grad()
-    def evaluate(self, prefix: str = "val", proposal_generator=None, output_dir=None) -> None:
+    def evaluate(
+        self, true_data, sequence, energy_fn, prefix: str = "val", proposal_generator=None, output_dir=None
+    ) -> None:
         """Generates samples from the proposal and runs SMC if enabled.
         Also computes metrics, through the datamodule function "metrics_and_plots".
         """
-        logging.info("Evaluating sampling")
 
         # Define proposal generator
         if proposal_generator is None:
@@ -246,16 +259,15 @@ class BoltzmannGeneratorLitModule(LightningModule):
 
         if prefix.startswith("test"):
             num_proposal_samples = self.hparams.sampling_config.num_test_proposal_samples
-            true_samples = self.datamodule.data_test.data
-            encodings = self.datamodule.data_test.encodings  # noqa: F841
         else:
             num_proposal_samples = self.hparams.sampling_config.num_proposal_samples
-            true_samples = self.datamodule.data_val.data
-            encodings = self.datamodule.data_val.encodings  # noqa: F841
+
+        true_samples = true_data["x"]
+        encodings = true_data["encoding"]  # noqa: F841
 
         true_data = SamplesData(
             self.datamodule.as_pointcloud(self.datamodule.unnormalize(true_samples)),
-            self.datamodule.energy(true_samples),
+            energy_fn(true_samples),
         )
 
         # Generate samples and record time
@@ -275,11 +287,13 @@ class BoltzmannGeneratorLitModule(LightningModule):
         }
         if output_dir is None:
             output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
-        logging.info(f"Saving {len(proposal_samples)} samples to {output_dir}/{prefix}_samples.pt")
-        torch.save(samples_dict, f"{output_dir}/{prefix}_samples.pt")
+        if self.local_rank == 0:
+            os.makedirs(f"{output_dir}/{prefix}", exist_ok=True)
+            torch.save(samples_dict, f"{output_dir}/{prefix}/samples.pt")
+            logging.info(f"Saving {len(proposal_samples)} samples to {output_dir}/{prefix}_samples.pt")
 
         # Compute energy
-        proposal_samples_energy = self.datamodule.energy(proposal_samples)
+        proposal_samples_energy = energy_fn(proposal_samples)
 
         # Datatype for easier metrics and plotting
         proposal_data = SamplesData(
@@ -340,30 +354,33 @@ class BoltzmannGeneratorLitModule(LightningModule):
                 "smc_samples": smc_samples,
                 "smc_logits": smc_logits,
             }
-            logging.info(f"Saving {len(smc_samples)} samples to {output_dir}/{prefix}_smc_samples.pt")
-            torch.save(smc_samples_dict, f"{output_dir}/{prefix}_smc_samples.pt")
+            if self.local_rank == 0:
+                torch.save(smc_samples_dict, f"{output_dir}/{prefix}/smc_samples.pt")
+                logging.info(f"Saving {len(smc_samples)} samples to {output_dir}/{prefix}_smc_samples.pt")
 
             # Datatype for easier metrics and plotting
             smc_data = SamplesData(
                 self.datamodule.as_pointcloud(self.datamodule.unnormalize(smc_samples)),
-                self.datamodule.energy(smc_samples),
+                energy_fn(smc_samples),
                 logits=smc_logits,
             )
-
         else:
             smc_data = None
 
-        # log dataset metrics
-        metrics = self.datamodule.metrics_and_plots(
-            self.log_dict,
-            self.log_image,
-            true_data,
-            proposal_data,
-            reweighted_data,
-            smc_data,
-            prefix=prefix,
-        )
-        self.log_dict(metrics)
+        if self.local_rank == 0:
+            # log dataset metrics
+            metrics = self.datamodule.metrics_and_plots(
+                self.log_image,
+                sequence,
+                true_data,
+                proposal_data,
+                reweighted_data,
+                smc_data,
+                prefix=prefix,
+            )
+        else:
+            metrics = {}
+        return metrics
 
     def on_train_epoch_start(self) -> None:
         logging.info("Train epoch start")
@@ -427,4 +444,4 @@ class BoltzmannGeneratorLitModule(LightningModule):
 
 
 if __name__ == "__main__":
-    _ = BoltzmannGeneratorLitModule(None, None, None, None)
+    _ = TransferableBoltzmannGeneratorLitModule(None, None, None, None)

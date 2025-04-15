@@ -1,3 +1,5 @@
+import logging
+
 import torch
 
 
@@ -65,3 +67,22 @@ def check_symmetry_change(true_coords: torch.Tensor, pred_coords: torch.Tensor, 
     reference_signs = compute_chirality_sign(true_coords[[1]], chirality_centers)
     perm_sign = compute_chirality_sign(pred_coords, chirality_centers)
     return (perm_sign != reference_signs.to(pred_coords)).any(dim=-1)
+
+
+def resolve_chirality(true_samples, pred_samples, adj_list, atom_types, prefix=""):
+    symmetry_change = check_symmetry_change(true_samples, pred_samples, adj_list, atom_types)
+    pred_samples[symmetry_change] *= -1
+    correct_symmetry_rate = 1 - symmetry_change.sum() / len(symmetry_change)
+    symmetry_change = check_symmetry_change(true_samples, pred_samples, adj_list, atom_types)
+    uncorrectable_symmetry_rate = symmetry_change.sum() / len(symmetry_change)
+
+    metrics = {
+        prefix + "/correct_symmetry_rate": correct_symmetry_rate,
+        prefix + "/uncorrectable_symmetry_rate": uncorrectable_symmetry_rate,
+    }
+    logging.info(f"Correct symmetry rate is {correct_symmetry_rate:.2f}, ")
+
+    if uncorrectable_symmetry_rate > 0.1:
+        logging.warning(f"Uncorrectable symmetry rate is {uncorrectable_symmetry_rate:.2f}, ")
+
+    return metrics, symmetry_change

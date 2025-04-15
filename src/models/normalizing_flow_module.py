@@ -5,13 +5,13 @@ from typing import Optional
 import scipy
 import torch
 
-from src.models.boltzmann_generator_module import BoltzmannGeneratorLitModule
+from src.models.transferable_boltzmann_generator_module import TransferableBoltzmannGeneratorLitModule
 
 torch.backends.cuda.matmul.allow_tf32 = False
 torch.backends.cudnn.allow_tf32 = False
 
 
-class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
+class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
     def __init__(
         self,
         energy_kl_weight: float = 0.01,
@@ -31,19 +31,20 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
         self,
         batch: torch.Tensor,
     ) -> torch.Tensor:
-        x1, encodings = batch
-        if not self.hparams.transferable:
-            encodings = None
+        x1 = batch["x"]
+        encodings = batch["encoding"]
+        mask = batch.get("mask", None)
 
-        x0, dlogp = self.net(x1, encodings=encodings)
-
-        loss = self.prior.energy(x0).mean() - dlogp.mean()
+        x0, dlogp = self.net(x1, encodings=encodings, mask=mask)
+        loss = self.prior.energy(x0, mask=mask).mean() - dlogp.mean()
 
         if self.hparams.energy_kl_weight:
+            raise NotImplementedError()
             samples, log_p, _ = self.generate_samples(x1.shape[0])
             energy_loss = self.energy_kl(samples, log_p).mean()
             loss = loss + self.hparams.energy_kl_weight * energy_loss
             self.log("Energy Loss", energy_loss.item(), prog_bar=True, sync_dist=True)
+
         return loss
 
     def com_energy_adjustment(self, x: torch.Tensor) -> torch.Tensor:
@@ -61,8 +62,8 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
 
         return com_energy
 
-    def proposal_energy(self, x: torch.Tensor) -> torch.Tensor:
-        x_pred, fwd_logdets = self.net(x)
+    def proposal_energy(self, x: torch.Tensor, encoding: dict[str, torch.Tensor]) -> torch.Tensor:
+        x_pred, fwd_logdets = self.net(x, encoding=encoding)
         fwd_logdets = fwd_logdets * self.datamodule.hparams.dim  # rescale from mean to sum
 
         energy = -(-self.prior.energy(x_pred).view(-1) + fwd_logdets.view(-1))
@@ -96,8 +97,10 @@ class NormalizingFlowLitModule(BoltzmannGeneratorLitModule):
             probability.
         """
 
+        num_particles = encodings["atom_type"].size(0)
+
         local_batch_size = batch_size // self.trainer.world_size
-        prior_samples = self.prior.sample(local_batch_size).to(self.device)
+        prior_samples = self.prior.sample(local_batch_size, num_particles).to(self.device)
         # for MF this is actually not log_p as missing - log(Z) - doesn't matter for bias
         prior_log_p = -self.prior.energy(prior_samples)
         if encodings is not None:
