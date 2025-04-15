@@ -16,14 +16,14 @@ class Random3DRotationTransform(torch.nn.Module):
         num_particles = mask.sum()
 
         x = x.reshape(1, -1, self.num_dimensions)  # batch dimension needed for einsum
-        x, padding = x[:num_particles], x[num_particles:]  # slice out the data and padding
+        x, padding = x[:, :num_particles], x[:, num_particles:]  # slice out the data and padding
 
         assert torch.sum(padding) == 0, "padding should be zero"
 
         rot = torch.tensor(R.random(len(x)).as_matrix()).to(x)
         x = torch.einsum("bij,bki->bkj", rot, x)
 
-        x = torch.cat([x, padding])  # re-add the padding back
+        x = torch.cat([x, padding], dim=1)  # re-add the padding back
 
         # Reshape back to original shape
         x = x.reshape(-1)
