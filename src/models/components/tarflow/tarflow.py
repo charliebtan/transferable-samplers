@@ -318,7 +318,7 @@ class TarFlow(torch.nn.Module):
         channels: int,
         num_blocks: int,
         layers_per_block: int,
-        conditional: bool = False,
+        cond_embed: ConditionalEmbedder | None = None,
         nvp: bool = True,
         num_classes: int = 0,
         debug: bool = False,  # stops the weight initialization from being zero so tokens are not all the same
@@ -333,8 +333,8 @@ class TarFlow(torch.nn.Module):
             PermutationFlip(),
         ]
 
-        if conditional:
-            self.cond_embed = ConditionalEmbedder(channels=channels)
+        self.conditional = False if cond_embed is None else True
+        self.cond_embed = cond_embed
 
         blocks = []
         for i in range(num_blocks):
@@ -347,7 +347,7 @@ class TarFlow(torch.nn.Module):
                     permutations[i % 2],
                     layers_per_block,
                     nvp=nvp,
-                    conditional=conditional,
+                    conditional=self.conditional,
                     num_classes=num_classes,
                     debug=debug,
                 )
@@ -358,7 +358,7 @@ class TarFlow(torch.nn.Module):
         self.in_channels = in_channels
         self.channels = channels
         self.img_size = img_size
-        self.conditional = conditional
+        self.conditional = self.conditional
         if self.in_channels != 1:
             if self.img_size % self.in_channels != 0:
                 raise ValueError(
@@ -616,6 +616,8 @@ if __name__ == "__main__":
         dim=1,
     )
 
+    cond_embed = ConditionalEmbedder(channels=channels)
+
     model_pad = TarFlow(
         in_channels,
         img_size + pad_dim,
@@ -623,11 +625,11 @@ if __name__ == "__main__":
         channels,
         num_blocks,
         layers_per_block,
-        conditional=True,
+        cond_embed=cond_embed,
         debug=True,
     )
     model = TarFlow(
-        in_channels, img_size, patch_size, channels, num_blocks, layers_per_block, conditional=True, debug=True
+        in_channels, img_size, patch_size, channels, num_blocks, layers_per_block, cond_embed=cond_embed, debug=True
     )
     model = load_padded_model_weights(model_pad, model)
 

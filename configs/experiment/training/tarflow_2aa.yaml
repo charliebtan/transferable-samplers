@@ -11,7 +11,11 @@ model:
     channels: 512
     num_blocks: 6
     layers_per_block: 6
-    conditional: ${model.transferable}
+    cond_embed:
+      _target_: src.models.components.tarflow.embed.ConditionalEmbedder
+      channels: ${model.net.channels}
+      num_residue_pos: ${data.num_aa}
+
   optimizer:
     lr: 1e-4
     weight_decay: 4e-4
@@ -20,10 +24,10 @@ model:
     num_proposal_samples: 5_000
 
 data:
-  batch_size: 256
+  batch_size: 512
   com_augmentation: True
 
 trainer:
-  check_val_every_n_epoch: 50
-  max_epochs: 1_000
+  check_val_every_n_epoch: 100
+  max_epochs: 2_000
   num_sanity_val_steps: 1

@@ -287,9 +287,10 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         }
         if output_dir is None:
             output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
-        os.makedirs(f"{output_dir}/{prefix}")
-        logging.info(f"Saving {len(proposal_samples)} samples to {output_dir}/{prefix}_samples.pt")
-        torch.save(samples_dict, f"{output_dir}/{prefix}/samples.pt")
+        if self.local_rank == 0:
+            os.makedirs(f"{output_dir}/{prefix}", exist_ok=True)
+            torch.save(samples_dict, f"{output_dir}/{prefix}/samples.pt")
+            logging.info(f"Saving {len(proposal_samples)} samples to {output_dir}/{prefix}_samples.pt")
 
         # Compute energy
         proposal_samples_energy = energy_fn(proposal_samples)
@@ -353,8 +354,9 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
                 "smc_samples": smc_samples,
                 "smc_logits": smc_logits,
             }
-            logging.info(f"Saving {len(smc_samples)} samples to {output_dir}/{prefix}_smc_samples.pt")
-            torch.save(smc_samples_dict, f"{output_dir}/{prefix}/smc_samples.pt")
+            if self.local_rank == 0:
+                torch.save(smc_samples_dict, f"{output_dir}/{prefix}/smc_samples.pt")
+                logging.info(f"Saving {len(smc_samples)} samples to {output_dir}/{prefix}_smc_samples.pt")
 
             # Datatype for easier metrics and plotting
             smc_data = SamplesData(
@@ -362,7 +364,6 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
                 energy_fn(smc_samples),
                 logits=smc_logits,
             )
-
         else:
             smc_data = None
 
@@ -377,7 +378,9 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
                 smc_data,
                 prefix=prefix,
             )
-            return metrics
+        else:
+            metrics = {}
+        return metrics
 
     def on_train_epoch_start(self) -> None:
         logging.info("Train epoch start")
