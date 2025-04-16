@@ -157,6 +157,8 @@ class MultiHeadAttentionADALN(nn.Module):
         """
         x = self.adaln(x, cond, mask)
         # Following exact scheme of proteina. Not adding conditioning to x
+        # If cond were not None, then x = x + cond inside mha
+        # Which we don't want as conditoning is applied through adaln and scale_output
         x = self.mha(x, cond=None, mask=mask, attn_mask=attn_mask, attn_temp=attn_temp, which_cache=which_cache)
         x = self.scale_output(x, cond, mask)
         return x * mask[..., None]  # [b, n, channels]
