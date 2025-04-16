@@ -3,6 +3,7 @@
 defaults:
   - override /model: normalizing_flow
   - override /data: 2aa
+  - override /trainer: gpu
 
 model:
   transferable: true
