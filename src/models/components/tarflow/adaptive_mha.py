@@ -6,7 +6,7 @@ from adaptive_layer_norm import AdaptiveLayerNorm, AdaptiveLayerNormOutputScale,
 class Attention(torch.nn.Module):
     USE_SPDA: bool = True
 
-    def __init__(self, in_channels: int, head_channels: int):
+    def __init__(self, in_channels: int, head_channels: int, use_qkln: bool = False, dropout: float = 0.0):
         assert in_channels % head_channels == 0
         super().__init__()
         self.norm = torch.nn.LayerNorm(in_channels)
@@ -15,6 +15,10 @@ class Attention(torch.nn.Module):
         self.num_heads = in_channels // head_channels
         self.sqrt_scale = head_channels ** (-0.25)
         self.sample = False
+
+        self.q_layer_norm = nn.LayerNorm(in_channels) if use_qkln else nn.Identity()
+        self.k_layer_norm = nn.LayerNorm(in_channels) if use_qkln else nn.Identity()
+
         self.k_cache: dict[str, list[torch.Tensor]] = {"cond": [], "uncond": []}
         self.v_cache: dict[str, list[torch.Tensor]] = {"cond": [], "uncond": []}
 
@@ -27,7 +31,13 @@ class Attention(torch.nn.Module):
     ) -> torch.Tensor:
         B, T, C = x.size()
         x = self.norm(x.float()).type(x.dtype)
-        q, k, v = self.qkv(x).reshape(B, T, 3 * self.num_heads, -1).transpose(1, 2).chunk(3, dim=1)  # (b, h, t, d)
+        q, k, v = self.qkv(x).chunk(3, dim=-1)
+        q = self.q_layer_norm(q)
+        k = self.k_layer_norm(k)
+
+        q = q.reshape(B, T, self.num_heads, -1).transpose(1, 2)  # (b, h, t, d)
+        k = k.reshape(B, T, self.num_heads, -1).transpose(1, 2)  # (b, h, t, d)
+        v = v.reshape(B, T, self.num_heads, -1).transpose(1, 2)  # (b, h, t, d)
 
         if self.sample:
             self.k_cache[which_cache].append(k)
@@ -95,19 +105,30 @@ class MLP(torch.nn.Module):
 
 
 class AttentionBlock(torch.nn.Module):
-    def __init__(self, channels: int, head_channels: int, expansion: int = 4):
+    def __init__(
+        self,
+        channels: int,
+        head_channels: int,
+        expansion: int = 4,
+        use_qkln: bool = False,
+        dropout: float = 0.0,
+    ):
         super().__init__()
-        self.attention = Attention(channels, head_channels)
+        self.attention = Attention(channels, head_channels, use_qkln=use_qkln, dropout=dropout)
         self.mlp = MLP(channels, expansion)
 
     def forward(
         self,
         x: torch.Tensor,
+        cond: torch.Tensor | None = None,
         attn_mask: torch.Tensor | None = None,
         attn_temp: float = 1.0,
         which_cache: str = "cond",
         **kwargs,
     ) -> torch.Tensor:
+        if cond is not None:
+            x = x + cond
+
         x = x + self.attention(x, attn_mask, attn_temp, which_cache)
         x = x + self.mlp(x)
         return x
@@ -136,7 +157,9 @@ class MultiHeadAttentionADALN(nn.Module):
         assert channels % head_channels == 0, "in_channels must be divisible by head_channels"
         self.sample = sample
         self.adaln = AdaptiveLayerNorm(channels=channels, channels_cond=channels)
-        self.mha = AttentionBlock(channels=channels, head_channels=head_channels, expansion=expansion)
+        self.mha = AttentionBlock(
+            channels=channels, head_channels=head_channels, expansion=expansion, use_qkln=use_qkln, dropout=dropout
+        )
         self.scale_output = AdaptiveLayerNormOutputScale(channels=channels, channels_cond=channels)
 
     def forward(self, x, cond, mask, attn_mask, attn_temp: float = 1.0, which_cache: str = "cond"):
@@ -202,8 +225,8 @@ class AdaptiveAttnAndTransition(torch.nn.Module):
         self,
         channels: int = 128,
         head_channels: int = 64,
-        residual_mha: bool = False,
-        residual_transition: bool = False,
+        residual_mha: bool = True,
+        residual_transition: bool = True,
         use_qkln: bool = True,
         dropout=0.0,
         expansion=4,
@@ -253,7 +276,7 @@ class AdaptiveAttnAndTransition(torch.nn.Module):
 
         x = x * mask[..., None]
         x = self._apply_mha(x, cond, mask, attn_mask=attn_mask, attn_temp=attn_temp, which_cache=which_cache)
-        # x = self._apply_transition(x, cond, mask)
+        x = self._apply_transition(x, cond, mask)
         return x * mask[..., None]
 
 
