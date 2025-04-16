@@ -6,9 +6,12 @@ import torch
 
 if __name__ == "__main__":
     # This is when we run the script directly to test model
-    from adaptive_mha import AdaptiveAttnAndTransition, Attention, AttentionBlock
+    from adaptive_blocks import AdaptiveAttnAndTransition
+    from attention import Attention, AttentionBlock
     from embed import ConditionalEmbedder
 else:
+    from src.model.components.tarflow.adaptive_blocks import AdaptiveAttnAndTransition
+    from src.models.components.tarflow.attention import Attention, AttentionBlock
     from src.models.components.tarflow.embed import ConditionalEmbedder
 
 
