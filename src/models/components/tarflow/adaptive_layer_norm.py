@@ -33,6 +33,7 @@ class AdaptiveLayerNorm(torch.nn.Module):
         gamma = self.to_gamma(normed_cond)
         beta = self.to_beta(normed_cond)
         out = normed * gamma + beta
+        # breakpoint()
         return out * mask[..., None]
 
 
