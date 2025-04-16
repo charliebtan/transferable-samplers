@@ -16,7 +16,6 @@ class AdaptiveLayerNorm(torch.nn.Module):
         self.norm_cond = torch.nn.LayerNorm(channels_cond)
 
         self.to_gamma = torch.nn.Sequential(torch.nn.Linear(channels_cond, channels), torch.nn.Sigmoid())
-
         self.to_beta = torch.nn.Linear(channels_cond, channels, bias=False)
 
     def forward(self, x, cond, mask):
@@ -157,7 +156,7 @@ class MultiHeadAttentionADALN(nn.Module):
             Updated sequence representation, shape [b, n, channels].
         """
         x = self.adaln(x, cond, mask)
-        x = self.mha(x, attn_mask, attn_temp, which_cache=which_cache)
+        x = self.mha(x, attn_mask=attn_mask, attn_temp=attn_temp, which_cache=which_cache)
         x = self.scale_output(x, cond, mask)
         return x * mask[..., None]  # [b, n, channels]
 

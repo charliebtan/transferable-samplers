@@ -110,6 +110,7 @@ class AttentionBlock(torch.nn.Module):
         expansion: int = 4,
         use_qkln: bool = False,
         dropout: float = 0.0,
+        **kwargs,
     ):
         super().__init__()
         self.attention = Attention(channels, head_channels, use_qkln=use_qkln, dropout=dropout)

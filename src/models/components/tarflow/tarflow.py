@@ -115,7 +115,7 @@ class MetaBlock(torch.nn.Module):
 
         attn_mask = attn_mask[..., : x.shape[1], : x.shape[1]]
         for block in self.attn_blocks:
-            x = block(x, cond=cond, mask=mask, attn_mask=attn_mask)
+            x = block(x, cond=cond_emb, mask=mask, attn_mask=attn_mask)
             if mask is not None:
                 x = x * mask[:, : x.shape[1], None]
                 assert x[torch.where(mask == 0)].sum() == 0, "Masked positions are nonzero"
@@ -165,7 +165,7 @@ class MetaBlock(torch.nn.Module):
 
         for block in self.attn_blocks:
             x = block(
-                x, cond=cond, mask=None, attn_mask=None, attn_temp=attn_temp, which_cache=which_cache
+                x, cond=cond_emb, mask=None, attn_mask=None, attn_temp=attn_temp, which_cache=which_cache
             )  # here we use kv caching, so no attn_mask
 
         x = self.proj_out(x)
