@@ -9,7 +9,7 @@ class AtomNoiseTransform(torch.nn.Module):
 
     def forward(self, data):
         x = data["x"]
-        assert len(x.shape) == 1, "only process single molecules"
+        assert len(x.shape) == 1, f"only process single molecules, got shape of {x.shape}"
 
         x = x.reshape(-1, self.num_dimensions)
         x = x + self.std * torch.randn_like(x)
