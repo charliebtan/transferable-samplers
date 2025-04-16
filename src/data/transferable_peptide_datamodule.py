@@ -27,6 +27,7 @@ from src.evaluation.metrics.evaluate_peptide_data import evaluate_peptide_data
 MEAN_MIN_DIST_DICT = {
     2: 0.4658  # can be comptued using commented out code below
 }
+MEAN_ATOMS_PER_AA = 17.67
 
 
 class TransferablePeptideDataModule(BaseDataModule):
@@ -74,7 +75,7 @@ class TransferablePeptideDataModule(BaseDataModule):
             transform_list.append(
                 CenterOfMassTransform(
                     self.hparams.num_dimensions,
-                    1 / math.sqrt(17.67 * self.hparams.num_aa),
+                    1 / math.sqrt(MEAN_ATOMS_PER_AA * self.hparams.num_aa),
                 )
             )
         if self.hparams.atom_noise_augmentation_factor:
