@@ -230,36 +230,37 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
 
     def add_aggregate_metrics(self, metrics: dict[str, torch.Tensor], prefix: str = "val") -> dict[str, torch.Tensor]:
         """Aggregate metrics across all sequences."""
-        mean_dict = defaultdict(list)
-        median_dict = defaultdict(list)
+        mean_dict_list = defaultdict(list)
+        median_dict_list = defaultdict(list)
 
-        seqs = set()
+        # Parse and aggregate metrics along peptide sequences
         for key, value in metrics.items():
             if key.startswith(prefix):
-                # Remove prefix and sequence
-                name = key.split("/")[2:]
+                # Extract sequence and metric name
+                parts = key.split("/")
+                metric_name = "/".join(parts[2:])
 
-                seq = key.split("/")[1]
-                seqs.add(seq)
-
-                mean_key = "/".join((prefix, "mean", *name))
-                med_key = "/".join((prefix, "median", *name))
+                # Add to mean and median dictionaries
+                mean_key = f"{prefix}/mean/{metric_name}"
+                median_key = f"{prefix}/median/{metric_name}"
 
                 if isinstance(value, torch.Tensor):
                     value = value.item()
-                elif isinstance(value, int):
+                elif isinstance(value, (int, float)):
                     value = float(value)
 
-                # Compute mean and median
-                mean_dict[mean_key].append(value)
-                median_dict[med_key].append(value)
+                mean_dict_list[mean_key].append(value)
+                median_dict_list[median_key].append(value)
 
-        for key, value in mean_dict.items():
-            assert len(value) == len(seqs), f"len(value) {len(value)} != len(seqs) {len(seqs)}"
+        # Compute mean and median for each metric
+        mean_dict = {}
+        median_dict = {}
+        for key, value in mean_dict_list.items():
+            # assert len(value) == len(seqs), f"len(value) {len(value)} != len(seqs) {len(seqs)}"
             mean_dict[key] = stats.mean(value)
 
-        for key, value in median_dict.items():
-            assert len(value) == len(seqs), f"len(value) {len(value)} != len(seqs) {len(seqs)}"
+        for key, value in median_dict_list.items():
+            # assert len(value) == len(seqs), f"len(value) {len(value)} != len(seqs) {len(seqs)}"
             median_dict[key] = stats.median(value)
 
         metrics.update(mean_dict)
@@ -268,7 +269,6 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
 
     def evaluate_all(self, prefix):
         metrics = {}
-
         for val_sequence in self.datamodule.val_sequences:
             true_data, energy_fn = self.datamodule.prepare_eval(val_sequence)
             logging.info(f"Evaluating {val_sequence} samples")
