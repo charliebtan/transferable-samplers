@@ -1,3 +1,4 @@
+import copy
 import logging
 import math
 import os
@@ -317,15 +318,16 @@ class TransferablePeptideDataModule(BaseDataModule):
         train_data_dict = self.add_encodings_to_tensor_dict(train_data_dict)
         val_data_dict = self.add_encodings_to_tensor_dict(val_data_dict)
 
+        self.val_data_dict = copy.deepcopy(val_data_dict)  # without padding for sampling eval
+
         train_data_dict = self.pad_and_mask_tensor_dict(train_data_dict)
+        val_data_dict = self.pad_and_mask_tensor_dict(val_data_dict)  # with padding for loss eval
 
         train_data_list = self.tensor_dict_to_samples_list(train_data_dict)
         val_data_list = self.tensor_dict_to_samples_list(val_data_dict)
 
         self.data_train = PeptideDataset(train_data_list, transform=transforms)
-        self.data_val = PeptideDataset(val_data_list, transform=None)
-
-        self.val_data_dict = val_data_dict
+        self.data_val = PeptideDataset(val_data_list, transform=transforms)
 
     def setup_atom_types(self):
         self.atom_types_dict = {}
