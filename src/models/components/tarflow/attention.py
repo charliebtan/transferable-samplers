@@ -4,7 +4,7 @@ import torch
 class Attention(torch.nn.Module):
     USE_SPDA: bool = True
 
-    def __init__(self, in_channels: int, head_channels: int, use_qkln: bool = False, dropout: float = 0.0):
+    def __init__(self, in_channels: int, head_channels: int, use_qkln: bool = True, dropout: float = 0.0):
         assert in_channels % head_channels == 0
         super().__init__()
         self.norm = torch.nn.LayerNorm(in_channels)
@@ -110,7 +110,6 @@ class AttentionBlock(torch.nn.Module):
         expansion: int = 4,
         use_qkln: bool = False,
         dropout: float = 0.0,
-        **kwargs,
     ):
         super().__init__()
         self.attention = Attention(channels, head_channels, use_qkln=use_qkln, dropout=dropout)
@@ -120,14 +119,18 @@ class AttentionBlock(torch.nn.Module):
         self,
         x: torch.Tensor,
         cond: torch.Tensor | None = None,
+        mask: torch.Tensor | None = None,
         attn_mask: torch.Tensor | None = None,
         attn_temp: float = 1.0,
         which_cache: str = "cond",
-        **kwargs,
     ) -> torch.Tensor:
+        if mask is None:
+            mask = torch.ones(x.shape[:2], device=x.device, dtype=torch.bool)
+
         if cond is not None:
             x = x + cond
 
+        x = x * mask[..., None]
         x = x + self.attention(x, attn_mask, attn_temp, which_cache)
         x = x + self.mlp(x)
-        return x
+        return x * mask[..., None]

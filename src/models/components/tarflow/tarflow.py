@@ -10,7 +10,7 @@ if __name__ == "__main__":
     from attention import Attention, AttentionBlock
     from embed import ConditionalEmbedder
 else:
-    from src.model.components.tarflow.adaptive_blocks import AdaptiveAttnAndTransition
+    from src.models.components.tarflow.adaptive_blocks import AdaptiveAttnAndTransition
     from src.models.components.tarflow.attention import Attention, AttentionBlock
     from src.models.components.tarflow.embed import ConditionalEmbedder
 
@@ -91,8 +91,6 @@ class MetaBlock(torch.nn.Module):
         if cond is not None:
             cond = self.permutation(cond)
             cond_emb = self.proj_cond(cond)
-            if not self.use_adaln:
-                x = x + cond_emb[:, : x.shape[1]]
 
         attn_mask = self.attn_mask
         if mask is not None:
@@ -110,14 +108,10 @@ class MetaBlock(torch.nn.Module):
                 attn_mask = attn_mask * mask[..., None].permute(0, 2, 1)
             attn_mask = attn_mask.unsqueeze(1)
 
-            # First mask for consistency inside the loop below
-            x = x * mask[..., None]
-
         attn_mask = attn_mask[..., : x.shape[1], : x.shape[1]]
         for block in self.attn_blocks:
             x = block(x, cond=cond_emb, mask=mask, attn_mask=attn_mask)
             if mask is not None:
-                x = x * mask[:, : x.shape[1], None]
                 assert x[torch.where(mask == 0)].sum() == 0, "Masked positions are nonzero"
 
         x = self.proj_out(x)
@@ -159,9 +153,6 @@ class MetaBlock(torch.nn.Module):
         if cond is not None:
             cond_in = cond[:, i : i + 1]
             cond_emb = self.proj_cond(cond_in)
-
-            if not self.use_adaln:
-                x = x + cond_emb
 
         for block in self.attn_blocks:
             x = block(
