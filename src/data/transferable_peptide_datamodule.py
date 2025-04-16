@@ -333,13 +333,10 @@ class TransferablePeptideDataModule(BaseDataModule):
         self.setup_adj_list()
 
     def setup_potential(self, val_sequence: str):
-        # TODO!! CHECK THIS
-        # MAJDI DO NOT LET ME MERGE THIS WITHOUT CHECKING LOL
-
-        forcefield = openmm.app.ForceField("amber99sbildn.xml", "tip3p.xml", "amber99_obc.xml")
-        nonbondedMethod = openmm.app.NoCutoff
-        nonbondedCutoff = 0.9 * openmm.unit.nanometer
-        temperature = 300
+        forcefield = openmm.app.ForceField("amber14-all.xml", "implicit/obc1.xml")
+        nonbondedMethod = openmm.app.CutoffNonPeriodic
+        nonbondedCutoff = 2.0 * openmm.unit.nanometer
+        temperature = 310
 
         # Initalize forcefield systemq
         system = forcefield.createSystem(
