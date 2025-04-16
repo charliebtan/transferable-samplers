@@ -66,7 +66,7 @@ class MetaBlock(torch.nn.Module):
         output_dim = in_channels * 2 if nvp else in_channels
         self.proj_out = torch.nn.Linear(channels, output_dim)
         if debug:
-            self.proj_out.weight.data = self.proj_out.weight.data * 1e-2
+            self.proj_out.weight.data = self.proj_out.weight.data * 1e-1
         else:
             self.proj_out.weight.data.fill_(0.0)
         self.permutation = permutation
