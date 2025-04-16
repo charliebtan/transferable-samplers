@@ -233,10 +233,15 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         mean_dict = defaultdict(list)
         median_dict = defaultdict(list)
 
+        seqs = set()
         for key, value in metrics.items():
             if key.startswith(prefix):
                 # Remove prefix and sequence
                 name = key.split("/")[2:]
+
+                seq = key.split("/")[1]
+                seqs.add(seq)
+
                 mean_key = "/".join((prefix, "mean", *name))
                 med_key = "/".join((prefix, "median", *name))
 
@@ -250,9 +255,11 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
                 median_dict[med_key].append(value)
 
         for key, value in mean_dict.items():
+            assert len(value) == len(seqs), f"len(value) {len(value)} != len(seqs) {len(seqs)}"
             mean_dict[key] = stats.mean(value)
 
         for key, value in median_dict.items():
+            assert len(value) == len(seqs), f"len(value) {len(value)} != len(seqs) {len(seqs)}"
             median_dict[key] = stats.median(value)
 
         metrics.update(mean_dict)
@@ -275,9 +282,8 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
                 )
             )
 
-        metrics = self.add_aggregate_metrics(metrics, prefix=prefix)
-
         if self.local_rank == 0:
+            metrics = self.add_aggregate_metrics(metrics, prefix=prefix)
             self.log_dict(metrics)
 
     @torch.no_grad()
