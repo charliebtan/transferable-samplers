@@ -13,9 +13,13 @@ class AdaptiveLayerNorm(torch.nn.Module):
         self.norm = torch.nn.LayerNorm(channels, elementwise_affine=False)
         self.norm_cond = torch.nn.LayerNorm(channels_cond)
 
-        self.to_gamma = torch.nn.Sequential(torch.nn.Linear(channels_cond, channels), torch.nn.Sigmoid())
+        gamma_linear = torch.nn.Linear(channels_cond, channels)
+        gamma_linear.weight.data = gamma_linear.weight.data * 1e-4
 
+        self.to_gamma = torch.nn.Sequential(gamma_linear, torch.nn.Sigmoid())
         self.to_beta = torch.nn.Linear(channels_cond, channels, bias=False)
+        self.to_beta.weight.data = self.to_beta.weight.data * 1e-4
+        # torch.nn.init.zeros_(self.to_beta.weight)
 
     def forward(self, x, cond, mask):
         """
@@ -33,7 +37,6 @@ class AdaptiveLayerNorm(torch.nn.Module):
         gamma = self.to_gamma(normed_cond)
         beta = self.to_beta(normed_cond)
         out = normed * gamma + beta
-        # breakpoint()
         return out * mask[..., None]
 
 
