@@ -323,7 +323,7 @@ class TransferablePeptideDataModule(BaseDataModule):
         val_data_list = self.tensor_dict_to_samples_list(val_data_dict)
 
         self.data_train = PeptideDataset(train_data_list, transform=transforms)
-        self.data_val = PeptideDataset(val_data_list, transform=transforms)
+        self.data_val = PeptideDataset(val_data_list, transform=None)
 
         self.val_data_dict = val_data_dict
 
