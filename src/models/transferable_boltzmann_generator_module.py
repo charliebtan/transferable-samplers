@@ -287,7 +287,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
 
         if self.local_rank == 0:
             metrics = self.add_aggregate_metrics(metrics, prefix=prefix)
-            self.log_dict(metrics)
+            self.log_dict(metrics)  # syncing here will break because only one worker!
 
     @torch.no_grad()
     def evaluate(
