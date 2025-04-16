@@ -228,7 +228,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             self.evaluate(prefix)
         plt.close("all")
 
-    def aggregate_metrics(self, metrics: dict[str, torch.Tensor], prefix: str = "val") -> dict[str, torch.Tensor]:
+    def add_aggregate_metrics(self, metrics: dict[str, torch.Tensor], prefix: str = "val") -> dict[str, torch.Tensor]:
         """Aggregate metrics across all sequences."""
         mean_dict = defaultdict(list)
         median_dict = defaultdict(list)
@@ -255,7 +255,9 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         for key, value in median_dict.items():
             median_dict[key] = stats.median(value)
 
-        return mean_dict, median_dict
+        metrics.update(mean_dict)
+        metrics.update(median_dict)
+        return metrics
 
     def evaluate_all(self, prefix):
         metrics = {}
@@ -273,11 +275,8 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
                 )
             )
 
-        mean_dict, median_dict = self.aggregate_metrics(metrics, prefix=prefix)
-        metrics.update(mean_dict)
-        metrics.update(median_dict)
+        metrics = self.add_aggregate_metrics(metrics, prefix=prefix)
 
-        breakpoint()
         if self.local_rank == 0:
             self.log_dict(metrics)
 
