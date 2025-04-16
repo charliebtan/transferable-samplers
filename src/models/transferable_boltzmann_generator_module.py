@@ -1,6 +1,8 @@
 import logging
 import os
+import statistics as stats
 import time
+from collections import defaultdict
 from typing import Any, Optional
 
 import hydra
@@ -226,6 +228,48 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             self.evaluate(prefix)
         plt.close("all")
 
+    def add_aggregate_metrics(self, metrics: dict[str, torch.Tensor], prefix: str = "val") -> dict[str, torch.Tensor]:
+        """Aggregate metrics across all sequences."""
+
+        mean_dict_list = defaultdict(list)
+        median_dict_list = defaultdict(list)
+        count_dict = defaultdict(int)
+
+        # Parse and aggregate metrics along peptide sequences
+        for key, value in metrics.items():
+            if key.startswith(prefix):
+                # Extract sequence and metric name
+                parts = key.split("/")
+                metric_name = "/".join(parts[2:])
+
+                # Add to mean and median dictionaries
+                mean_key = f"{prefix}/mean/{metric_name}"
+                median_key = f"{prefix}/median/{metric_name}"
+                count_key = f"{prefix}/count/{metric_name}"
+
+                if isinstance(value, torch.Tensor):
+                    value = value.item()
+                elif isinstance(value, (int, float)):
+                    value = float(value)
+
+                mean_dict_list[mean_key].append(value)
+                median_dict_list[median_key].append(value)
+                count_dict[count_key] += 1
+
+        # Compute mean and median for each metric
+        mean_dict = {}
+        median_dict = {}
+        for key, value in mean_dict_list.items():
+            mean_dict[key] = stats.mean(value)
+
+        for key, value in median_dict_list.items():
+            median_dict[key] = stats.median(value)
+
+        metrics.update(mean_dict)
+        metrics.update(median_dict)
+        metrics.update(count_dict)
+        return metrics
+
     def evaluate_all(self, prefix):
         metrics = {}
         for val_sequence in self.datamodule.val_sequences:
@@ -240,8 +284,10 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
                     proposal_generator=self.batched_generate_samples,
                 )
             )
+
         if self.local_rank == 0:
-            self.log_dict(metrics)
+            metrics = self.add_aggregate_metrics(metrics, prefix=prefix)
+            self.log_dict(metrics, sync_dist=True)
 
     @torch.no_grad()
     def evaluate(
