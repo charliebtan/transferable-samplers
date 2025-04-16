@@ -520,56 +520,57 @@ if __name__ == "__main__":
 
     cond_embed = ConditionalEmbedder(channels=channels)
 
-    model_pad = TarFlow(
-        in_channels,
-        img_size + pad_dim,
-        patch_size,
-        channels,
-        num_blocks,
-        layers_per_block,
-        cond_embed=cond_embed,
-        use_adaln=True,
-        debug=True,
-    )
-    model = TarFlow(
-        in_channels,
-        img_size,
-        patch_size,
-        channels,
-        num_blocks,
-        layers_per_block,
-        cond_embed=cond_embed,
-        use_adaln=True,
-        debug=True,
-    )
-    model = load_padded_model_weights(model_pad, model)
-
-    print("\nstandard")
-    test_invertibility(model, x, encodings)  # test invertibility of the original model
-
-    print("\npad + mask")
-    test_mask_model(model, x, encodings, model_pad, x_pad, encodings_pad, mask)  # test forward of the padded model
-    test_invertibility(model_pad, x_pad, encodings_pad, mask)  # test invertibility of the padded model
-
-    print("\npad model with non-pad data")
-    test_mask_model_no_pad(model, x, encodings, model_pad)  # test forward of the padded model
-    test_invertibility(model_pad, x, encodings)  # test invertibility of the padded model with non-padded data
-
-    for i in range(batch_size - 1):
-        print("\nbatch item", i)
-
-        x_i = x[i : i + 1]
-        enc_i = {k: v[i : i + 1] for k, v in encodings.items()}
-
-        x_pad_i = x_pad[i : i + 1]
-        enc_pad_i = {k: v[i : i + 1] for k, v in encodings_pad.items()}
-        mask_i = mask[i : i + 1]
+    for use_adaln in [False, True]:
+        model_pad = TarFlow(
+            in_channels,
+            img_size + pad_dim,
+            patch_size,
+            channels,
+            num_blocks,
+            layers_per_block,
+            cond_embed=cond_embed,
+            use_adaln=use_adaln,
+            debug=True,
+        )
+        model = TarFlow(
+            in_channels,
+            img_size,
+            patch_size,
+            channels,
+            num_blocks,
+            layers_per_block,
+            cond_embed=cond_embed,
+            use_adaln=use_adaln,
+            debug=True,
+        )
+        model = load_padded_model_weights(model_pad, model)
 
         print("\nstandard")
-        test_logdet(model, x_i, enc_i)  # test logdet of the original model
+        test_invertibility(model, x, encodings)  # test invertibility of the original model
 
         print("\npad + mask")
-        test_logdet_mask(model, model_pad, x_i, enc_i, enc_pad_i, mask_i)  # test logdet of the padded model
+        test_mask_model(model, x, encodings, model_pad, x_pad, encodings_pad, mask)  # test forward of the padded model
+        test_invertibility(model_pad, x_pad, encodings_pad, mask)  # test invertibility of the padded model
 
         print("\npad model with non-pad data")
-        test_logdet(model_pad, x_i, enc_i)  # test logdet of the padded model with non-padded data
+        test_mask_model_no_pad(model, x, encodings, model_pad)  # test forward of the padded model
+        test_invertibility(model_pad, x, encodings)  # test invertibility of the padded model with non-padded data
+
+        for i in range(batch_size - 1):
+            print("\nbatch item", i)
+
+            x_i = x[i : i + 1]
+            enc_i = {k: v[i : i + 1] for k, v in encodings.items()}
+
+            x_pad_i = x_pad[i : i + 1]
+            enc_pad_i = {k: v[i : i + 1] for k, v in encodings_pad.items()}
+            mask_i = mask[i : i + 1]
+
+            print("\nstandard")
+            test_logdet(model, x_i, enc_i)  # test logdet of the original model
+
+            print("\npad + mask")
+            test_logdet_mask(model, model_pad, x_i, enc_i, enc_pad_i, mask_i)  # test logdet of the padded model
+
+            print("\npad model with non-pad data")
+            test_logdet(model_pad, x_i, enc_i)  # test logdet of the padded model with non-padded data
