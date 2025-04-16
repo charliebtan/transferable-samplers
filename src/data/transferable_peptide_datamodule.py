@@ -288,7 +288,8 @@ class TransferablePeptideDataModule(BaseDataModule):
         train_data_dict = self.normalize_tensor_dict(train_data_dict)
         val_data_dict = self.normalize_tensor_dict(val_data_dict)
 
-        # Compute mean min dist across all pairs of atoms
+        # Compute mean min dist across all pairs of atoms if not
+        # found in the MEAN_MIN_DIST_DICT
         if (
             self.hparams.atom_noise_augmentation_factor and 
             MEAN_MIN_DIST_DICT.get(self.hparams.num_aa) is not None
