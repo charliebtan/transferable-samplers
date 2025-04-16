@@ -25,7 +25,7 @@ from src.data.components.utils import get_adj_list, get_atom_types
 from src.evaluation.metrics.evaluate_peptide_data import evaluate_peptide_data
 
 MEAN_MIN_DIST_DICT = {
-    2: 0.4658  # can be comptued using commented out code below
+    2: 0.4658  # can be saved in dict after computing in setup_data
 }
 MEAN_ATOMS_PER_AA = 17.67
 
@@ -289,18 +289,27 @@ class TransferablePeptideDataModule(BaseDataModule):
         train_data_dict = self.normalize_tensor_dict(train_data_dict)
         val_data_dict = self.normalize_tensor_dict(val_data_dict)
 
-        # if self.hparams.atom_noise_augmentation_factor:
-        #     from src.evaluation.plots.plot_atom_distances import interatomic_dist
-        #     mean_min_dists = []
-        #     for key, data in train_data_dict.items():
-        #         num_samples = data.shape[0]
-        #         data = data.reshape(num_samples, -1, self.hparams.num_dimensions)
-        #         dists = interatomic_dist(data, flatten=False)
-        #         mean_min_dist = dists.min(dim=1)[0].mean()
-        #         mean_min_dists.append(mean_min_dist)
+        # Compute mean min dist across all pairs of atoms if not
+        # found in the MEAN_MIN_DIST_DICT
+        if (
+            self.hparams.atom_noise_augmentation_factor and 
+            MEAN_MIN_DIST_DICT.get(self.hparams.num_aa) is not None
+        ):
+            from src.evaluation.plots.plot_atom_distances import interatomic_dist
+            mean_min_dists = []
+            for key, data in train_data_dict.items():
+                num_samples = data.shape[0]
+                data = data.reshape(num_samples, -1, self.hparams.num_dimensions)
+                dists = interatomic_dist(data, flatten=False)
+                mean_min_dist = dists.min(dim=1)[0].mean()
+                mean_min_dists.append(mean_min_dist)
 
-        #     # this is effectively just the length of a carbon-hydrogen bond
-        #     mean_min_dist = torch.mean(torch.tensor(mean_min_dists))
+            # this is effectively just the length of a carbon-hydrogen bond
+            mean_min_dist = torch.mean(torch.tensor(mean_min_dists))
+            logging.info(
+                f"MEAN_MIN_DIST={mean_min_dist.item()} for peptide of length {self.hparams.num_aa}. "
+                "Save it in MEAN_MIN_DIST_DICT to save on computation"
+            )
 
         # slice out subset of val_data_dict
         val_data_dict = {
