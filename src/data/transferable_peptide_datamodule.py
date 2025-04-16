@@ -23,6 +23,7 @@ from src.data.components.rotation import Random3DRotationTransform
 from src.data.components.symmetry import resolve_chirality
 from src.data.components.utils import get_adj_list, get_atom_types
 from src.evaluation.metrics.evaluate_peptide_data import evaluate_peptide_data
+from src.evaluation.plots.plot_atom_distances import interatomic_dist
 
 MEAN_MIN_DIST_DICT = {
     2: 0.4658  # can be saved in dict after computing in setup_data
@@ -68,23 +69,6 @@ class TransferablePeptideDataModule(BaseDataModule):
 
         self.train_pdb_path = f"{self.hparams.data_dir}/pdb_train"
         self.val_pdb_path = f"{self.hparams.data_dir}/pdb_val"
-
-        # Setup transforms
-        transform_list = [Random3DRotationTransform(self.hparams.num_dimensions)]
-        if self.hparams.com_augmentation:
-            transform_list.append(
-                CenterOfMassTransform(
-                    self.hparams.num_dimensions,
-                    1 / math.sqrt(MEAN_ATOMS_PER_AA * self.hparams.num_aa),
-                )
-            )
-        if self.hparams.atom_noise_augmentation_factor:
-            transform_list.append(
-                AtomNoiseTransform(
-                    self.hparams.atom_noise_augmentation_factor * MEAN_MIN_DIST_DICT[self.hparams.num_aa],
-                )
-            )
-        self.transforms = torchvision.transforms.Compose(transform_list)
 
     def prepare_data(self) -> None:
         """Download data if needed. Lightning ensures that `self.prepare_data()` is called only
@@ -289,27 +273,40 @@ class TransferablePeptideDataModule(BaseDataModule):
         train_data_dict = self.normalize_tensor_dict(train_data_dict)
         val_data_dict = self.normalize_tensor_dict(val_data_dict)
 
-        # Compute mean min dist across all pairs of atoms if not
-        # found in the MEAN_MIN_DIST_DICT
-        if (
-            self.hparams.atom_noise_augmentation_factor and 
-            MEAN_MIN_DIST_DICT.get(self.hparams.num_aa) is not None
-        ):
-            from src.evaluation.plots.plot_atom_distances import interatomic_dist
-            mean_min_dists = []
-            for key, data in train_data_dict.items():
-                num_samples = data.shape[0]
-                data = data.reshape(num_samples, -1, self.hparams.num_dimensions)
-                dists = interatomic_dist(data, flatten=False)
-                mean_min_dist = dists.min(dim=1)[0].mean()
-                mean_min_dists.append(mean_min_dist)
-
-            # this is effectively just the length of a carbon-hydrogen bond
-            mean_min_dist = torch.mean(torch.tensor(mean_min_dists))
-            logging.info(
-                f"MEAN_MIN_DIST={mean_min_dist.item()} for peptide of length {self.hparams.num_aa}. "
-                "Save it in MEAN_MIN_DIST_DICT to save on computation"
+        # Setup transforms
+        transform_list = [Random3DRotationTransform(self.hparams.num_dimensions)]
+        if self.hparams.com_augmentation:
+            transform_list.append(
+                CenterOfMassTransform(
+                    self.hparams.num_dimensions,
+                    1 / math.sqrt(MEAN_ATOMS_PER_AA * self.hparams.num_aa),
+                )
             )
+        if self.hparams.atom_noise_augmentation_factor:
+            if self.hparams.num_aa not in MEAN_MIN_DIST_DICT:
+                mean_min_dists = []
+                for key, data in train_data_dict.items():
+                    num_samples = data.shape[0]
+                    data = data.reshape(num_samples, -1, self.hparams.num_dimensions)
+                    dists = interatomic_dist(data, flatten=False)
+                    mean_min_dist = dists.min(dim=1)[0].mean()
+                    mean_min_dists.append(mean_min_dist)
+
+                # this is effectively just the length of a carbon-hydrogen bond
+                mean_min_dist = torch.mean(torch.tensor(mean_min_dists))
+                logging.warning(
+                    f"MEAN_MIN_DIST={mean_min_dist.item()} for peptide of length {self.hparams.num_aa}. "
+                    "Save it in MEAN_MIN_DIST_DICT to save on computation"
+                )
+            else:
+                mean_min_dist = MEAN_MIN_DIST_DICT[self.hparams.num_aa]
+
+            transform_list.append(
+                AtomNoiseTransform(
+                    self.hparams.atom_noise_augmentation_factor * mean_min_dist,
+                )
+            )
+        transforms = torchvision.transforms.Compose(transform_list)
 
         # slice out subset of val_data_dict
         val_data_dict = {
@@ -325,8 +322,8 @@ class TransferablePeptideDataModule(BaseDataModule):
         train_data_list = self.tensor_dict_to_samples_list(train_data_dict)
         val_data_list = self.tensor_dict_to_samples_list(val_data_dict)
 
-        self.data_train = PeptideDataset(train_data_list, transform=self.transforms)
-        self.data_val = PeptideDataset(val_data_list, transform=self.transforms)
+        self.data_train = PeptideDataset(train_data_list, transform=transforms)
+        self.data_val = PeptideDataset(val_data_list, transform=transforms)
 
         self.val_data_dict = val_data_dict
 
