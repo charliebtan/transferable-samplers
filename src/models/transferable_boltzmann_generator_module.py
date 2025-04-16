@@ -230,8 +230,10 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
 
     def add_aggregate_metrics(self, metrics: dict[str, torch.Tensor], prefix: str = "val") -> dict[str, torch.Tensor]:
         """Aggregate metrics across all sequences."""
+
         mean_dict_list = defaultdict(list)
         median_dict_list = defaultdict(list)
+        count_dict = defaultdict(int)
 
         # Parse and aggregate metrics along peptide sequences
         for key, value in metrics.items():
@@ -243,6 +245,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
                 # Add to mean and median dictionaries
                 mean_key = f"{prefix}/mean/{metric_name}"
                 median_key = f"{prefix}/median/{metric_name}"
+                count_key = f"{prefix}/count/{metric_name}"
 
                 if isinstance(value, torch.Tensor):
                     value = value.item()
@@ -251,20 +254,20 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
 
                 mean_dict_list[mean_key].append(value)
                 median_dict_list[median_key].append(value)
+                count_dict[count_key] += 1
 
         # Compute mean and median for each metric
         mean_dict = {}
         median_dict = {}
         for key, value in mean_dict_list.items():
-            # assert len(value) == len(seqs), f"len(value) {len(value)} != len(seqs) {len(seqs)}"
             mean_dict[key] = stats.mean(value)
 
         for key, value in median_dict_list.items():
-            # assert len(value) == len(seqs), f"len(value) {len(value)} != len(seqs) {len(seqs)}"
             median_dict[key] = stats.median(value)
 
         metrics.update(mean_dict)
         metrics.update(median_dict)
+        metrics.update(count_dict)
         return metrics
 
     def evaluate_all(self, prefix):
@@ -284,7 +287,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
 
         if self.local_rank == 0:
             metrics = self.add_aggregate_metrics(metrics, prefix=prefix)
-            self.log_dict(metrics)
+            self.log_dict(metrics, sync_dist=True)
 
     @torch.no_grad()
     def evaluate(
