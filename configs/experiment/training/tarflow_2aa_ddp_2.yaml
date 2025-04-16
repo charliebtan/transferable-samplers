@@ -1,0 +1,12 @@
+# @package _global_
+
+defaults:
+  - training/tarflow_2aa
+  - override /trainer: ddp
+
+data:
+  batch_size: 1024
+
+trainer:
+  accumulate_grad_batches: 2
+  strategy: ddp_find_unused_parameters_true
