@@ -214,7 +214,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         self.eval_step(batch, batch_idx, prefix="test")
 
     def on_eval_epoch_end(self, metrics, prefix: str = "val") -> None:
-        self.log_dict(metrics.compute())
+        self.log_dict(metrics.compute(), sync_dist=True)
         metrics.reset()
         if self.hparams.ema_decay > 0:
             if self.hparams.eval_ema:
@@ -287,7 +287,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
 
         if self.local_rank == 0:
             metrics = self.add_aggregate_metrics(metrics, prefix=prefix)
-            self.log_dict(metrics, sync_dist=True)
+            self.log_dict(metrics)  # syncing here will break because only one worker!
 
     @torch.no_grad()
     def evaluate(
@@ -322,8 +322,8 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         proposal_samples, proposal_log_p, prior_samples = proposal_generator(num_proposal_samples, encodings)
         torch.cuda.synchronize()
         time_duration = time.time() - start_time
-        self.log(f"{prefix}/samples_walltime", time_duration)
-        self.log(f"{prefix}/samples_per_second", len(proposal_samples) / time_duration)
+        self.log(f"{prefix}/samples_walltime", time_duration, sync_dist=True)
+        self.log(f"{prefix}/samples_per_second", len(proposal_samples) / time_duration, sync_dist=True)
 
         # Save samples to disk
         samples_dict = {
@@ -392,8 +392,8 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             )  # already returned resampled
             torch.cuda.synchronize()
             time_duration = time.time() - start_time
-            self.log(f"{prefix}/smc/samples_walltime", time_duration)
-            self.log(f"{prefix}/smc/samples_per_second", len(smc_samples) / time_duration)
+            self.log(f"{prefix}/smc/samples_walltime", time_duration, sync_dist=True)
+            self.log(f"{prefix}/smc/samples_per_second", len(smc_samples) / time_duration, sync_dist=True)
 
             # Save samples to disk
             smc_samples_dict = {
