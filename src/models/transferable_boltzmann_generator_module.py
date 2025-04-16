@@ -237,15 +237,13 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             if key.startswith(prefix):
                 # Remove prefix and sequence
                 name = key.split("/")[2:]
-                if len(name) != 2 or "rama" in key or not isinstance(value, float):
-                    # Skip if not in the form of prefix/inference_name/metric_name i.e. "val/prposal/energy_w1"
-                    # or if the metric is ramachadran plot or any plot
-                    continue
+                mean_key = "/".join((prefix, "mean", *name))
+                med_key = "/".join((prefix, "median", *name))
 
-                inference_name = name[0]
-                metric_name = name[1]
-                mean_key = f"{prefix}/{inference_name}/mean/{metric_name}"
-                med_key = f"{prefix}/{inference_name}/median/{metric_name}"
+                if isinstance(value, torch.Tensor):
+                    value = value.item()
+                elif isinstance(value, int):
+                    value = float(value)
 
                 # Compute mean and median
                 mean_dict[mean_key].append(value)
@@ -279,6 +277,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         metrics.update(mean_dict)
         metrics.update(median_dict)
 
+        breakpoint()
         if self.local_rank == 0:
             self.log_dict(metrics)
 
