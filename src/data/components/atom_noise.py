@@ -9,11 +9,14 @@ class AtomNoiseTransform(torch.nn.Module):
 
     def forward(self, data):
         x = data["x"]
+        assert len(x.shape) == 1, "only process single molecules"
+
         x = x.reshape(-1, self.num_dimensions)
         x = x + self.std * torch.randn_like(x)
 
-        mask = data["mask"]
-        x = x * mask[:, None]
+        mask = data.get("mask", None)
+        if mask is not None:
+            x = x * mask[:, None]
 
         data.update({"x": x})
 
