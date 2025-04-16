@@ -1,116 +1,121 @@
 import torch
 import torch.nn as nn
-from adaptive_layer_norm import AdaptiveLayerNorm, AdaptiveLayerNormOutputScale, Transition
+import torch.nn.functional as F
+from attention import AttentionBlock
 
 
-class Attention(torch.nn.Module):
-    USE_SPDA: bool = True
+# Code adapted from Lucidrain's implementation of AF3
+# https://github.com/lucidrains/alphafold3-pytorch
+class AdaptiveLayerNorm(torch.nn.Module):
+    """Adaptive layer norm layer, where scales and biases are learned from some
+    conditioning variables."""
 
-    def __init__(self, in_channels: int, head_channels: int):
-        assert in_channels % head_channels == 0
+    def __init__(self, *, channels: int, channels_cond: int):
         super().__init__()
-        self.norm = torch.nn.LayerNorm(in_channels)
-        self.qkv = torch.nn.Linear(in_channels, in_channels * 3)
-        self.proj = torch.nn.Linear(in_channels, in_channels)
-        self.num_heads = in_channels // head_channels
-        self.sqrt_scale = head_channels ** (-0.25)
-        self.sample = False
-        self.k_cache: dict[str, list[torch.Tensor]] = {"cond": [], "uncond": []}
-        self.v_cache: dict[str, list[torch.Tensor]] = {"cond": [], "uncond": []}
+        self.norm = torch.nn.LayerNorm(channels, elementwise_affine=False)
+        self.norm_cond = torch.nn.LayerNorm(channels_cond)
 
-    def forward_spda(
-        self,
-        x: torch.Tensor,
-        mask: torch.Tensor | None = None,
-        temp: float = 1.0,
-        which_cache: str = "cond",
-    ) -> torch.Tensor:
-        B, T, C = x.size()
-        x = self.norm(x.float()).type(x.dtype)
-        q, k, v = self.qkv(x).reshape(B, T, 3 * self.num_heads, -1).transpose(1, 2).chunk(3, dim=1)  # (b, h, t, d)
+        self.to_gamma = torch.nn.Sequential(torch.nn.Linear(channels_cond, channels), torch.nn.Sigmoid())
 
-        if self.sample:
-            self.k_cache[which_cache].append(k)
-            self.v_cache[which_cache].append(v)
-            k = torch.cat(self.k_cache[which_cache], dim=2)  # note that sequence dimension is now 2
-            v = torch.cat(self.v_cache[which_cache], dim=2)
+        self.to_beta = torch.nn.Linear(channels_cond, channels, bias=False)
 
-        scale = self.sqrt_scale**2 / temp
-        if mask is not None:
-            mask = mask.bool()
-        x = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=mask, scale=scale)
-        x = x.transpose(1, 2).reshape(B, T, C)
-        x = self.proj(x)
-        return x
+    def forward(self, x, cond, mask):
+        """
+        Args:
+            x: input representation, shape [*, dim]
+            cond: conditioning variables, shape [*, dim_cond]
+            mask: binary, shape [*]
 
-    def forward_base(
-        self,
-        x: torch.Tensor,
-        mask: torch.Tensor | None = None,
-        temp: float = 1.0,
-        which_cache: str = "cond",
-    ) -> torch.Tensor:
-        B, T, C = x.size()
-        x = self.norm(x.float()).type(x.dtype)
-        q, k, v = self.qkv(x).reshape(B, T, 3 * self.num_heads, -1).chunk(3, dim=2)
-        if self.sample:
-            self.k_cache[which_cache].append(k)
-            self.v_cache[which_cache].append(v)
-            k = torch.cat(self.k_cache[which_cache], dim=1)
-            v = torch.cat(self.v_cache[which_cache], dim=1)
+        Returns:
+            Representation after adaptive layer norm, shape as input representation [*, dim].
+        """
+        normed = self.norm(x)
+        normed_cond = self.norm_cond(cond)
 
-        attn = torch.einsum("bmhd,bnhd->bmnh", q * self.sqrt_scale, k * self.sqrt_scale) / temp
-        if mask is not None:
-            attn = attn.masked_fill(mask.unsqueeze(-1) == 0, float("-inf"))
-        attn = attn.float().softmax(dim=-2).type(attn.dtype)
-        x = torch.einsum("bmnh,bnhd->bmhd", attn, v)
-        x = x.reshape(B, T, C)
-        x = self.proj(x)
-        return x
-
-    def forward(
-        self,
-        x: torch.Tensor,
-        mask: torch.Tensor | None = None,
-        temp: float = 1.0,
-        which_cache: str = "cond",
-    ) -> torch.Tensor:
-        if self.USE_SPDA:
-            return self.forward_spda(x, mask, temp, which_cache)
-        return self.forward_base(x, mask, temp, which_cache)
+        gamma = self.to_gamma(normed_cond)
+        beta = self.to_beta(normed_cond)
+        out = normed * gamma + beta
+        return out * mask[..., None]
 
 
-class MLP(torch.nn.Module):
-    def __init__(self, channels: int, expansion: int):
+# Code adapted from Lucidrain's implementation of AF3
+# https://github.com/lucidrains/alphafold3-pytorch
+class AdaptiveLayerNormOutputScale(torch.nn.Module):
+    """Adaptive scaling of a representation given conditioning variables."""
+
+    def __init__(self, *, channels, channels_cond, adaln_zero_bias_init_value=-2.0):
         super().__init__()
-        self.norm = torch.nn.LayerNorm(channels)
-        self.main = torch.nn.Sequential(
-            torch.nn.Linear(channels, channels * expansion),
-            torch.nn.GELU(),
-            torch.nn.Linear(channels * expansion, channels),
+
+        adaln_zero_gamma_linear = torch.nn.Linear(channels_cond, channels)
+        torch.nn.init.zeros_(adaln_zero_gamma_linear.weight)
+        torch.nn.init.constant_(adaln_zero_gamma_linear.bias, adaln_zero_bias_init_value)
+
+        self.to_adaln_zero_gamma = torch.nn.Sequential(adaln_zero_gamma_linear, torch.nn.Sigmoid())
+
+    def forward(self, x, cond, mask):
+        """
+        Args:
+            x: input sequence, shape [*, dim]
+            cond: conditioning variables, shape [*, dim_cond]
+            mask: binary, shape [*]
+
+        Returns:
+            Scaled input, shape [*, dim].
+        """
+        gamma = self.to_adaln_zero_gamma(cond)  # [*, dim]
+        return x * gamma * mask[..., None]
+
+
+# Code adapted from Lucidrain's implementation of AF3
+# https://github.com/lucidrains/alphafold3-pytorch
+class SwiGLU(torch.nn.Module):
+    """SwiGLU layer."""
+
+    def forward(self, x):
+        """
+        Args:
+            x: input tensor, shape [..., d]
+
+        Returns:
+            Tensor of shape [..., d//2].
+        """
+        x, gates = x.chunk(2, dim=-1)
+        return F.silu(gates) * x
+
+
+# Code adapted from Lucidrain's implementation of AF3
+# https://github.com/lucidrains/alphafold3-pytorch
+class Transition(torch.nn.Module):
+    """Transition layer."""
+
+    def __init__(self, channels, expansion_factor=4, layer_norm=False):
+        super().__init__()
+
+        channels_inner = int(channels * expansion_factor)
+
+        self.use_layer_norm = layer_norm
+        if self.use_layer_norm:
+            self.ln = torch.nn.LayerNorm(channels)
+
+        self.swish_linear = torch.nn.Sequential(
+            torch.nn.Linear(channels, channels_inner * 2, bias=False),
+            SwiGLU(),
         )
+        self.linear_out = torch.nn.Linear(channels_inner, channels, bias=False)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.main(self.norm(x.float()).type(x.dtype))
+    def forward(self, x, mask):
+        """
+        Args:
+            x: Input sequence representation, shape [b, n, dim]
+            mask: binary, shape [b, n]
 
-
-class AttentionBlock(torch.nn.Module):
-    def __init__(self, channels: int, head_channels: int, expansion: int = 4):
-        super().__init__()
-        self.attention = Attention(channels, head_channels)
-        self.mlp = MLP(channels, expansion)
-
-    def forward(
-        self,
-        x: torch.Tensor,
-        attn_mask: torch.Tensor | None = None,
-        attn_temp: float = 1.0,
-        which_cache: str = "cond",
-        **kwargs,
-    ) -> torch.Tensor:
-        x = x + self.attention(x, attn_mask, attn_temp, which_cache)
-        x = x + self.mlp(x)
-        return x
+        Returns:
+            Updated sequence representation, shape [b, n, dim]
+        """
+        if self.use_layer_norm:
+            x = self.ln(x)
+        x = self.linear_out(self.swish_linear(x))
+        return x * mask[..., None]
 
 
 class MultiHeadAttentionADALN(nn.Module):
@@ -203,7 +208,7 @@ class AdaptiveAttnAndTransition(torch.nn.Module):
         channels: int = 128,
         head_channels: int = 64,
         residual_mha: bool = False,
-        residual_transition: bool = False,
+        residual_transition: bool = True,
         use_qkln: bool = True,
         dropout=0.0,
         expansion=4,
@@ -253,7 +258,7 @@ class AdaptiveAttnAndTransition(torch.nn.Module):
 
         x = x * mask[..., None]
         x = self._apply_mha(x, cond, mask, attn_mask=attn_mask, attn_temp=attn_temp, which_cache=which_cache)
-        # x = self._apply_transition(x, cond, mask)
+        x = self._apply_transition(x, cond, mask)
         return x * mask[..., None]
 
 
