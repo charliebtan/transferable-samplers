@@ -9,7 +9,7 @@ class CenterOfMassTransform(torch.nn.Module):
 
     def forward(self, data):
         x = data["x"]
-        assert len(x.shape) == 1, "only process single molecules"
+        assert len(x.shape) == 1, f"only process single molecules, got shape of {x.shape}"
 
         mask = data.get("mask", None)
         num_particles = mask.sum() if mask is not None else x.shape[0]
