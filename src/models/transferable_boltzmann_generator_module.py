@@ -1,6 +1,8 @@
 import logging
 import os
+import statistics as stats
 import time
+from collections import defaultdict
 from typing import Any, Optional
 
 import hydra
@@ -226,8 +228,40 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             self.evaluate(prefix)
         plt.close("all")
 
+    def aggregate_metrics(self, metrics: dict[str, torch.Tensor], prefix: str = "val") -> dict[str, torch.Tensor]:
+        """Aggregate metrics across all sequences."""
+        mean_dict = defaultdict(list)
+        median_dict = defaultdict(list)
+
+        for key, value in metrics.items():
+            if key.startswith(prefix):
+                # Remove prefix and sequence
+                name = key.split("/")[2:]
+                if len(name) != 2 or "rama" in key or not isinstance(value, float):
+                    # Skip if not in the form of prefix/inference_name/metric_name i.e. "val/prposal/energy_w1"
+                    # or if the metric is ramachadran plot or any plot
+                    continue
+
+                inference_name = name[0]
+                metric_name = name[1]
+                mean_key = f"{prefix}/{inference_name}/mean/{metric_name}"
+                med_key = f"{prefix}/{inference_name}/median/{metric_name}"
+
+                # Compute mean and median
+                mean_dict[mean_key].append(value)
+                median_dict[med_key].append(value)
+
+        for key, value in mean_dict.items():
+            mean_dict[key] = stats.mean(value)
+
+        for key, value in median_dict.items():
+            median_dict[key] = stats.median(value)
+
+        return mean_dict, median_dict
+
     def evaluate_all(self, prefix):
         metrics = {}
+
         for val_sequence in self.datamodule.val_sequences:
             true_data, energy_fn = self.datamodule.prepare_eval(val_sequence)
             logging.info(f"Evaluating {val_sequence} samples")
@@ -240,6 +274,11 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
                     proposal_generator=self.batched_generate_samples,
                 )
             )
+
+        mean_dict, median_dict = self.aggregate_metrics(metrics, prefix=prefix)
+        metrics.update(mean_dict)
+        metrics.update(median_dict)
+
         if self.local_rank == 0:
             self.log_dict(metrics)
 
