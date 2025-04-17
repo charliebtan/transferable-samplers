@@ -111,34 +111,9 @@ class TransferablePeptideDataModule(BaseDataModule):
         false_mask = torch.zeros(self.hparams.num_particles - num_particles)
         return torch.cat([true_mask, false_mask]).bool()
 
-    def load_data_as_tensor_dict(self, path):
-        data = np.load(path, allow_pickle=True).item()
-
-        tensor_dict = {}
-
-        max_num_particles = 0
-
-        # Load + center + tensorize data
-        i = 0
-        for key, data in data.items():
-            num_samples = data.shape[0]
-            num_particles = data.shape[1] // self.hparams.num_dimensions
-            max_num_particles = max(max_num_particles, num_particles)
-            assert not data.shape[1] // num_samples
-            data = torch.tensor(data).float()
-            data = self.zero_center_of_mass(data)
-
-            rng = np.random.default_rng(seed=i)
-            data = torch.tensor(rng.permutation(data))[: self.hparams.num_samples_per_seq]  # TODO - need to copy Leon
-
-            tensor_dict[key] = data
-
-        return tensor_dict, max_num_particles
-
-    def normalize_tensor_dict(self, tensor_dict):
-        # TODO check the normalization
+    def standardize_tensor_dict(self, tensor_dict):
         for key, data in tensor_dict.items():
-            tensor_dict[key] = self.normalize(data)
+            tensor_dict[key] = self.normalize(self.zero_center_of_mass(data))
         return tensor_dict
 
     def add_encodings_to_tensor_dict(self, tensor_dict):

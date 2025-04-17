@@ -4,6 +4,7 @@ import math
 import os
 import zipfile
 from typing import Any, Optional
+import numpy as np
 
 import torch
 import torchvision
@@ -106,6 +107,31 @@ class DiPeptideDataModule(TransferablePeptideDataModule):
             with zipfile.ZipFile(self.val_pdb_zip_path, "r") as zip_ref:
                 zip_ref.extractall(self.val_pdb_path)
 
+
+    def load_data_as_tensor_dict(self, path):
+        data = np.load(path, allow_pickle=True).item()
+
+        tensor_dict = {}
+
+        max_num_particles = 0
+
+        # Load + center + tensorize data
+        i = 0
+        for key, data in data.items():
+            num_samples = data.shape[0]
+            num_particles = data.shape[1] // self.hparams.num_dimensions
+            max_num_particles = max(max_num_particles, num_particles)
+            assert not data.shape[1] // num_samples
+            data = torch.tensor(data).float()
+            data = self.zero_center_of_mass(data)
+
+            rng = np.random.default_rng(seed=i)
+            data = torch.tensor(rng.permutation(data))[: self.hparams.num_samples_per_seq]  # TODO - need to copy Leon
+
+            tensor_dict[key] = data
+
+        return tensor_dict, max_num_particles
+
     def setup_data(self):
         train_data_dict, self.max_num_particles = self.load_data_as_tensor_dict(self.train_data_path)
         val_data_dict, _ = self.load_data_as_tensor_dict(self.val_data_path)
@@ -151,8 +177,8 @@ class DiPeptideDataModule(TransferablePeptideDataModule):
         total_samples = sum(x.shape[0] for x in train_data_dict.values())
         self.std = torch.sqrt(torch.sum(torch.tensor(weighted_vars)) / total_samples)
 
-        train_data_dict = self.normalize_tensor_dict(train_data_dict)
-        val_data_dict = self.normalize_tensor_dict(val_data_dict)
+        train_data_dict = self.standardize_tensor_dict(train_data_dict)
+        val_data_dict = self.standardize_tensor_dict(val_data_dict)
 
         # Setup transforms
         transform_list = [Random3DRotationTransform(self.hparams.num_dimensions)]
