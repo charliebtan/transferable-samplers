@@ -1,8 +1,5 @@
-import copy
 import logging
-import math
 import os
-import zipfile
 from typing import Any, Callable, Optional
 
 import mdtraj as md
@@ -10,21 +7,14 @@ import numpy as np
 import openmm
 import openmm.app
 import torch
-import torchvision
-import wget
 from bgflow import OpenMMBridge, OpenMMEnergy
 
 from src.data.base_datamodule import BaseDataModule
-from src.data.components.atom_noise import AtomNoiseTransform
-from src.data.components.center_of_mass import CenterOfMassTransform
 from src.data.components.data_types import SamplesData
 from src.data.components.encodings import AA_CODE_CONVERSION, get_atom_encoding
-from src.data.components.peptide_dataset import PeptideDataset
-from src.data.components.rotation import Random3DRotationTransform
 from src.data.components.symmetry import resolve_chirality
 from src.data.components.utils import get_adj_list, get_atom_types
 from src.evaluation.metrics.evaluate_peptide_data import evaluate_peptide_data
-from src.evaluation.plots.plot_atom_distances import interatomic_dist
 
 MEAN_MIN_DIST_DICT = {
     2: 0.4658  # can be saved in dict after computing in setup_data
@@ -36,17 +26,10 @@ class TransferablePeptideDataModule(BaseDataModule):
     def __init__(
         self,
         data_dir: str,
-        train_data_url: str,
-        val_data_url: str,
-        train_data_filename: str,
-        val_data_filename: str,
-        train_pdb_zip_url: str,  # expects a dir of pdbs
-        val_pdb_zip_url: str,  # expects a dir of pdbs
         num_aa: int,
         num_dimensions: int,
         num_particles: int,
         dim: int,  # dim of largest system
-        make_iid: bool = False,
         com_augmentation: bool = False,
         atom_noise_augmentation_factor: float = 0.0,
         # TODO maybe make this all just *args?
@@ -58,18 +41,7 @@ class TransferablePeptideDataModule(BaseDataModule):
         num_val_sequences: int = 20,
         energy_hist_config: Optional[dict[str, Any]] = None,
     ):
-        super().__init__()
-
-        assert dim == num_dimensions * num_particles, "dim must be equal to num_dimensions * num_particles"
-
-        self.train_data_path = f"{self.hparams.data_dir}/{self.hparams.train_data_filename}"
-        self.val_data_path = f"{self.hparams.data_dir}/{self.hparams.val_data_filename}"
-
-        self.train_pdb_zip_path = f"{self.hparams.data_dir}/pdb_train.zip"
-        self.val_pdb_zip_path = f"{self.hparams.data_dir}/pdb_val.zip"
-
-        self.train_pdb_path = f"{self.hparams.data_dir}/pdb_train"
-        self.val_pdb_path = f"{self.hparams.data_dir}/pdb_val"
+        super().__init__(batch_size=batch_size, num_workers=num_workers, pin_memory=pin_memory)
 
     def prepare_data(self) -> None:
         """Download data if needed. Lightning ensures that `self.prepare_data()` is called only
@@ -79,28 +51,7 @@ class TransferablePeptideDataModule(BaseDataModule):
 
         Do not use it to assign state (self.x = y).
         """
-
-        os.makedirs(self.hparams.data_dir, exist_ok=True)
-
-        # Download data files
-        if not os.path.exists(self.train_data_path):
-            wget.download(self.hparams.train_data_url, self.train_data_path)
-
-        if not os.path.exists(self.val_data_path):
-            wget.download(self.hparams.val_data_url, self.val_data_path)
-
-        # Download + extract pdb files
-        if not os.path.exists(self.train_pdb_zip_path):
-            wget.download(self.hparams.train_pdb_zip_url, self.train_pdb_zip_path)
-            os.makedirs(self.train_pdb_path, exist_ok=False)
-            with zipfile.ZipFile(self.train_pdb_zip_path, "r") as zip_ref:
-                zip_ref.extractall(self.train_pdb_path)
-
-        if not os.path.exists(self.val_pdb_zip_path):
-            wget.download(self.hparams.val_pdb_zip_url, self.val_pdb_zip_path)
-            os.makedirs(self.val_pdb_path, exist_ok=False)
-            with zipfile.ZipFile(self.val_pdb_zip_path, "r") as zip_ref:
-                zip_ref.extractall(self.val_pdb_path)
+        raise NotImplementedError("prepare_data is not implemented. Please implement this method in the subclass.")
 
     def setup_topolgy(self):
         train_pdb_files = os.listdir(self.train_pdb_path)
@@ -227,107 +178,7 @@ class TransferablePeptideDataModule(BaseDataModule):
         return data_list
 
     def setup_data(self):
-        train_data_dict, self.max_num_particles = self.load_data_as_tensor_dict(self.train_data_path)
-        val_data_dict, _ = self.load_data_as_tensor_dict(self.val_data_path)
-
-        new_val_data_dict = {}
-        for key in val_data_dict.keys():
-            if key in self.train_sequences:
-                logging.info(f"Key {key} found in train_sequences, removing from val_sequences")
-            else:
-                assert key in self.val_sequences, f"Key {key} not found in val_sequences"
-                new_val_data_dict[key] = val_data_dict[key]
-        val_data_dict = new_val_data_dict
-
-        for key in train_data_dict.keys():
-            assert key in self.train_sequences, f"Key {key} not found in train_sequences"
-            assert key not in self.val_sequences, f"Key {key} found in val_sequences"
-
-        for key in self.val_sequences:
-            assert key in val_data_dict, f"Key {key} not found in val_data_dict"
-            assert key not in train_data_dict, f"Key {key} found in train_data_dict"
-
-        for key in self.train_sequences:
-            assert key in train_data_dict, f"Key {key} not found in train_data_dict"
-            assert key not in val_data_dict, f"Key {key} found in val_data_dict"
-
-        common_keys = set(train_data_dict.keys()).intersection(set(val_data_dict.keys()))
-        logging.info(f"Common keys between train and val data dict: {common_keys}")
-
-        # Need to check here so TarFlow is correctly initalized for data
-        assert self.hparams.num_particles > self.max_num_particles, (
-            "TarFlow num_particles must be greater than the largest system size. "
-            + f"Max num particles={self.max_num_particles}. Set num_particles in data config "
-            + f"to {self.max_num_particles + 1}."
-        )
-
-        # TarFlow dim is the dim of the largest system + a single padded token
-        assert self.hparams.dim > self.max_num_particles * self.hparams.num_dimensions, (
-            "TarFlow dim must be greater than the largest system size + a single padded token. "
-            + f"Set dim in data config to {(self.max_num_particles + 1) * self.hparams.num_dimensions}."
-        )
-
-        weighted_vars = [x.var(unbiased=False) * x.shape[0] for x in train_data_dict.values()]
-        total_samples = sum(x.shape[0] for x in train_data_dict.values())
-        self.std = torch.sqrt(torch.sum(torch.tensor(weighted_vars)) / total_samples)
-
-        train_data_dict = self.normalize_tensor_dict(train_data_dict)
-        val_data_dict = self.normalize_tensor_dict(val_data_dict)
-
-        # Setup transforms
-        transform_list = [Random3DRotationTransform(self.hparams.num_dimensions)]
-        if self.hparams.com_augmentation:
-            transform_list.append(
-                CenterOfMassTransform(
-                    self.hparams.num_dimensions,
-                    1 / math.sqrt(MEAN_ATOMS_PER_AA * self.hparams.num_aa),
-                )
-            )
-        if self.hparams.atom_noise_augmentation_factor:
-            if self.hparams.num_aa not in MEAN_MIN_DIST_DICT:
-                mean_min_dists = []
-                for key, data in train_data_dict.items():
-                    num_samples = data.shape[0]
-                    data = data.reshape(num_samples, -1, self.hparams.num_dimensions)
-                    dists = interatomic_dist(data, flatten=False)
-                    mean_min_dist = dists.min(dim=1)[0].mean()
-                    mean_min_dists.append(mean_min_dist)
-
-                # this is effectively just the length of a carbon-hydrogen bond
-                mean_min_dist = torch.mean(torch.tensor(mean_min_dists))
-                logging.warning(
-                    f"MEAN_MIN_DIST={mean_min_dist.item()} for peptide of length {self.hparams.num_aa}. "
-                    "Save it in MEAN_MIN_DIST_DICT to save on computation"
-                )
-            else:
-                mean_min_dist = MEAN_MIN_DIST_DICT[self.hparams.num_aa]
-
-            transform_list.append(
-                AtomNoiseTransform(
-                    self.hparams.atom_noise_augmentation_factor * mean_min_dist,
-                )
-            )
-        transforms = torchvision.transforms.Compose(transform_list)
-
-        # slice out subset of val_data_dict
-        val_data_dict = {
-            key: val for i, (key, val) in enumerate(val_data_dict.items()) if i < self.hparams.num_val_sequences
-        }
-        self.val_sequences = list(val_data_dict.keys())
-
-        train_data_dict = self.add_encodings_to_tensor_dict(train_data_dict)
-        val_data_dict = self.add_encodings_to_tensor_dict(val_data_dict)
-
-        self.val_data_dict = copy.deepcopy(val_data_dict)  # without padding for sampling eval
-
-        train_data_dict = self.pad_and_mask_tensor_dict(train_data_dict)
-        val_data_dict = self.pad_and_mask_tensor_dict(val_data_dict)  # with padding for loss eval
-
-        train_data_list = self.tensor_dict_to_samples_list(train_data_dict)
-        val_data_list = self.tensor_dict_to_samples_list(val_data_dict)
-
-        self.data_train = PeptideDataset(train_data_list, transform=transforms)
-        self.data_val = PeptideDataset(val_data_list, transform=transforms)
+        raise NotImplementedError("setup_data is not implemented. Please implement this method in the subclass.")
 
     def setup_atom_types(self):
         self.atom_types_dict = {}

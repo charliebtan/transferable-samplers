@@ -1,0 +1,7 @@
+_target_: src.models.components.tarflow.tarflow.TarFlow
+img_size: ${data.dim}
+in_channels: ${data.num_dimensions}
+patch_size: 1
+channels: 64
+num_blocks: 1
+layers_per_block: 1
