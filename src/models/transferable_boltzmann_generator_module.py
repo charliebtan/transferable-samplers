@@ -286,9 +286,14 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
                 )
             )
 
+        # Aggregate metrics across all sequences
         if self.local_rank == 0:
-            metrics = self.add_aggregate_metrics(metrics, prefix=prefix)
-            self.log_dict(metrics)  # syncing here will break because only one worker!
+            metrics = [self.add_aggregate_metrics(metrics, prefix=prefix)]
+        else:
+            metrics = [None]
+        # Broadcast metrics to all processes - must log from all for checkpointing
+        torch.distributed.broadcast_object_list(metrics, src=0)
+        self.log_dict(metrics[0])
 
     @torch.no_grad()
     def evaluate(
