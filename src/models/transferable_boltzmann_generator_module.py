@@ -97,6 +97,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         :param batch_idx: The index of the current batch.
         :return: A tensor of losses between model predictions and targets.
         """
+        assert len(batch["x"].shape) == 2, "molecules must be in vector format"
         loss = self.model_step(batch)
         batch_value = self.train_metrics(loss)
         self.log_dict(batch_value, prog_bar=True)
