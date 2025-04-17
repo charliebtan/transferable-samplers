@@ -27,6 +27,7 @@ class Random3DRotationTransform(torch.nn.Module):
         # Reshape back to original shape
         x = x.reshape(-1)
 
-        data.update({"x": x})
-
-        return data
+        return {
+            **data,
+            "x": x,
+        }

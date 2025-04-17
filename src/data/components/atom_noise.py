@@ -18,6 +18,9 @@ class AtomNoiseTransform(torch.nn.Module):
         if mask is not None:
             x = x * mask[:, None]
 
-        data.update({"x": x})
+        x = x.reshape(-1)
 
-        return data
+        return {
+            **data,
+            "x": x,
+        }

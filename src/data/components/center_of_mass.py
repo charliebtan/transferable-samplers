@@ -35,9 +35,10 @@ class CenterOfMassTransform(torch.nn.Module):
         # Reshape back to original shape
         x = x.reshape(-1)
 
-        data.update({"x": x})
-
-        return data
+        return {
+            **data,
+            "x": x,
+        }
 
 
 if __name__ == "__main__":
