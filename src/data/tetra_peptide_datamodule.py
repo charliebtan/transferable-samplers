@@ -4,6 +4,8 @@ import os
 import shutil
 from typing import Any, Optional
 
+import numpy as np
+import torch
 import torchvision
 
 from src.data.components.data_preparation import (
@@ -14,10 +16,11 @@ from src.data.components.data_preparation import (
     load_lmdb_metadata,
     load_pdbs_and_topologies,
 )
+from src.data.components.encoding import get_encoding_dict
 from src.data.components.peptide_dataset import PeptideDataset
+from src.data.components.transforms.add_encoding import AddEncodingTransform
 from src.data.components.transforms.atom_noise import AtomNoiseTransform
 from src.data.components.transforms.center_of_mass import CenterOfMassTransform
-from src.data.components.transforms.encoding import EncodingTransform
 from src.data.components.transforms.padding import PaddingTransform
 from src.data.components.transforms.rotation import Random3DRotationTransform
 from src.data.components.transforms.standardize import StandardizeTransform
@@ -146,7 +149,7 @@ class TetraPeptideDataModule(TransferablePeptideDataModule):
         train_max_num_particles = train_metadata["max_num_particles"]
         val_max_num_particles = val_metadata["max_num_particles"]
 
-        train_data_std = train_metadata["std"]
+        self.std = torch.tensor(train_metadata["std"])  # train data std used for standardization
 
         assert train_max_num_particles >= val_max_num_particles, (
             "Train largest system must be greater than or equal to val largest system for pos_embed learning."
@@ -158,18 +161,20 @@ class TetraPeptideDataModule(TransferablePeptideDataModule):
             + f"to {train_max_num_particles + 1}."
         )
 
-        pdb_paths = [*train_metadata["pdb_paths"], *val_metadata["pdb_paths"]]
+        pdb_paths = [*train_metadata["pdb_paths"].values(), *val_metadata["pdb_paths"].values()]
 
         self.pdb_dict, self.topology_dict = load_pdbs_and_topologies(pdb_paths, self.hparams.num_aa)
 
+        self.encoding_dict = get_encoding_dict(self.topology_dict)
+
         transform_list = [
-            StandardizeTransform(train_data_std, self.hparams.num_dimensions),
+            StandardizeTransform(self.std, self.hparams.num_dimensions),
             Random3DRotationTransform(self.hparams.num_dimensions),
         ]
         if self.hparams.com_augmentation:
             transform_list.append(
                 CenterOfMassTransform(
-                    1 / math.sqrt(MEAN_ATOMS_PER_AA * self.hparams.num_aa) / train_data_std,  # TODO check
+                    1 / math.sqrt(MEAN_ATOMS_PER_AA * self.hparams.num_aa) / self.std,  # TODO check
                     self.hparams.num_dimensions,
                 )
             )
@@ -178,12 +183,12 @@ class TetraPeptideDataModule(TransferablePeptideDataModule):
                 AtomNoiseTransform(
                     self.hparams.atom_noise_augmentation_factor
                     * train_metadata["mean_min_dist"]
-                    / train_data_std,  # TODO check
+                    / self.std,  # TODO check
                 )
             )
         transform_list = transform_list + [
-            EncodingTransform(self.topology_dict),
-            PaddingTransform(train_max_num_particles, self.hparams.num_dimensions),
+            AddEncodingTransform(self.topology_dict),
+            PaddingTransform(self.hparams.num_particles, self.hparams.num_dimensions),
         ]
 
         transforms = torchvision.transforms.Compose(transform_list)
@@ -199,3 +204,11 @@ class TetraPeptideDataModule(TransferablePeptideDataModule):
             num_dimensions=self.hparams.num_dimensions,
             transform=transforms,
         )
+
+        # TODO prob need a more stable way of doing this - maybe just reading from a list?
+        val_sequences = list(val_metadata["num_samples"].keys())
+        np.random.seed(0)  # Set a deterministic seed
+        np.random.shuffle(val_sequences)
+        self.val_sequences = val_sequences[: self.hparams.num_val_sequences]
+
+        self.val_npz_paths = {k: val_metadata["npz_paths"][k] for k in self.val_sequences}

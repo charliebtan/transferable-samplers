@@ -155,16 +155,3 @@ def get_encoding_dict(topology_dict):
         topology_dict[seq_name] = encoding
 
     return topology_dict
-
-
-class EncodingTransform(torch.nn.Module):
-    def __init__(self, topology_dict):
-        super().__init__()
-        self.encoding_dict = get_encoding_dict(topology_dict)
-
-    def forward(self, data):
-        seq_name = data["seq_name"]
-        return {
-            **data,
-            "encoding": self.encoding_dict[seq_name],
-        }

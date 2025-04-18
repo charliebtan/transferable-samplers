@@ -19,7 +19,7 @@ class PaddingTransform(torch.nn.Module):
         return encoding
 
     def create_mask(self, x):
-        num_particles = x.shape[1]
+        num_particles = x.shape[0]
         true_mask = torch.ones(num_particles)
         false_mask = torch.zeros(self.max_num_particles - num_particles)
         return torch.cat([true_mask, false_mask]).bool()

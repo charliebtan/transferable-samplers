@@ -273,13 +273,14 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
 
     def evaluate_all(self, prefix):
         metrics = {}
-        for val_sequence in self.datamodule.val_sequences:
-            true_data, energy_fn = self.datamodule.prepare_eval(val_sequence)
+        for val_sequence in self.datamodule.val_npz_paths.keys():
+            true_samples, encoding, energy_fn = self.datamodule.prepare_eval(val_sequence)
             logging.info(f"Evaluating {val_sequence} samples")
             metrics.update(
                 self.evaluate(
-                    true_data,
                     val_sequence,
+                    true_samples,
+                    encoding,
                     energy_fn,
                     prefix=f"{prefix}/{val_sequence}",
                     proposal_generator=self.batched_generate_samples,
@@ -292,7 +293,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
 
     @torch.no_grad()
     def evaluate(
-        self, true_data, sequence, energy_fn, prefix: str = "val", proposal_generator=None, output_dir=None
+        self, sequence, true_samples, encoding, energy_fn, prefix: str = "val", proposal_generator=None, output_dir=None
     ) -> None:
         """Generates samples from the proposal and runs SMC if enabled.
         Also computes metrics, through the datamodule function "metrics_and_plots".
@@ -308,9 +309,6 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             num_proposal_samples = self.hparams.sampling_config.num_test_proposal_samples
         else:
             num_proposal_samples = self.hparams.sampling_config.num_proposal_samples
-
-        true_samples = true_data["x"]
-        encoding = true_data["encoding"]  # noqa: F841
 
         true_data = SamplesData(
             self.datamodule.as_pointcloud(self.datamodule.unnormalize(true_samples)),

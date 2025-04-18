@@ -1,8 +1,10 @@
 import logging
 from typing import Any, Callable, Optional
 
+import numpy as np
 import openmm
 import openmm.app
+import torch
 from bgflow import OpenMMBridge, OpenMMEnergy
 
 from src.data.base_datamodule import BaseDataModule
@@ -116,10 +118,18 @@ class TransferablePeptideDataModule(BaseDataModule):
         return potential
 
     def prepare_eval(self, val_sequence: str):
-        true_data = self.val_data_dict[val_sequence]
+        npz_data = np.load(self.val_npz_paths[val_sequence], allow_pickle=True)
+        if "positions" in npz_data:
+            true_samples = npz_data["positions"]
+        elif "x" in npz_data:
+            true_samples = npz_data["x"]
+        else:
+            raise ValueError("Invalid data format. Expected 'positions' or 'x' key in npz file.")
+        true_samples = self.normalize(self.zero_center_of_mass(torch.tensor(true_samples).flatten(start_dim=1)))
+        encoding = self.encoding_dict[val_sequence]
         potential = self.setup_potential(val_sequence)
         energy_fn = lambda x: potential.energy(x).flatten()
-        return true_data, energy_fn
+        return true_samples, encoding, energy_fn
 
     def metrics_and_plots(
         self,

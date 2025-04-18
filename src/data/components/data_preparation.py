@@ -1,35 +1,13 @@
-import mdtraj as md
-import numpy as np
-import openmm
-import torch
-
-
-def get_atom_types(topology):
-    atom_dict = {"C": 0, "H": 1, "N": 2, "O": 3, "S": 4}
-    atom_types = []
-    for atom_name in topology.atoms:
-        atom_types.append(atom_name.name[0])
-    atom_types = torch.from_numpy(np.array([atom_dict[atom_type] for atom_type in atom_types]))
-
-    return atom_types
-
-
-def get_adj_list(topology):
-    adj_list = torch.from_numpy(
-        np.array(
-            [(b.atom1.index, b.atom2.index) for b in topology.bonds],
-            dtype=np.int32,
-        )
-    )
-    return adj_list
-
-
 import logging
 import os
 import pickle
 
 import huggingface_hub
 import lmdb
+import mdtraj as md
+import numpy as np
+import openmm
+import torch
 from tqdm import tqdm
 
 from src.evaluation.plots.plot_atom_distances import interatomic_dist  # TODO move this
@@ -92,17 +70,23 @@ def build_lmdb(npz_paths, pdb_paths, lmdb_path, zero_center_of_mass, map_size=1 
 
     global_idx = 0
 
-    min_num_particles = 1e1
+    # Global metadata
+    min_num_particles = float("inf")
     max_num_particles = 0
     weighted_vars = []
-    seq_names = []
     mean_min_dists = []
 
-    done = False  # TODO remove
-    for path in tqdm(npz_paths, desc="Building LMBD"):
-        seq_name = os.path.basename(path).split("-")[0]
+    # Sequence metadata
+    num_samples_dict = {}
+    num_particles_dict = {}
+    npz_paths_dict = {}
+    pdb_paths_dict = {}
 
-        with np.load(path, allow_pickle=False) as data:
+    done = False  # TODO remove
+    for npz_path in tqdm(npz_paths, desc="Building LMBD"):
+        seq_name = os.path.basename(npz_path).split("-")[0]
+
+        with np.load(npz_path, allow_pickle=False) as data:
             x = data["positions"]  # shape (N, num_particles, num_dimensions)
 
         assert len(x.shape) == 3, f"Expected 3D array, got {x.shape}"
@@ -129,8 +113,13 @@ def build_lmdb(npz_paths, pdb_paths, lmdb_path, zero_center_of_mass, map_size=1 
         positions_var = x_tensor.var(unbiased=False)  # TODO why ubiased=False?
         weighted_vars.append(positions_var * num_samples)
 
-        assert seq_name not in seq_names, f"Duplicate sequence name {seq_name} found in {path}"
-        seq_names.append(seq_name)
+        assert seq_name not in num_samples_dict.keys(), f"Duplicate sequence name {seq_name} found in {npz_path}"
+        assert npz_path.replace("-traj-arrays.npz", "-traj-state0.pdb") in pdb_paths
+
+        num_samples_dict[seq_name] = num_samples
+        num_particles_dict[seq_name] = num_particles
+        npz_paths_dict[seq_name] = npz_path
+        pdb_paths_dict[seq_name] = npz_path.replace("-traj-arrays.npz", "-traj-state0.pdb")
 
         for pos_idx in range(x.shape[0]):
             sample = {"seq_name": seq_name, "x": x[pos_idx]}
@@ -155,12 +144,14 @@ def build_lmdb(npz_paths, pdb_paths, lmdb_path, zero_center_of_mass, map_size=1 
     mean_min_dist = torch.mean(torch.tensor(mean_min_dists))
 
     metadata = {
-        "num_samples": total_num_samples,
+        "total_num_samples": total_num_samples,
         "min_num_particles": min_num_particles,
         "max_num_particles": max_num_particles,
         "std": std,
-        "seq_names": seq_names,
-        "pdb_paths": pdb_paths,
+        "num_samples": num_samples_dict,
+        "num_particles": num_particles_dict,
+        "pdb_paths": pdb_paths_dict,
+        "npz_paths": npz_paths_dict,
     }
 
     txn.put(b"__meta__", pickle.dumps(metadata))  # store metadata
@@ -176,7 +167,7 @@ def load_lmdb_metadata(lmdb_path, key=b"__meta__"):
         value = txn.get(key)
         if value is None:
             raise KeyError(f"Metadata key {key} not found in LMDB at {lmdb_path}")
-        metadata = pickle.loads(value)
+        metadata = pickle.loads(value)  # noqa: S301
     env.close()
     return metadata
 
