@@ -180,7 +180,7 @@ class TransferablePeptideDataModule(BaseDataModule):
                 )
             )
         transform_list = transform_list + [
-            AddEncodingTransform(self.topology_dict),
+            AddEncodingTransform(self.encoding_dict),
             PaddingTransform(self.hparams.num_particles, self.hparams.num_dimensions),
         ]
 
@@ -286,7 +286,7 @@ class TransferablePeptideDataModule(BaseDataModule):
             symmetry_metrics, symmetry_change = resolve_chirality(
                 true_data.samples,
                 data.samples,
-                self.val_topology_dict[sequence],
+                self.topology_dict[sequence],
                 prefix + name,
             )
             data = data[~symmetry_change]
