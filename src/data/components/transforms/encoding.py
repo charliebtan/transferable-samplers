@@ -106,7 +106,7 @@ AA_CODE_CONVERSION = {
 }
 
 
-def get_atom_encoding(topology):
+def get_encoding(topology):
     aa_pos_encoding = []
     aa_type_encoding = []
     atom_type_encoding = []
@@ -140,10 +140,31 @@ def get_atom_encoding(topology):
     aa_pos_encoding = torch.tensor(aa_pos_encoding, dtype=torch.int64)
     aa_type_encoding = torch.tensor(aa_type_encoding, dtype=torch.int64)
 
-    encodings = {
+    encoding = {
         "atom_type": atom_type_encoding,
         "aa_pos": aa_pos_encoding,
         "aa_type": aa_type_encoding,
     }
 
-    return encodings
+    return encoding
+
+
+def get_encoding_dict(topology_dict):
+    for seq_name, topology in topology_dict.items():
+        encoding = get_encoding(topology)
+        topology_dict[seq_name] = encoding
+
+    return topology_dict
+
+
+class EncodingTransform(torch.nn.Module):
+    def __init__(self, topology_dict):
+        super().__init__()
+        self.encoding_dict = get_encoding_dict(topology_dict)
+
+    def forward(self, data):
+        seq_name = data["seq_name"]
+        return {
+            **data,
+            "encoding": self.encoding_dict[seq_name],
+        }

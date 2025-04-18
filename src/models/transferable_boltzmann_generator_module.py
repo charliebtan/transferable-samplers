@@ -152,7 +152,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
     def batched_generate_samples(
         self,
         total_size: int,
-        encodings: Optional[dict[str, torch.Tensor]] = None,
+        encoding: Optional[dict[str, torch.Tensor]] = None,
         batch_size: Optional[int] = None,
         dummy_ll: bool = False,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -162,12 +162,12 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         log_ps = []
         prior_samples = []
         for _ in tqdm(range(total_size // batch_size)):
-            s, lp, ps = self.generate_samples(batch_size, encodings=encodings, dummy_ll=dummy_ll)
+            s, lp, ps = self.generate_samples(batch_size, encoding=encoding, dummy_ll=dummy_ll)
             samples.append(s)
             log_ps.append(lp)
             prior_samples.append(ps)
         if total_size % batch_size > 0:
-            s, lp, ps = self.generate_samples(total_size % batch_size, encodings=encodings, dummy_ll=dummy_ll)
+            s, lp, ps = self.generate_samples(total_size % batch_size, encoding=encoding, dummy_ll=dummy_ll)
             samples.append(s)
             log_ps.append(lp)
             prior_samples.append(ps)
@@ -177,7 +177,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         return samples, log_ps, prior_samples
 
     def generate_samples(
-        self, batch_size: int, encodings: Optional[dict[str, torch.Tensor]] = None, n_timesteps: int = None
+        self, batch_size: int, encoding: Optional[dict[str, torch.Tensor]] = None, n_timesteps: int = None
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Generate samples from the model.
 
@@ -310,7 +310,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             num_proposal_samples = self.hparams.sampling_config.num_proposal_samples
 
         true_samples = true_data["x"]
-        encodings = true_data["encoding"]  # noqa: F841
+        encoding = true_data["encoding"]  # noqa: F841
 
         true_data = SamplesData(
             self.datamodule.as_pointcloud(self.datamodule.unnormalize(true_samples)),
@@ -320,7 +320,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         # Generate samples and record time
         torch.cuda.synchronize()
         start_time = time.time()
-        proposal_samples, proposal_log_p, prior_samples = proposal_generator(num_proposal_samples, encodings)
+        proposal_samples, proposal_log_p, prior_samples = proposal_generator(num_proposal_samples, encoding)
         torch.cuda.synchronize()
         time_duration = time.time() - start_time
         self.log(f"{prefix}/samples_walltime", time_duration, sync_dist=True)

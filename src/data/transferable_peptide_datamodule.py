@@ -1,23 +1,19 @@
 import logging
-import os
 from typing import Any, Callable, Optional
 
-import mdtraj as md
-import numpy as np
 import openmm
 import openmm.app
-import torch
 from bgflow import OpenMMBridge, OpenMMEnergy
 
 from src.data.base_datamodule import BaseDataModule
+from src.data.components.data_preparation import get_adj_list, get_atom_types
 from src.data.components.data_types import SamplesData
-from src.data.components.encodings import AA_CODE_CONVERSION, get_atom_encoding
 from src.data.components.symmetry import resolve_chirality
-from src.data.components.utils import get_adj_list, get_atom_types
 from src.evaluation.metrics.evaluate_peptide_data import evaluate_peptide_data
 
 MEAN_MIN_DIST_DICT = {
-    2: 0.4658  # can be saved in dict after computing in setup_data
+    2: 0.4658,  # can be saved in dict after computing in setup_data
+    4: 0.4658,  # TODO wrong
 }
 MEAN_ATOMS_PER_AA = 17.67
 
@@ -52,105 +48,6 @@ class TransferablePeptideDataModule(BaseDataModule):
         Do not use it to assign state (self.x = y).
         """
         raise NotImplementedError("prepare_data is not implemented. Please implement this method in the subclass.")
-
-    def setup_topolgy(self):
-        train_pdb_files = os.listdir(self.train_pdb_path)
-        val_pdb_files = os.listdir(self.val_pdb_path)
-
-        self.pdb_dict = {}
-        self.topology_dict = {}
-
-        self.train_sequences = []
-        self.val_sequences = []
-
-        for filelist, pdb_path in zip([train_pdb_files, val_pdb_files], [self.train_pdb_path, self.val_pdb_path]):
-            for filename in filelist:
-                if not filename.endswith(".pdb"):
-                    logging.info(f"Skipping non-PDB file: {filename}")
-                    continue
-
-                filepath = os.path.join(pdb_path, filename)
-                pdb = openmm.app.PDBFile(filepath)
-
-                assert len(list(pdb.topology.chains())) == 1, "Only single chain PDBs are supported"
-                assert len(list(pdb.topology.residues())) == self.hparams.num_aa, (
-                    "PDB does not match the number of amino acids"
-                )
-
-                name = "".join([AA_CODE_CONVERSION[aa.name] for aa in pdb.topology.residues()])
-
-                if pdb_path == self.train_pdb_path:
-                    self.train_sequences.append(name)
-                else:
-                    self.val_sequences.append(name)
-
-                self.pdb_dict[name] = pdb
-                self.topology_dict[name] = md.load_topology(filepath)
-
-    def setup_atom_encoding(self):
-        self.encoding_dict = {}
-        for name, topology in self.topology_dict.items():
-            self.encoding_dict[name] = get_atom_encoding(topology)
-
-    def pad_data(self, x):
-        assert len(x.shape) == 2
-        pad_tensor = torch.zeros((x.shape[0], self.hparams.num_particles * self.hparams.num_dimensions - x.shape[1]))
-        return torch.cat([x, pad_tensor], dim=1)
-
-    def pad_encoding(self, encoding):
-        for key, value in encoding.items():
-            encoding[key] = torch.cat(
-                [value, torch.zeros(self.hparams.num_particles - value.shape[0], dtype=torch.int64)]
-            )
-        return encoding
-
-    def create_mask(self, x):
-        assert len(x.shape) == 1
-        num_particles = x.shape[0] // self.hparams.num_dimensions
-        true_mask = torch.ones(num_particles)
-        false_mask = torch.zeros(self.hparams.num_particles - num_particles)
-        return torch.cat([true_mask, false_mask]).bool()
-
-    def standardize_tensor_dict(self, tensor_dict):
-        for key, data in tensor_dict.items():
-            tensor_dict[key] = self.normalize(self.zero_center_of_mass(data))
-        return tensor_dict
-
-    def add_encodings_to_tensor_dict(self, tensor_dict):
-        for key, data in tensor_dict.items():
-            encoding = self.encoding_dict[key]
-            tensor_dict[key] = {
-                "x": data,
-                "encoding": encoding,
-            }
-        return tensor_dict
-
-    def pad_and_mask_tensor_dict(self, tensor_dict):
-        for key, data in tensor_dict.items():
-            x = self.pad_data(data["x"])
-            encoding = self.pad_encoding(data["encoding"])
-
-            mask = self.create_mask(data["x"][0])
-
-            tensor_dict[key] = {
-                "x": x,
-                "encoding": encoding,
-                "mask": mask,
-            }
-
-        return tensor_dict
-
-    def tensor_dict_to_samples_list(self, tensor_dict):
-        data_list = []
-        for data in tensor_dict.values():
-            for i in range(data["x"].shape[0]):  # Iterate over each batch item
-                data_list.append(
-                    {
-                        **data,
-                        "x": data["x"][i],
-                    }
-                )
-        return data_list
 
     def setup_data(self):
         raise NotImplementedError("setup_data is not implemented. Please implement this method in the subclass.")

@@ -32,10 +32,10 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
         batch: torch.Tensor,
     ) -> torch.Tensor:
         x1 = batch["x"]
-        encodings = batch["encoding"]
+        encoding = batch["encoding"]
         mask = batch.get("mask", None)
 
-        x0, dlogp = self.net(x1, encodings=encodings, mask=mask)
+        x0, dlogp = self.net(x1, encoding=encoding, mask=mask)
         loss = self.prior.energy(x0, mask=mask).mean() - dlogp.mean()
 
         if self.hparams.energy_kl_weight:
@@ -84,7 +84,7 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
     def generate_samples(
         self,
         batch_size: int,
-        encodings: Optional[dict[str, torch.Tensor]] = None,
+        encoding: Optional[dict[str, torch.Tensor]] = None,
         n_timesteps: int = None,
         dummy_ll=False,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -97,21 +97,20 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
             probability.
         """
 
-        num_particles = encodings["atom_type"].size(0)
+        num_particles = encoding["atom_type"].size(0)
 
         local_batch_size = batch_size // self.trainer.world_size
         prior_samples = self.prior.sample(local_batch_size, num_particles).to(self.device)
         # for MF this is actually not log_p as missing - log(Z) - doesn't matter for bias
         prior_log_p = -self.prior.energy(prior_samples)
-        if encodings is not None:
-            encodings = {
-                key: tensor.unsqueeze(0).repeat(local_batch_size, 1).to(self.device)
-                for key, tensor in encodings.items()
+        if encoding is not None:
+            encoding = {
+                key: tensor.unsqueeze(0).repeat(local_batch_size, 1).to(self.device) for key, tensor in encoding.items()
             }
 
         with torch.no_grad():
-            x_pred = self.net.reverse(prior_samples, encodings=encodings)
-            x_recon, fwd_logdets = self.net(x_pred, encodings=encodings)
+            x_pred = self.net.reverse(prior_samples, encoding=encoding)
+            x_recon, fwd_logdets = self.net(x_pred, encoding=encoding)
             fwd_logdets = fwd_logdets * self.datamodule.hparams.dim  # rescale from mean to sum
 
             # TODO refector these all into a metrics

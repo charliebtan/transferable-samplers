@@ -422,7 +422,9 @@ class TarFlow(torch.nn.Module):
         batch_size = x.shape[0]
 
         assert x.shape[1] == encoding["atom_type"].shape[1] * self.in_channels, "x and encoding do not match"
-        assert not torch.any(encoding["atom_type"] == 0), "atom_type has padding zeros, padding not supports in reverse"
+        assert not torch.any(encoding["atom_type"] == 0), (
+            "atom_type has padding zeros, padding not supports in reverse"
+        )
         assert not torch.any(encoding["aa_type"] == 0), "aa_type has padding zeros, padding not supports in reverse"
         assert not torch.any(encoding["aa_pos"] == 0), "aa_pos has padding zeros, padding not supports in reverse"
 
