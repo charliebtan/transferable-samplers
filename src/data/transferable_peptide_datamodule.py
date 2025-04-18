@@ -1,22 +1,37 @@
 import logging
+import math
+import os
+import shutil
 from typing import Any, Callable, Optional
 
 import numpy as np
 import openmm
 import openmm.app
 import torch
+import torchvision
 from bgflow import OpenMMBridge, OpenMMEnergy
 
 from src.data.base_datamodule import BaseDataModule
 from src.data.components.data_types import SamplesData
+from src.data.components.encoding import get_encoding_dict
+from src.data.components.peptide_dataset import PeptideDataset
+from src.data.components.prepare_data import (
+    build_lmdb,
+    check_files,
+    cross_reference_files,
+    download_data,
+    load_lmdb_metadata,
+    load_pdbs_and_topologies,
+)
 from src.data.components.symmetry import resolve_chirality
-from src.data.components.utils import get_adj_list, get_atom_types
+from src.data.components.transforms.add_encoding import AddEncodingTransform
+from src.data.components.transforms.atom_noise import AtomNoiseTransform
+from src.data.components.transforms.center_of_mass import CenterOfMassTransform
+from src.data.components.transforms.padding import PaddingTransform
+from src.data.components.transforms.rotation import Random3DRotationTransform
+from src.data.components.transforms.standardize import StandardizeTransform
 from src.evaluation.metrics.evaluate_peptide_data import evaluate_peptide_data
 
-MEAN_MIN_DIST_DICT = {
-    2: 0.4658,  # can be saved in dict after computing in setup_data
-    4: 0.4658,  # TODO wrong
-}
 MEAN_ATOMS_PER_AA = 17.67
 
 
@@ -24,6 +39,9 @@ class TransferablePeptideDataModule(BaseDataModule):
     def __init__(
         self,
         data_dir: str,
+        huggingface_repo_id: str,
+        huggingface_train_data_dir: str,
+        huggingface_val_data_dir: str,
         num_aa: int,
         num_dimensions: int,
         num_particles: int,
@@ -41,6 +59,11 @@ class TransferablePeptideDataModule(BaseDataModule):
     ):
         super().__init__(batch_size=batch_size, num_workers=num_workers, pin_memory=pin_memory)
 
+        assert dim == num_dimensions * num_particles, "dim must be equal to num_dimensions * num_particles"
+
+        self.train_data_path = f"{self.hparams.data_dir}/train"
+        self.val_data_path = f"{self.hparams.data_dir}/val"
+
     def prepare_data(self) -> None:
         """Download data if needed. Lightning ensures that `self.prepare_data()` is called only
         within a single process on CPU, so you can safely add your downloading logic within. In
@@ -49,22 +72,46 @@ class TransferablePeptideDataModule(BaseDataModule):
 
         Do not use it to assign state (self.x = y).
         """
-        raise NotImplementedError("prepare_data is not implemented. Please implement this method in the subclass.")
 
-    def setup_data(self):
-        raise NotImplementedError("setup_data is not implemented. Please implement this method in the subclass.")
+        os.makedirs(self.hparams.data_dir, exist_ok=True)
 
-    def setup_atom_types(self):
-        self.atom_types_dict = {}
-        for name, topology in self.topology_dict.items():
-            atom_types = get_atom_types(topology)
-            self.atom_types_dict[name] = atom_types
+        download_data(
+            huggingface_repo_id=self.hparams.huggingface_repo_id,
+            huggingface_data_dir=self.hparams.huggingface_train_data_dir,
+            local_dir=self.train_data_path,
+        )
+        download_data(
+            huggingface_repo_id=self.hparams.huggingface_repo_id,
+            huggingface_data_dir=self.hparams.huggingface_val_data_dir,
+            local_dir=self.val_data_path,
+        )
 
-    def setup_adj_list(self):
-        self.adj_list_dict = {}
-        for name, topology in self.topology_dict.items():
-            adj_list = get_adj_list(topology)
-            self.adj_list_dict[name] = adj_list
+        train_npz_paths, train_pdb_paths = check_files(self.train_data_path + "/4AA-large/train")
+        val_npz_paths, val_pdb_paths = check_files(self.val_data_path + "/4AA-large/val")
+
+        cross_reference_files(train_npz_paths, val_npz_paths)
+
+        if os.path.exists(self.train_data_path + "/seq.lmdb"):
+            shutil.rmtree(self.train_data_path + "/seq.lmdb")
+        if not os.path.exists(self.train_data_path + "/4AA-large/train/seq.lmdb"):
+            build_lmdb(
+                train_npz_paths,
+                train_pdb_paths,
+                lmdb_path=self.train_data_path + "/seq.lmdb",
+            )
+        else:
+            logging.info(f"LMDB file {self.train_data_path}/seq.lmdb already exists, skipping LMDB creation")
+
+        if os.path.exists(self.val_data_path + "/seq.lmdb"):
+            shutil.rmtree(self.val_data_path + "/seq.lmdb")
+        if not os.path.exists(self.val_data_path + "/4AA-large/val/seq.lmdb"):
+            build_lmdb(
+                val_npz_paths,
+                val_pdb_paths,
+                lmdb_path=self.val_data_path + "/seq.lmdb",
+            )
+        else:
+            logging.info(f"LMDB file {self.val_data_path}/seq.lmdb already exists, skipping LMDB creation")
 
     def setup(self, stage: Optional[str] = None) -> None:
         """Load data. Set variables: `self.data_train`, `self.data_val`, `self.data_test`.
@@ -85,11 +132,79 @@ class TransferablePeptideDataModule(BaseDataModule):
                 )
             self.batch_size_per_device = self.hparams.batch_size // self.trainer.world_size
 
-        self.setup_topolgy()
-        self.setup_atom_encoding()
-        self.setup_data()
-        self.setup_atom_types()
-        self.setup_adj_list()
+        train_metadata = load_lmdb_metadata(self.train_data_path + "/seq.lmdb")
+        val_metadata = load_lmdb_metadata(self.val_data_path + "/seq.lmdb")
+
+        train_max_num_particles = train_metadata["max_num_particles"]
+        val_max_num_particles = val_metadata["max_num_particles"]
+
+        self.std = torch.tensor(train_metadata["std"])  # train data std used for standardization
+
+        assert train_max_num_particles >= val_max_num_particles, (
+            "Train largest system must be greater than or equal to val largest system for pos_embed learning."
+        )
+        # Need to check here so TarFlow is correctly initalized for data
+        assert self.hparams.num_particles > train_max_num_particles, (
+            "TarFlow num_particles must be greater than the largest system size. "
+            + f"Max num particles={train_max_num_particles}. Set num_particles in data config "
+            + f"to {train_max_num_particles + 1}."
+        )
+
+        pdb_paths = [*train_metadata["pdb_paths"].values(), *val_metadata["pdb_paths"].values()]
+
+        self.pdb_dict, self.topology_dict = load_pdbs_and_topologies(pdb_paths, self.hparams.num_aa)
+
+        self.encoding_dict = get_encoding_dict(self.topology_dict)
+
+        transform_list = [
+            StandardizeTransform(self.std, self.hparams.num_dimensions),
+            Random3DRotationTransform(self.hparams.num_dimensions),
+        ]
+        if self.hparams.com_augmentation:
+            # Center of mass augmentation has std 1/sqrt(N) where N is the mean number of atoms
+            # in the system. This is the same center of mass std deviation as the prior.
+            transform_list.append(
+                CenterOfMassTransform(
+                    1 / math.sqrt(MEAN_ATOMS_PER_AA * self.hparams.num_aa),
+                    self.hparams.num_dimensions,
+                )
+            )
+        if self.hparams.atom_noise_augmentation_factor:
+            # Mean min dist is the average min interatomic distance in the training data
+            # corresponding to a C-H bond. As this is in unnormalized scale we must
+            # divide by the std to get the correct scale for the noise.
+            # The atom noise augmentation factor is a scaling factor for the noise
+            transform_list.append(
+                AtomNoiseTransform(
+                    self.hparams.atom_noise_augmentation_factor * train_metadata["mean_min_dist"] / self.std,
+                )
+            )
+        transform_list = transform_list + [
+            AddEncodingTransform(self.topology_dict),
+            PaddingTransform(self.hparams.num_particles, self.hparams.num_dimensions),
+        ]
+
+        transforms = torchvision.transforms.Compose(transform_list)
+
+        self.data_train = PeptideDataset(
+            self.train_data_path + "/seq.lmdb",
+            num_dimensions=self.hparams.num_dimensions,
+            transform=transforms,
+        )
+
+        self.data_val = PeptideDataset(
+            self.val_data_path + "/seq.lmdb",
+            num_dimensions=self.hparams.num_dimensions,
+            transform=transforms,
+        )
+
+        # TODO prob need a more stable way of doing this - maybe just reading from a list?
+        val_sequences = list(val_metadata["num_samples"].keys())
+        np.random.seed(0)  # Set a deterministic seed
+        np.random.shuffle(val_sequences)
+        self.val_sequences = val_sequences[: self.hparams.num_val_sequences]
+
+        self.val_npz_paths = {k: val_metadata["npz_paths"][k] for k in self.val_sequences}
 
     def setup_potential(self, val_sequence: str):
         forcefield = openmm.app.ForceField("amber14-all.xml", "implicit/obc1.xml")
@@ -171,8 +286,7 @@ class TransferablePeptideDataModule(BaseDataModule):
             symmetry_metrics, symmetry_change = resolve_chirality(
                 true_data.samples,
                 data.samples,
-                self.adj_list_dict[sequence],
-                self.atom_types_dict[sequence],
+                self.val_topology_dict[sequence],
                 prefix + name,
             )
             data = data[~symmetry_change]

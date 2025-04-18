@@ -1,4 +1,4 @@
-_target_: src.data.tetra_peptide_datamodule.TetraPeptideDataModule
+_target_: src.data.transferable_peptide_datamodule.TransferablePeptideDataModule
 data_dir: ${paths.data_dir}4aa
 huggingface_repo_id: "microsoft/timewarp"
 huggingface_train_data_dir: "4AA-large/train"
