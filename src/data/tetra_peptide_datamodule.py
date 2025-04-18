@@ -106,7 +106,6 @@ class TetraPeptideDataModule(TransferablePeptideDataModule):
             build_lmdb(
                 train_npz_paths,
                 train_pdb_paths,
-                zero_center_of_mass=self.zero_center_of_mass,
                 lmdb_path=self.train_data_path + "/seq.lmdb",
             )
         else:
@@ -118,7 +117,6 @@ class TetraPeptideDataModule(TransferablePeptideDataModule):
             build_lmdb(
                 val_npz_paths,
                 val_pdb_paths,
-                zero_center_of_mass=self.zero_center_of_mass,
                 lmdb_path=self.val_data_path + "/seq.lmdb",
             )
         else:
