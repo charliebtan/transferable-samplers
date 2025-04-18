@@ -148,6 +148,7 @@ def build_lmdb(npz_paths, pdb_paths, lmdb_path, zero_center_of_mass, map_size=1 
         "min_num_particles": min_num_particles,
         "max_num_particles": max_num_particles,
         "std": std,
+        "mean_min_dist": mean_min_dist,
         "num_samples": num_samples_dict,
         "num_particles": num_particles_dict,
         "pdb_paths": pdb_paths_dict,

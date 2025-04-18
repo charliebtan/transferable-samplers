@@ -8,9 +8,9 @@ import torch
 from bgflow import OpenMMBridge, OpenMMEnergy
 
 from src.data.base_datamodule import BaseDataModule
-from src.data.components.data_preparation import get_adj_list, get_atom_types
 from src.data.components.data_types import SamplesData
 from src.data.components.symmetry import resolve_chirality
+from src.data.components.utils import get_adj_list, get_atom_types
 from src.evaluation.metrics.evaluate_peptide_data import evaluate_peptide_data
 
 MEAN_MIN_DIST_DICT = {

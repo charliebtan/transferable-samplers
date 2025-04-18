@@ -8,7 +8,7 @@ import numpy as np
 import torch
 import torchvision
 
-from src.data.components.data_preparation import (
+from src.data.components.data_prep import (
     build_lmdb,
     check_files,
     cross_reference_files,
@@ -172,18 +172,22 @@ class TetraPeptideDataModule(TransferablePeptideDataModule):
             Random3DRotationTransform(self.hparams.num_dimensions),
         ]
         if self.hparams.com_augmentation:
+            # Center of mass augmentation has std 1/sqrt(N) where N is the mean number of atoms
+            # in the system. This is the same center of mass std deviation as the prior.
             transform_list.append(
                 CenterOfMassTransform(
-                    1 / math.sqrt(MEAN_ATOMS_PER_AA * self.hparams.num_aa) / self.std,  # TODO check
+                    1 / math.sqrt(MEAN_ATOMS_PER_AA * self.hparams.num_aa),
                     self.hparams.num_dimensions,
                 )
             )
         if self.hparams.atom_noise_augmentation_factor:
+            # Mean min dist is the average min interatomic distance in the training data
+            # corresponding to a C-H bond. As this is in unnormalized scale we must
+            # divide by the std to get the correct scale for the noise.
+            # The atom noise augmentation factor is a scaling factor for the noise
             transform_list.append(
                 AtomNoiseTransform(
-                    self.hparams.atom_noise_augmentation_factor
-                    * train_metadata["mean_min_dist"]
-                    / self.std,  # TODO check
+                    self.hparams.atom_noise_augmentation_factor * train_metadata["mean_min_dist"] / self.std,
                 )
             )
         transform_list = transform_list + [

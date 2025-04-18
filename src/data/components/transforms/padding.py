@@ -31,9 +31,10 @@ class PaddingTransform(torch.nn.Module):
         assert len(x.shape) == 2, f"only process single molecules, got shape of {x.shape}"
         assert x.shape[1] == self.num_dimensions, f"expected {self.num_dimensions} dimensions, got {x.shape[1]}"
 
+        mask = self.create_mask(x)  # must make mask before padding!
+
         x = self.pad_data(x)
         encoding = self.pad_encoding(encoding)
-        mask = self.create_mask(x)
 
         return {
             **data,

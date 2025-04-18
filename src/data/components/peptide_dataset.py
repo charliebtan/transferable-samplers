@@ -15,7 +15,7 @@ class PeptideDataset(torch.utils.data.Dataset):
 
         # Read the length
         with self.env.begin() as txn:
-            self.length = pickle.loads(txn.get(b"__len__"))
+            self.length = pickle.loads(txn.get(b"__len__"))  # noqa: S301
 
         # TODO handle samples per seq
         # TODO handle num_sequences
@@ -26,7 +26,7 @@ class PeptideDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         with self.env.begin() as txn:
             key = f"{idx:08}".encode()
-            sample = pickle.loads(txn.get(key))
+            sample = pickle.loads(txn.get(key))  # noqa: S301
 
         if self.transform is not None:
             x = torch.tensor(sample["x"]).float()
