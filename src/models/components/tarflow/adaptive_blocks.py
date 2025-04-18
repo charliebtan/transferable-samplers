@@ -145,7 +145,7 @@ class MultiHeadAttentionADALN(nn.Module):
         )
         self.scale_output = AdaptiveLayerNormOutputScale(channels=channels, channels_cond=channels)
 
-    def forward(self, x, cond, mask, attn_mask, attn_temp: float = 1.0, which_cache: str = "cond"):
+    def forward(self, x, cond, mask, attn_mask, pair=None, attn_temp: float = 1.0, which_cache: str = "cond"):
         """
         Args:
             x: Input sequence representation, shape [b, n, channels]
@@ -159,7 +159,7 @@ class MultiHeadAttentionADALN(nn.Module):
         # Following exact scheme of proteina. Not adding conditioning to x
         # If cond were not None, then x = x + cond inside mha
         # Which we don't want as conditoning is applied through adaln and scale_output
-        x = self.mha(x, cond=None, mask=mask, attn_mask=attn_mask, attn_temp=attn_temp, which_cache=which_cache)
+        x = self.mha(x, cond=None, pair=pair, mask=mask, attn_mask=attn_mask, attn_temp=attn_temp, which_cache=which_cache)
         x = self.scale_output(x, cond, mask)
         return x * mask[..., None]  # [b, n, channels]
 
@@ -235,8 +235,8 @@ class AdaptiveAttnAndTransition(torch.nn.Module):
 
         self.transition = TransitionADALN(channels=channels, channels_cond=channels, expansion_factor=expansion)
 
-    def _apply_mha(self, x, cond, mask, attn_mask=None, attn_temp: float = 1.0, which_cache: str = "cond"):
-        x_attn = self.mha(x, cond=cond, mask=mask, attn_mask=attn_mask, attn_temp=attn_temp, which_cache=which_cache)
+    def _apply_mha(self, x, cond, mask, pair=None, attn_mask=None, attn_temp: float = 1.0, which_cache: str = "cond"):
+        x_attn = self.mha(x, cond=cond, pair=pair, mask=mask, attn_mask=attn_mask, attn_temp=attn_temp, which_cache=which_cache)
         if self.residual_mha:
             x_attn = x_attn + x
         return x_attn * mask[..., None]
@@ -247,7 +247,7 @@ class AdaptiveAttnAndTransition(torch.nn.Module):
             x_tr = x_tr + x
         return x_tr * mask[..., None]
 
-    def forward(self, x, cond, mask=None, attn_mask=None, attn_temp: float = 1.0, which_cache: str = "cond"):
+    def forward(self, x, cond, pair=None, mask=None, attn_mask=None, attn_temp: float = 1.0, which_cache: str = "cond"):
         """
         Args:
             x: Input sequence representation, shape [b, n, dim_token]
@@ -261,7 +261,7 @@ class AdaptiveAttnAndTransition(torch.nn.Module):
             mask = torch.ones(x.shape[:2], device=x.device, dtype=torch.bool)
 
         x = x * mask[..., None]
-        x = self._apply_mha(x, cond=cond, mask=mask, attn_mask=attn_mask, attn_temp=attn_temp, which_cache=which_cache)
+        x = self._apply_mha(x, cond=cond, pair=pair, mask=mask, attn_mask=attn_mask, attn_temp=attn_temp, which_cache=which_cache)
         x = self._apply_transition(x, cond, mask)
         return x * mask[..., None]
 

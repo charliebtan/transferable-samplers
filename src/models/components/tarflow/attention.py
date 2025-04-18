@@ -16,18 +16,18 @@ max_neg_value = lambda x: torch.finfo(x.dtype).min
 
 
 class Attention(torch.nn.Module):
-    USE_SPDA: bool = True
-
-    def __init__(self, in_channels: int, head_channels: int, use_qkln: bool = True, dropout: float = 0.0):
+    def __init__(self, in_channels: int, head_channels: int, use_pair_bias: bool = True, use_qkln: bool = True, dropout: float = 0.0):
         assert in_channels % head_channels == 0
         super().__init__()
         self.num_heads = in_channels // head_channels
         self.norm = torch.nn.LayerNorm(in_channels)
         self.qkv = torch.nn.Linear(in_channels, in_channels * 3)
         self.proj = torch.nn.Linear(in_channels, in_channels)
-        self.bias_proj = torch.nn.Linear(in_channels, self.num_heads, bias=False)
         # self.gate_proj = torch.nn.Linear(in_channels, in_channels)
-        self.pair_norm = torch.nn.LayerNorm(in_channels)
+        if use_pair_bias:
+            self.bias_proj = torch.nn.Linear(in_channels, self.num_heads, bias=False)
+            self.pair_norm = torch.nn.LayerNorm(in_channels)
+        
         self.sqrt_scale = head_channels ** (-0.25)
         self.sample = False
         self.dropout = dropout
@@ -37,8 +37,28 @@ class Attention(torch.nn.Module):
 
         self.k_cache: dict[str, list[torch.Tensor]] = {"cond": [], "uncond": []}
         self.v_cache: dict[str, list[torch.Tensor]] = {"cond": [], "uncond": []}
+        self.bias_cache: dict[str, list[torch.Tensor]] = {"cond": [], "uncond": []}
 
+    
+    def construct_bias(self, bias: torch.Tensor) -> torch.Tensor:
+        """Block diagonalizes list of bias tensors"""
 
+        if len(bias) == 1:
+            return bias[0][..., None]
+        
+        max_len = max([b.shape[-1] for b in bias])
+        B, H = bias[0].shape[:2]
+        pad = lambda x: torch.concat(
+            [x, torch.zeros((B, H, max_len - x.shape[-1]), device=x.device)], dim=-1
+        )
+        bias = list(map(lambda x: pad(x), bias))
+        bias = torch.stack(bias, dim=-1).reshape(B, H, max_len, max_len)
+        bias = bias * torch.tril(
+            torch.ones((max_len, max_len), device=bias.device), diagonal=0
+        ).reshape(1, 1, max_len, max_len)
+        bias = (bias + bias.permute(0, 1, 3, 2) )
+        return bias
+    
     def forward(
         self,
         x,
@@ -60,11 +80,15 @@ class Attention(torch.nn.Module):
             if exists(pair)
             else 0.
         )
-        
+
+        if not self.sample:
+            bias *= torch.tril(
+                torch.ones((bias.shape[-1], bias.shape[-1]), device=bias.device), diagonal=0
+            ).reshape(1, 1, bias.shape[-1], bias.shape[-1])
         # q, k, v, g = map(
         #     lambda t: rearrange(t, "b ... (h d) -> b h ... d", h=self.num_heads), (q, k, v, g)
         # )
-
+        
         q, k, v = map(
             lambda t: rearrange(t, "b ... (h d) -> b h ... d", h=self.num_heads), (q, k, v)
         )
@@ -72,8 +96,12 @@ class Attention(torch.nn.Module):
         if self.sample:
             self.k_cache[which_cache].append(k)
             self.v_cache[which_cache].append(v)
-            k = torch.cat(self.k_cache[which_cache], dim=1)
-            v = torch.cat(self.v_cache[which_cache], dim=1)
+            k = torch.cat(self.k_cache[which_cache], dim=2)
+            v = torch.cat(self.v_cache[which_cache], dim=2)
+            if exists(pair):
+                self.bias_cache[which_cache].append(bias)
+                bias = self.construct_bias(self.bias_cache[which_cache])
+                # breakpoint()
 
         x = self._attn(q, k, v, bias, mask, temp)
 
@@ -82,8 +110,6 @@ class Attention(torch.nn.Module):
         # This causes the output of the forward to NOT match the outputs of the other
         # forward attention functions (base and spda)
         # x = torch.sigmoid(g) * x
-        print(x.shape)
-        print(self.num_heads)
         x = rearrange(
             x, "b h n d -> b n (h d)", h=self.num_heads
         )     
@@ -95,14 +121,13 @@ class Attention(torch.nn.Module):
         scale = self.sqrt_scale**2 / temp
         sim = einsum("b h i d, b h j d -> b h i j", q, k) * scale
         if exists(mask):
-            mask = mask.type(torch.bool)
-            L, S = q.size(-2), k.size(-2)
-            attn_mask = torch.zeros(L, S, device=q.device, dtype=q.dtype)
-            attn_mask.masked_fill(~mask, float("-inf"))
-            sim += attn_mask
+            mask = mask.bool()
+            attn_mask = torch.zeros_like(mask, dtype=q.dtype)
+            attn_mask.masked_fill_(mask.logical_not(), max_neg_value(sim))
+            sim = (sim + attn_mask).float()
 
-        attn = torch.softmax(sim + bias, dim=-1)
-        attn = torch.dropout(attn, self.dropout, train=True)
+        attn = torch.softmax(sim + bias, dim=-1).type(sim.dtype)
+        attn = torch.dropout(attn, self.dropout, train=self.sample)
         return einsum("b h i j, b h j d -> b h i d", attn, v)
 
 
@@ -166,17 +191,17 @@ if __name__ == "__main__":
 
     x = torch.randn((128, 10, 128))
     mask = torch.tril(torch.ones((x.shape[1], x.shape[1]), dtype=torch.bool))
-    y = attn(x, mask)
+    y = attn(x, mask=mask)
 
     attn.USE_SPDA = False
-    z = attn(x, mask)
+    z = attn(x, mask=mask)
 
     error = (abs(y - z)).mean()
     print(f"Error between SPDA and base: {error}")
     assert torch.allclose(y, z, atol=1e-6), f"Error: {error}"
 
 
-    w = attn(x, mask=mask, use_proteina=True)
+    w = attn(x, mask=mask)
     assert not torch.isnan(w).any()
     assert not torch.isinf(w).any()
 
@@ -188,5 +213,7 @@ if __name__ == "__main__":
     assert torch.allclose(y, w, atol=1e-7)
 
     pair = torch.randn((128, 10, 10, 128))
-    w = attn(x, pair=pair, mask=mask, use_proteina=True)
+    w = attn(x, pair=pair, mask=mask)
     assert not torch.allclose(w, z)
+
+
