@@ -240,6 +240,11 @@ class TransferablePeptideDataModule(BaseDataModule):
             true_samples = npz_data["x"]
         else:
             raise ValueError("Invalid data format. Expected 'positions' or 'x' key in npz file.")
+
+        # WARNING - bit of a hack, prob bad to use same seed for all sequences
+        np.random.seed(0)  # Set a deterministic seed
+        true_samples = np.random.permutation(true_samples)[: self.hparams.num_eval_samples]
+
         true_samples = self.normalize(self.zero_center_of_mass(torch.tensor(true_samples).flatten(start_dim=1)))
         encoding = self.encoding_dict[val_sequence]
         potential = self.setup_potential(val_sequence)
