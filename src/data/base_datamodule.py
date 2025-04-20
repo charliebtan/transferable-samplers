@@ -98,6 +98,7 @@ class BaseDataModule(LightningDataModule):
         return x
 
     def center_of_mass(self, x: torch.Tensor) -> torch.Tensor:
+        assert len(x.shape) == 2, "Input should be 2D tensor"
         num_samples = x.shape[0]
         x = x.view(num_samples, -1, self.hparams.num_dimensions)
         com = x.mean(axis=1)
@@ -106,6 +107,7 @@ class BaseDataModule(LightningDataModule):
     def normalize(self, x):
         assert self.std is not None, "Standard deviation should be computed first"
         assert self.std.numel() == 1, "Standard deviation should be scalar"
+        assert len(x.shape) == 2, "Input should be 2D tensor"
         num_samples = x.shape[0]
         x = x.view(num_samples, -1, self.hparams.num_dimensions)
         x = x - x.mean(axis=1, keepdims=True)
@@ -116,6 +118,7 @@ class BaseDataModule(LightningDataModule):
     def unnormalize(self, x):
         assert self.std is not None, "Standard deviation should be computed first"
         assert self.std.numel() == 1, "Standard deviation should be scalar"
+        assert len(x.shape) == 2, "Input should be 2D tensor"
         x = x * self.std.to(x)
         return x
 

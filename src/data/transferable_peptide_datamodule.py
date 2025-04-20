@@ -135,6 +135,15 @@ class TransferablePeptideDataModule(BaseDataModule):
         train_metadata = load_lmdb_metadata(self.train_data_path + "/seq.lmdb")
         val_metadata = load_lmdb_metadata(self.val_data_path + "/seq.lmdb")
 
+        train_mean_min_dist = train_metadata["mean_min_dist"]
+        val_mean_min_dist = val_metadata["mean_min_dist"]
+
+        assert math.isclose(
+            train_mean_min_dist,
+            val_mean_min_dist,
+            rel_tol=1e-2,
+        ), "Raw data scaling is probably wrong. Train and val data should have similar mean min dist."
+
         train_max_num_particles = train_metadata["max_num_particles"]
         val_max_num_particles = val_metadata["max_num_particles"]
 
@@ -245,10 +254,16 @@ class TransferablePeptideDataModule(BaseDataModule):
         np.random.seed(0)  # Set a deterministic seed
         true_samples = np.random.permutation(true_samples)[: self.hparams.num_eval_samples]
 
-        true_samples = self.normalize(self.zero_center_of_mass(torch.tensor(true_samples).flatten(start_dim=1)))
+        true_samples = torch.tensor(true_samples).reshape(
+            true_samples.shape[0],
+            -1,
+        )
+
+        true_samples = self.normalize(true_samples)
+
         encoding = self.encoding_dict[val_sequence]
         potential = self.setup_potential(val_sequence)
-        energy_fn = lambda x: potential.energy(x).flatten()
+        energy_fn = lambda x: potential.energy(self.unnormalize(x)).flatten()
         return true_samples, encoding, energy_fn
 
     def metrics_and_plots(

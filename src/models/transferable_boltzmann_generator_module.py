@@ -299,6 +299,11 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         Also computes metrics, through the datamodule function "metrics_and_plots".
         """
 
+        true_data = SamplesData(
+            self.datamodule.as_pointcloud(self.datamodule.unnormalize(true_samples)),
+            energy_fn(true_samples),
+        )
+
         # Define proposal generator
         if proposal_generator is None:
             proposal_generator = self.batched_generate_samples
@@ -309,11 +314,6 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             num_proposal_samples = self.hparams.sampling_config.num_test_proposal_samples
         else:
             num_proposal_samples = self.hparams.sampling_config.num_proposal_samples
-
-        true_data = SamplesData(
-            self.datamodule.as_pointcloud(self.datamodule.unnormalize(true_samples)),
-            energy_fn(true_samples),
-        )
 
         # Generate samples and record time
         torch.cuda.synchronize()
