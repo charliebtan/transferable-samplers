@@ -121,7 +121,6 @@ def build_lmdb(
     pdb_paths_dict = {}
 
     global_idx = 0
-    done = False
     for npz_path in tqdm(npz_paths, desc="Building LMBD"):
         seq_name = os.path.basename(npz_path).split("-")[0]
 
@@ -170,12 +169,6 @@ def build_lmdb(
                 # commit the current batch
                 txn.commit()
                 txn = env.begin(write=True)
-                # TODO remove!!
-                done = True
-                break
-
-        if done:
-            break
 
     total_num_samples = global_idx
     std = torch.sqrt(torch.sum(torch.tensor(weighted_vars)) / total_num_samples)
