@@ -134,12 +134,10 @@ class MultiHeadAttentionADALN(nn.Module):
         use_pair_bias: bool = True,
         dropout: float = 0.0,
         expansion: int = 4,
-        sample: bool = False,
     ):
         super().__init__()
 
         assert channels % head_channels == 0, "in_channels must be divisible by head_channels"
-        self.sample = sample
         self.adaln = AdaptiveLayerNorm(channels=channels, channels_cond=channels)
         self.mha = AttentionBlock(
             channels=channels,
@@ -225,14 +223,12 @@ class AdaptiveAttnAndTransition(torch.nn.Module):
         use_pair_bias: bool = True,
         dropout=0.0,
         expansion=4,
-        sample: bool = False,
     ):
         super().__init__()
 
         assert channels % head_channels == 0, "in_channels must be divisible by head_dim"
         self.residual_mha = residual_mha
         self.residual_transition = residual_transition
-        self.sample = sample
 
         self.mha = MultiHeadAttentionADALN(
             channels=channels,
