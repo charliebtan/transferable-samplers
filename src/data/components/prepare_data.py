@@ -2,7 +2,6 @@ import logging
 import os
 import pickle
 
-import huggingface_hub
 import lmdb
 import mdtraj as md
 import numpy as np
@@ -13,25 +12,7 @@ from tqdm import tqdm
 from src.evaluation.plots.plot_atom_distances import interatomic_dist  # TODO move this
 
 
-def download_data(huggingface_repo_id: str, huggingface_data_dir: str, local_dir: str) -> None:
-    """
-    Downloads a dat repo from a Hugging Face repository.
-
-    Args:
-        huggingface_repo_id (str): The ID of the Hugging Face repository.
-        huggingface_data_dir (str): The directory in the repository containing the data.
-        local_dir (str): The local directory to save the downloaded data.
-    """
-    huggingface_hub.snapshot_download(
-        repo_id=huggingface_repo_id,
-        repo_type="dataset",
-        allow_patterns=f"{huggingface_data_dir}/*",
-        local_dir=local_dir,
-        max_workers=4,
-    )
-
-
-def check_files(data_dir: str) -> tuple[list[str], list[str]]:
+def check_and_get_files(data_dir: str) -> tuple[list[str], list[str]]:
     """
     Checks for matching .npz and .pdb files in the given directory.
 
@@ -75,15 +56,16 @@ def cross_reference_files(train_npz_paths: list[str], val_npz_paths: list[str]) 
     """
     train_sequences = [os.path.basename(path).split("-")[0] for path in train_npz_paths]
     val_sequences = [os.path.basename(path).split("-")[0] for path in val_npz_paths]
-
     common_keys = set(train_sequences).intersection(set(val_sequences))
     assert len(common_keys) == 0, f"Common keys found between train and val data dict: {common_keys}"
 
 
+@torch.no_grad()
 def build_lmdb(
     npz_paths: list[str],
     pdb_paths: list[str],
     lmdb_path: str,
+    subset: dict[str, list[int]] = None,  # {seq_name: random_seed}
     map_size: int = 1 << 40,
     batch_size: int = 10 * 50_000,
 ) -> None:
@@ -119,15 +101,30 @@ def build_lmdb(
     num_particles_dict = {}
     npz_paths_dict = {}
     pdb_paths_dict = {}
+    index_dict = {}
 
     global_idx = 0
     for npz_path in tqdm(npz_paths, desc="Building LMBD"):
         seq_name = os.path.basename(npz_path).split("-")[0]
 
+        if subset is not None:
+            if seq_name not in subset.keys():
+                # avoids adding all the extra ones we're not going to use
+                logging.info(f"Sequence {seq_name} not found in subset, skipping")
+                continue
+
         with np.load(npz_path, allow_pickle=False) as data:
             x = data["positions"]  # shape (N, num_particles, num_dimensions)
 
+        if len(seq_name) == 2:
+            x = x / 30.0  # 2AA is currently scaled wrong in the files
+
         assert len(x.shape) == 3, f"Expected 3D array, got {x.shape}"
+
+        if subset is not None:
+            # draw a deterministic random subset of 10k samples
+            np.random.seed(subset[seq_name])
+            x = x[np.random.choice(x.shape[0], size=10_000, replace=False)]
 
         num_samples, num_particles, _ = x.shape
 
@@ -138,9 +135,12 @@ def build_lmdb(
         x_tensor = torch.from_numpy(x).to("cuda:0")  # move to GPU
 
         # Compute mean min dist
+        # TODO just move towards using a predefined value for the covalent bond
+        # and add an assertion to check that the mean min dist is within a certain range
         dists = interatomic_dist(x_tensor, flatten=False)
         mean_min_dist = dists.min(dim=1)[0].mean()
         mean_min_dists.append(mean_min_dist)
+        logging.info(f"{seq_name}: Mean min dist: {mean_min_dist}")
 
         # Compute std
         x_tensor = x_tensor - x_tensor.mean(dim=1, keepdim=True)  # Center for std computation
@@ -150,10 +150,11 @@ def build_lmdb(
         assert seq_name not in num_samples_dict.keys(), f"Duplicate sequence name {seq_name} found in {npz_path}"
         assert npz_path.replace("-traj-arrays.npz", "-traj-state0.pdb") in pdb_paths
 
-        num_samples_dict[seq_name] = num_samples
-        num_particles_dict[seq_name] = num_particles
+        num_samples_dict[seq_name] = int(num_samples)
+        num_particles_dict[seq_name] = int(num_particles)
         npz_paths_dict[seq_name] = npz_path
         pdb_paths_dict[seq_name] = npz_path.replace("-traj-arrays.npz", "-traj-state0.pdb")
+        index_dict[seq_name] = []
 
         for pos_idx in range(x.shape[0]):
             # Add a sample to the LMDB batch
@@ -163,6 +164,7 @@ def build_lmdb(
             value = pickle.dumps(sample)
             txn.put(key, value)
 
+            index_dict[seq_name].append(global_idx)
             global_idx += 1
 
             if global_idx % batch_size == 0:
@@ -170,9 +172,11 @@ def build_lmdb(
                 txn.commit()
                 txn = env.begin(write=True)
 
+        index_dict[seq_name] = np.array(index_dict[seq_name], dtype=np.int64)
+
     total_num_samples = global_idx
-    std = torch.sqrt(torch.sum(torch.tensor(weighted_vars)) / total_num_samples)
-    mean_min_dist = torch.mean(torch.tensor(mean_min_dists))
+    std = torch.sqrt(torch.sum(torch.tensor(weighted_vars)) / total_num_samples).item()
+    mean_min_dist = torch.mean(torch.tensor(mean_min_dists)).item()
 
     metadata = {
         "total_num_samples": total_num_samples,
@@ -184,6 +188,7 @@ def build_lmdb(
         "num_particles": num_particles_dict,
         "pdb_paths": pdb_paths_dict,
         "npz_paths": npz_paths_dict,
+        "index": index_dict,
     }
 
     txn.put(b"__meta__", pickle.dumps(metadata))  # store metadata
@@ -218,7 +223,7 @@ def load_lmdb_metadata(lmdb_path: str, key: bytes = b"__meta__") -> dict:
 
 
 def load_pdbs_and_topologies(
-    pdb_paths: list[str], num_aa: int
+    pdb_paths: list[str], num_aa_range: int
 ) -> tuple[dict[str, openmm.app.PDBFile], dict[str, md.Topology]]:
     """
     Loads PDB files and their topologies.
@@ -243,7 +248,7 @@ def load_pdbs_and_topologies(
         topology = md.load_topology(path)
 
         assert len(list(pdb.topology.chains())) == 1, "Only single chain PDBs are supported"
-        assert len(list(pdb.topology.residues())) == num_aa, "PDB does not match the number of amino acids"
+        assert len(list(pdb.topology.residues())) in num_aa_range, "PDB does not match the number of amino acids"
 
         pdb_dict[seq] = pdb
         topology_dict[seq] = topology

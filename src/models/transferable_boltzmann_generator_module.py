@@ -273,7 +273,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
 
     def evaluate_all(self, prefix):
         metrics = {}
-        for val_sequence in self.datamodule.val_npz_paths.keys():
+        for val_sequence in self.datamodule.val_sequences:
             true_samples, encoding, energy_fn = self.datamodule.prepare_eval(val_sequence)
             logging.info(f"Evaluating {val_sequence} samples")
             metrics.update(

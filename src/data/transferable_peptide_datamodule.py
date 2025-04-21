@@ -1,10 +1,8 @@
 import logging
 import math
 import os
-import shutil
 from typing import Any, Callable, Optional
 
-import numpy as np
 import openmm
 import openmm.app
 import torch
@@ -17,9 +15,8 @@ from src.data.components.encoding import get_encoding_dict
 from src.data.components.peptide_dataset import PeptideDataset
 from src.data.components.prepare_data import (
     build_lmdb,
-    check_files,
+    check_and_get_files,
     cross_reference_files,
-    download_data,
     load_lmdb_metadata,
     load_pdbs_and_topologies,
 )
@@ -30,6 +27,7 @@ from src.data.components.transforms.center_of_mass import CenterOfMassTransform
 from src.data.components.transforms.padding import PaddingTransform
 from src.data.components.transforms.rotation import Random3DRotationTransform
 from src.data.components.transforms.standardize import StandardizeTransform
+from src.data.components.validation_subset import VALIDATION_SUBSET_MIXED
 from src.evaluation.metrics.evaluate_peptide_data import evaluate_peptide_data
 
 MEAN_ATOMS_PER_AA = 17.67
@@ -39,17 +37,14 @@ class TransferablePeptideDataModule(BaseDataModule):
     def __init__(
         self,
         data_dir: str,
-        huggingface_repo_id: str,
-        huggingface_train_data_dir: str,
-        huggingface_val_data_dir: str,
-        num_aa: int,
+        num_aa_max: int,
+        num_aa_min: int,
         num_dimensions: int,
         num_particles: int,
         dim: int,  # dim of largest system
         com_augmentation: bool = False,
         atom_noise_augmentation_factor: float = 0.0,
         # TODO maybe make this all just *args?
-        num_samples_per_seq: int = 10_000,
         batch_size: int = 64,
         num_workers: int = 0,
         pin_memory: bool = False,
@@ -64,6 +59,12 @@ class TransferablePeptideDataModule(BaseDataModule):
         self.train_data_path = f"{self.hparams.data_dir}/train"
         self.val_data_path = f"{self.hparams.data_dir}/val"
 
+        # TODO move to data_dir
+        self.train_lmdb_path = f"{self.train_data_path}/train.lmdb"
+        self.val_lmdb_path = f"{self.val_data_path}/val.lmdb"
+
+        self.num_aa_range = list(range(num_aa_min, num_aa_max + 1))
+
     def prepare_data(self) -> None:
         """Download data if needed. Lightning ensures that `self.prepare_data()` is called only
         within a single process on CPU, so you can safely add your downloading logic within. In
@@ -73,45 +74,33 @@ class TransferablePeptideDataModule(BaseDataModule):
         Do not use it to assign state (self.x = y).
         """
 
-        os.makedirs(self.hparams.data_dir, exist_ok=True)
-
-        download_data(
-            huggingface_repo_id=self.hparams.huggingface_repo_id,
-            huggingface_data_dir=self.hparams.huggingface_train_data_dir,
-            local_dir=self.train_data_path,
-        )
-        download_data(
-            huggingface_repo_id=self.hparams.huggingface_repo_id,
-            huggingface_data_dir=self.hparams.huggingface_val_data_dir,
-            local_dir=self.val_data_path,
-        )
-
-        train_npz_paths, train_pdb_paths = check_files(self.train_data_path + "/4AA-large/train")
-        val_npz_paths, val_pdb_paths = check_files(self.val_data_path + "/4AA-large/val")
+        train_npz_paths, train_pdb_paths = check_and_get_files(self.train_data_path)
+        val_npz_paths, val_pdb_paths = check_and_get_files(self.val_data_path)
 
         cross_reference_files(train_npz_paths, val_npz_paths)
 
-        if os.path.exists(self.train_data_path + "/seq.lmdb"):
-            shutil.rmtree(self.train_data_path + "/seq.lmdb")
-        if not os.path.exists(self.train_data_path + "/4AA-large/train/seq.lmdb"):
+        # if os.path.exists(self.train_lmdb_path):
+        #     shutil.rmtree(self.train_lmdb_path)
+        if not os.path.exists(self.train_lmdb_path):
             build_lmdb(
                 train_npz_paths,
                 train_pdb_paths,
-                lmdb_path=self.train_data_path + "/seq.lmdb",
+                lmdb_path=self.train_lmdb_path,
             )
         else:
-            logging.info(f"LMDB file {self.train_data_path}/seq.lmdb already exists, skipping LMDB creation")
+            logging.info(f"LMDB file {self.train_lmdb_path} already exists, skipping LMDB creation")
 
-        if os.path.exists(self.val_data_path + "/seq.lmdb"):
-            shutil.rmtree(self.val_data_path + "/seq.lmdb")
-        if not os.path.exists(self.val_data_path + "/4AA-large/val/seq.lmdb"):
+        # if os.path.exists(self.val_lmdb_path):
+        #     shutil.rmtree(self.val_lmdb_path)
+        if not os.path.exists(self.val_lmdb_path):
             build_lmdb(
                 val_npz_paths,
                 val_pdb_paths,
-                lmdb_path=self.val_data_path + "/seq.lmdb",
+                subset=VALIDATION_SUBSET_MIXED,
+                lmdb_path=self.val_lmdb_path,
             )
         else:
-            logging.info(f"LMDB file {self.val_data_path}/seq.lmdb already exists, skipping LMDB creation")
+            logging.info(f"LMDB file {self.val_lmdb_path} already exists, skipping LMDB creation")
 
     def setup(self, stage: Optional[str] = None) -> None:
         """Load data. Set variables: `self.data_train`, `self.data_val`, `self.data_test`.
@@ -132,8 +121,8 @@ class TransferablePeptideDataModule(BaseDataModule):
                 )
             self.batch_size_per_device = self.hparams.batch_size // self.trainer.world_size
 
-        train_metadata = load_lmdb_metadata(self.train_data_path + "/seq.lmdb")
-        val_metadata = load_lmdb_metadata(self.val_data_path + "/seq.lmdb")
+        train_metadata = load_lmdb_metadata(self.train_lmdb_path)
+        val_metadata = load_lmdb_metadata(self.val_lmdb_path)
 
         train_mean_min_dist = train_metadata["mean_min_dist"]
         val_mean_min_dist = val_metadata["mean_min_dist"]
@@ -147,8 +136,6 @@ class TransferablePeptideDataModule(BaseDataModule):
         train_max_num_particles = train_metadata["max_num_particles"]
         val_max_num_particles = val_metadata["max_num_particles"]
 
-        self.std = torch.tensor(train_metadata["std"])  # train data std used for standardization
-
         assert train_max_num_particles >= val_max_num_particles, (
             "Train largest system must be greater than or equal to val largest system for pos_embed learning."
         )
@@ -159,10 +146,11 @@ class TransferablePeptideDataModule(BaseDataModule):
             + f"to {train_max_num_particles + 1}."
         )
 
+        self.val_sequences = list(val_metadata["num_samples"].keys())
+        self.std = torch.tensor(train_metadata["std"])  # train data std used for standardization
+
         pdb_paths = [*train_metadata["pdb_paths"].values(), *val_metadata["pdb_paths"].values()]
-
-        self.pdb_dict, self.topology_dict = load_pdbs_and_topologies(pdb_paths, self.hparams.num_aa)
-
+        self.pdb_dict, self.topology_dict = load_pdbs_and_topologies(pdb_paths, self.num_aa_range)
         self.encoding_dict = get_encoding_dict(self.topology_dict)
 
         transform_list = [
@@ -174,7 +162,7 @@ class TransferablePeptideDataModule(BaseDataModule):
             # in the system. This is the same center of mass std deviation as the prior.
             transform_list.append(
                 CenterOfMassTransform(
-                    1 / math.sqrt(MEAN_ATOMS_PER_AA * self.hparams.num_aa),
+                    1 / math.sqrt(MEAN_ATOMS_PER_AA * self.hparams.num_aa_max),  # TODO using max?
                     self.hparams.num_dimensions,
                 )
             )
@@ -196,24 +184,16 @@ class TransferablePeptideDataModule(BaseDataModule):
         transforms = torchvision.transforms.Compose(transform_list)
 
         self.data_train = PeptideDataset(
-            self.train_data_path + "/seq.lmdb",
+            self.train_lmdb_path,
             num_dimensions=self.hparams.num_dimensions,
             transform=transforms,
         )
 
         self.data_val = PeptideDataset(
-            self.val_data_path + "/seq.lmdb",
+            self.val_lmdb_path,
             num_dimensions=self.hparams.num_dimensions,
             transform=transforms,
         )
-
-        # TODO prob need a more stable way of doing this - maybe just reading from a list?
-        val_sequences = list(val_metadata["num_samples"].keys())
-        np.random.seed(0)  # Set a deterministic seed
-        np.random.shuffle(val_sequences)
-        self.val_sequences = val_sequences[: self.hparams.num_val_sequences]
-
-        self.val_npz_paths = {k: val_metadata["npz_paths"][k] for k in self.val_sequences}
 
     def setup_potential(self, val_sequence: str):
         forcefield = openmm.app.ForceField("amber14-all.xml", "implicit/obc1.xml")
@@ -242,17 +222,11 @@ class TransferablePeptideDataModule(BaseDataModule):
         return potential
 
     def prepare_eval(self, val_sequence: str):
-        npz_data = np.load(self.val_npz_paths[val_sequence], allow_pickle=True)
-        if "positions" in npz_data:
-            true_samples = npz_data["positions"]
-        elif "x" in npz_data:
-            true_samples = npz_data["x"]
-        else:
-            raise ValueError("Invalid data format. Expected 'positions' or 'x' key in npz file.")
+        true_samples = self.data_val.get_seq_data(val_sequence)
 
-        # WARNING - bit of a hack, prob bad to use same seed for all sequences
-        np.random.seed(0)  # Set a deterministic seed
-        true_samples = np.random.permutation(true_samples)[: self.hparams.num_eval_samples]
+        # TODO can this be handle better? in the lmdb?
+        # how to do nice plots? - i suppose plots will be a more rare occasion
+        true_samples = true_samples[: self.hparams.num_eval_samples]
 
         true_samples = torch.tensor(true_samples).reshape(
             true_samples.shape[0],
