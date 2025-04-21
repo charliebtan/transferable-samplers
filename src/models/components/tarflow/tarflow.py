@@ -442,13 +442,13 @@ def test_invertibility(model, x, encodings, mask=None, num_pad_tokens=4, num_dim
     # Helpful prints for debugging
     # I often found it's clear that source of error is a few token positions
 
-    print()
-    print(x[0, 0:8])
-    print(x_recon[0, 0:8])
-    print("mae:", torch.abs(x - x_recon).mean())
-    print("mse:", torch.mean((x - x_recon) ** 2))
-    print("max abs:", torch.max(abs(x - x_recon)))
-    print("position wise MAE", torch.abs(x - x_recon).mean(dim=0))
+    # print()
+    # print(x[0, 0:8])
+    # print(x_recon[0, 0:8])
+    # print("mae:", torch.abs(x - x_recon).mean())
+    # print("mse:", torch.mean((x - x_recon) ** 2))
+    # print("max abs:", torch.max(abs(x - x_recon)))
+    # print("position wise MAE", torch.abs(x - x_recon).mean(dim=0))
 
     assert torch.allclose(x, x_recon, atol=1e-6), "Invertibility test failed"
     print("Invertibility test passed")
