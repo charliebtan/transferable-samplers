@@ -1,6 +1,7 @@
 import torch
-from torch import einsum
 from einops import rearrange
+from torch import einsum
+
 
 def exists(val) -> bool:
     """returns whether val is not none"""
@@ -17,12 +18,12 @@ max_neg_value = lambda x: torch.finfo(x.dtype).min
 
 class Attention(torch.nn.Module):
     def __init__(
-            self, 
-            in_channels: int, 
-            head_channels: int, 
-            use_pair_bias: bool = True, 
-            use_qkln: bool = True,
-            dropout: float = 0.0
+        self,
+        in_channels: int,
+        head_channels: int,
+        use_pair_bias: bool = True,
+        use_qkln: bool = True,
+        dropout: float = 0.0,
     ):
         assert in_channels % head_channels == 0
         super().__init__()
@@ -34,7 +35,7 @@ class Attention(torch.nn.Module):
         if use_pair_bias:
             self.bias_proj = torch.nn.Linear(in_channels, self.num_heads, bias=False)
             self.pair_norm = torch.nn.LayerNorm(in_channels)
-        
+
         self.sqrt_scale = head_channels ** (-0.25)
         self.sample = False
         self.dropout = dropout
@@ -52,33 +53,25 @@ class Attention(torch.nn.Module):
         pair: torch.Tensor | None = None,
         mask: torch.Tensor | None = None,
         temp: float = 1.0,
-        which_cache: str = "cond"
+        which_cache: str = "cond",
     ):
         if self.use_pair_bias and exists(pair) is None:
-            raise ValueError(
-                "pair must be provided if use_pair_bias is True"
-            )
+            raise ValueError("pair must be provided if use_pair_bias is True")
         x = self.norm(x.float()).type(x.dtype)
         pair = self.pair_norm(pair) if exists(pair) else None
         q, k, v = self.qkv(x).chunk(3, dim=-1)
         q = self.q_layer_norm(q)
         k = self.k_layer_norm(k)
-        
-        bias = (
-            rearrange(self.bias_proj(pair), "b ... h -> b h ...")
-            if (exists(pair) and self.use_pair_bias)
-            else 0.
-        )
-        
-        q, k, v = map(
-            lambda t: rearrange(t, "b ... (h d) -> b h ... d", h=self.num_heads), (q, k, v)
-        )
+
+        bias = rearrange(self.bias_proj(pair), "b ... h -> b h ...") if (exists(pair) and self.use_pair_bias) else 0.0
+
+        q, k, v = map(lambda t: rearrange(t, "b ... (h d) -> b h ... d", h=self.num_heads), (q, k, v))
         if self.sample:
             self.k_cache[which_cache].append(k)
             self.v_cache[which_cache].append(v)
             k = torch.cat(self.k_cache[which_cache], dim=2)
             v = torch.cat(self.v_cache[which_cache], dim=2)
-        
+
         x = self._attn(q, k, v, bias, mask, temp)
 
         # I don't know why there is a sigmoid here in original proteina.
@@ -86,13 +79,11 @@ class Attention(torch.nn.Module):
         # This causes the output of the forward to NOT match the outputs of the other
         # forward attention functions (base and spda)
         # x = torch.sigmoid(g) * x
-        x = rearrange(
-            x, "b h n d -> b n (h d)", h=self.num_heads
-        )     
+        x = rearrange(x, "b h n d -> b n (h d)", h=self.num_heads)
         x = self.proj(x)
-        return x 
+        return x
 
-    def _attn(self, q, k, v, bias, mask: torch.Tensor | None = None, temp: float= 1.0):
+    def _attn(self, q, k, v, bias, mask: torch.Tensor | None = None, temp: float = 1.0):
         """Perform attention update"""
         scale = self.sqrt_scale**2 / temp
         sim = einsum("b h i d, b h j d -> b h i j", q, k) * scale
@@ -134,11 +125,11 @@ class AttentionBlock(torch.nn.Module):
     ):
         super().__init__()
         self.attention = Attention(
-            in_channels=channels, 
-            head_channels=head_channels, 
-            use_pair_bias=use_pair_bias, 
-            use_qkln=use_qkln, 
-            dropout=dropout
+            in_channels=channels,
+            head_channels=head_channels,
+            use_pair_bias=use_pair_bias,
+            use_qkln=use_qkln,
+            dropout=dropout,
         )
 
         self.mlp = MLP(channels, expansion)
@@ -155,7 +146,7 @@ class AttentionBlock(torch.nn.Module):
     ) -> torch.Tensor:
         if mask is None:
             mask = torch.ones(x.shape[:2], device=x.device, dtype=torch.bool)
-            
+
         if cond is not None:
             x = x + cond
 
@@ -185,12 +176,11 @@ if __name__ == "__main__":
     print(f"Error between SPDA and base: {error}")
     assert torch.allclose(y, z, atol=1e-6), f"Error: {error}"
 
-
     w = attn(x, mask=mask)
     assert not torch.isnan(w).any()
     assert not torch.isinf(w).any()
 
-    error_base_pro = (abs(z - w).mean())
+    error_base_pro = abs(z - w).mean()
     error_spda_pro = (abs(y - w)).mean()
     print(f"Error between proteina and base: {error_base_pro}")
     print(f"Error between proteina and SPDA: {error_spda_pro}")
@@ -200,5 +190,3 @@ if __name__ == "__main__":
     pair = torch.randn((128, 10, 10, 128))
     w = attn(x, pair=pair, mask=mask)
     assert not torch.allclose(w, z)
-
-

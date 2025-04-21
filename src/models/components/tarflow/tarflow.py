@@ -71,14 +71,15 @@ class MetaBlock(torch.nn.Module):
         self.attn_blocks = torch.nn.ModuleList(
             [
                 attn_block(
-                    channels=channels, 
-                    head_channels=head_dim, 
+                    channels=channels,
+                    head_channels=head_dim,
                     expansion=expansion,
                     use_qkln=use_qkln,
                     use_pair_bias=use_pair_bias,
                     dropout=dropout,
                 )
-                    for _ in range(num_layers)]
+                for _ in range(num_layers)
+            ]
         )
 
         self.nvp = nvp
@@ -131,7 +132,7 @@ class MetaBlock(torch.nn.Module):
             else:
                 # mask out first columns
                 attn_mask = attn_mask * mask[..., None].permute(0, 2, 1)
-            
+
             attn_mask = attn_mask.unsqueeze(1)
 
         attn_mask = attn_mask[..., : x.shape[1], : x.shape[1]]
@@ -179,24 +180,17 @@ class MetaBlock(torch.nn.Module):
         if cond is not None:
             cond_in = cond[:, i : i + 1]
             cond_emb = self.proj_cond(cond_in)
-        
-                
+
         pair_emb = None
         if self.use_pair_bias:
             # pairwise distance row
-            dist_matrix = torch.cdist(x_in[:, :i+1], x_in[:, :i+1])[..., None]
-            dist_row = dist_matrix[:, i : i +1]
+            dist_matrix = torch.cdist(x_in[:, : i + 1], x_in[:, : i + 1])[..., None]
+            dist_row = dist_matrix[:, i : i + 1]
             pair_emb = self.pair_proj(dist_row)
 
         for block in self.attn_blocks:
             x = block(
-                x, 
-                cond=cond_emb, 
-                pair=pair_emb, 
-                mask=None, 
-                attn_mask=None, 
-                attn_temp=attn_temp, 
-                which_cache=which_cache
+                x, cond=cond_emb, pair=pair_emb, mask=None, attn_mask=None, attn_temp=attn_temp, which_cache=which_cache
             )  # here we use kv caching, so no attn_mask
 
         x = self.proj_out(x)
@@ -461,7 +455,6 @@ def test_invertibility(model, x, encodings, mask=None, num_pad_tokens=4, num_dim
 
 
 def test_mask_model(model, x, encodings, model_pad, x_pad, encodings_pad, mask):
-
     x_fwd, _ = model(x, encodings=encodings)
     x_fwd_pad, _ = model_pad(x_pad, encodings=encodings_pad, mask=mask)
 
@@ -603,7 +596,9 @@ if __name__ == "__main__":
             test_invertibility(model, x, encodings)  # test invertibility of the original model
 
             print("\npad + mask")
-            test_mask_model(model, x, encodings, model_pad, x_pad, encodings_pad, mask)  # test forward of the padded model
+            test_mask_model(
+                model, x, encodings, model_pad, x_pad, encodings_pad, mask
+            )  # test forward of the padded model
             test_invertibility(model_pad, x_pad, encodings_pad, mask)  # test invertibility of the padded model
 
             print("\npad model with non-pad data")
