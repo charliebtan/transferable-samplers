@@ -419,8 +419,6 @@ def load_padded_model_weights(model_pad, model):
 
 @torch.no_grad()
 def test_invertibility(model, x, encodings, mask=None, num_pad_tokens=4, num_dimensions=3):
-    x = x.reshape(batch_size, -1, in_channels)  # reshape to (batch, seq_len, channels)
-    x = x.reshape(batch_size, -1)  # reshape back to original shape
     x_pred, _ = model(x, encodings=encodings, mask=mask)
 
     if mask is not None:
