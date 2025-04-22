@@ -1,8 +1,10 @@
 import logging
+import math
 import os
 import pickle
 
 import lmdb
+import lz4
 import mdtraj as md
 import numpy as np
 import openmm.app
@@ -66,8 +68,8 @@ def build_lmdb(
     pdb_paths: list[str],
     lmdb_path: str,
     subset: dict[str, list[int]] = None,  # {seq_name: random_seed}
-    map_size: int = 1 << 40,
-    batch_size: int = 10 * 50_000,
+    map_size: int = 3 * (1 << 40),
+    resume: bool = False,
 ) -> None:
     """
     Builds an LMDB file from the given .npz and .pdb data.
@@ -76,35 +78,43 @@ def build_lmdb(
         npz_paths (List[str]): List of .npz file paths.
         pdb_paths (List[str]): List of .pdb file paths.
         lmdb_path (str): Path to save the LMDB file.
-        map_size (int, optional): Maximum size of the LMDB file. Defaults to 1 << 40.
-        batch_size (int, optional): Number of samples per batch. Defaults to 10 * 50_000.
+        subset (Dict[str, list[int]], optional): Dict of sequence names and random seeds for sampling. Defaults to None.
+        map_size (int, optional): Maximum size of the LMDB file. Defaults to 3 * (1 << 40).
+        resume (bool, optional): Whether to resume from an existing LMDB file. Defaults to False.
     """
-    if os.path.exists(lmdb_path):
+    if os.path.exists(lmdb_path) and not resume:
         logging.warning(f"LMDB file {lmdb_path} already exists, skipping LMDB creation")
         return
+    assert not (not os.path.exists(lmdb_path) and resume), "LMDB file does not exist, cannot resume"
 
-    # Ensure GPU is available
+    # Ensure GPU is available - TODO is it actually faster?
     assert torch.cuda.is_available(), "GPU is required for data preprocessing - slow otherwise!"
 
-    env = lmdb.open(lmdb_path, map_size=map_size)
+    # Was getting an error trying to create the LMDB file with a map size larger than 1TB
+    env = lmdb.open(lmdb_path, map_size=min(map_size, 1 << 40), writemap=True)
+    env.set_mapsize(map_size)  # Set the map size to the full size after creation
     txn = env.begin(write=True)
-    txn.put(b"__len__", pickle.dumps(len(npz_paths)))
 
-    # Global metadata
-    min_num_particles = float("inf")
-    max_num_particles = 0
-    weighted_vars = []
-    mean_min_dists = []
+    if not resume:
+        metadata = {
+            "total_num_samples": 0,
+            "min_num_particles": float("inf"),
+            "max_num_particles": 0,
+            "weighted_vars": {},
+            "num_samples": {},
+            "num_particles": {},
+            "pdb_paths": {},
+            "npz_paths": {},
+            "seq_idx": {},
+        }
+    else:
+        metadata = load_lmdb_metadata(lmdb_path)
 
-    # Sequence metadata
-    num_samples_dict = {}
-    num_particles_dict = {}
-    npz_paths_dict = {}
-    pdb_paths_dict = {}
-    index_dict = {}
+    np.random.seed(0)
+    np.random.shuffle(npz_paths)  # shuffle the npz files for more even timing estimate
 
     global_idx = 0
-    for npz_path in tqdm(npz_paths, desc="Building LMBD"):
+    for seq_idx, npz_path in enumerate(tqdm(npz_paths, desc="Building LMDB")):
         seq_name = os.path.basename(npz_path).split("-")[0]
 
         if subset is not None:
@@ -112,6 +122,13 @@ def build_lmdb(
                 # avoids adding all the extra ones we're not going to use
                 logging.info(f"Sequence {seq_name} not found in subset, skipping")
                 continue
+
+        if seq_name in metadata["num_samples"].keys():
+            # already added this sequence
+            logging.info(f"Sequence {seq_name} already added, skipping")
+            continue
+
+        assert npz_path.replace("-traj-arrays.npz", "-traj-state0.pdb") in pdb_paths
 
         with np.load(npz_path, allow_pickle=False) as data:
             x = data["positions"]  # shape (N, num_particles, num_dimensions)
@@ -128,74 +145,64 @@ def build_lmdb(
 
         num_samples, num_particles, _ = x.shape
 
-        # Update min and max num particles
-        min_num_particles = min(min_num_particles, num_particles)
-        max_num_particles = max(max_num_particles, num_particles)
-
         x_tensor = torch.from_numpy(x).to("cuda:0")  # move to GPU
 
-        # Compute mean min dist
-        # TODO just move towards using a predefined value for the covalent bond
-        # and add an assertion to check that the mean min dist is within a certain range
-        dists = interatomic_dist(x_tensor, flatten=False)
+        # Check data is on the correct scale - checks the minimum distances between particles
+        # (corresponding to an N-H bond) is close to the expected value of 0.1 nm
+        dists = interatomic_dist(
+            x_tensor[:: max(1, x_tensor.shape[0] // 100)], flatten=False
+        )  # only compute dists on a subset
         mean_min_dist = dists.min(dim=1)[0].mean()
-        mean_min_dists.append(mean_min_dist)
-        logging.info(f"{seq_name}: Mean min dist: {mean_min_dist}")
+        assert math.isclose(mean_min_dist.item(), 0.1, rel_tol=0.1), (
+            f"Mean min dist {mean_min_dist.item()} is not close to expected value of 0.1, "
+            "data is probably not scaled correctly (to nanometers)"
+        )
 
-        # Compute std
-        x_tensor = x_tensor - x_tensor.mean(dim=1, keepdim=True)  # Center for std computation
+        # Compute var
+        x_tensor = x_tensor - x_tensor.mean(dim=1, keepdim=True)  # Center for var computation
         positions_var = x_tensor.var(unbiased=False)
-        weighted_vars.append(positions_var * num_samples)
 
-        assert seq_name not in num_samples_dict.keys(), f"Duplicate sequence name {seq_name} found in {npz_path}"
-        assert npz_path.replace("-traj-arrays.npz", "-traj-state0.pdb") in pdb_paths
+        # Update global metadata
+        metadata["min_num_particles"] = min(metadata["min_num_particles"], num_particles)
+        metadata["max_num_particles"] = max(metadata["max_num_particles"], num_particles)
+        metadata["total_num_samples"] += num_samples
 
-        num_samples_dict[seq_name] = int(num_samples)
-        num_particles_dict[seq_name] = int(num_particles)
-        npz_paths_dict[seq_name] = npz_path
-        pdb_paths_dict[seq_name] = npz_path.replace("-traj-arrays.npz", "-traj-state0.pdb")
-        index_dict[seq_name] = []
+        # Add sequence metadata
+        metadata["weighted_vars"][seq_name] = float(positions_var * num_samples)
+        metadata["num_samples"][seq_name] = int(num_samples)
+        metadata["num_particles"][seq_name] = int(num_particles)
+        metadata["npz_paths"][seq_name] = npz_path
+        metadata["pdb_paths"][seq_name] = npz_path.replace("-traj-arrays.npz", "-traj-state0.pdb")
+        metadata["seq_idx"][seq_name] = []
 
-        for pos_idx in range(x.shape[0]):
-            # Add a sample to the LMDB batch
-            sample = {"seq_name": seq_name, "x": x[pos_idx]}
+        for i in range(num_samples):
+            # Create sequence data item
+            sample = {"seq_name": seq_name, "x": x[i]}
+            metadata["seq_idx"][seq_name].append(global_idx)
 
+            # Prepare the data for LMDB
             key = f"{global_idx:08}".encode()
-            value = pickle.dumps(sample)
+            value = lz4.frame.compress(pickle.dumps(sample, protocol=pickle.HIGHEST_PROTOCOL))  # Compress the data
             txn.put(key, value)
-
-            index_dict[seq_name].append(global_idx)
             global_idx += 1
 
-            if global_idx % batch_size == 0:
-                # commit the current batch
-                txn.commit()
-                txn = env.begin(write=True)
+        metadata["seq_idx"][seq_name] = np.array(
+            metadata["seq_idx"][seq_name], dtype=np.int32
+        )  # convert to numpy array
 
-        index_dict[seq_name] = np.array(index_dict[seq_name], dtype=np.int64)
+        if seq_idx % 500 == 0:
+            # Store the data in the LMDB
+            txn.put(b"__meta__", pickle.dumps(metadata))  # store metadata
+            txn.put(b"__len__", pickle.dumps(global_idx))  # store number of samples
+            txn.commit()
+            txn = env.begin(write=True)
 
-    total_num_samples = global_idx
-    std = torch.sqrt(torch.sum(torch.tensor(weighted_vars)) / total_num_samples).item()
-    mean_min_dist = torch.mean(torch.tensor(mean_min_dists)).item()
-
-    metadata = {
-        "total_num_samples": total_num_samples,
-        "min_num_particles": min_num_particles,
-        "max_num_particles": max_num_particles,
-        "std": std,
-        "mean_min_dist": mean_min_dist,
-        "num_samples": num_samples_dict,
-        "num_particles": num_particles_dict,
-        "pdb_paths": pdb_paths_dict,
-        "npz_paths": npz_paths_dict,
-        "index": index_dict,
-    }
-
+    # Store the final data
     txn.put(b"__meta__", pickle.dumps(metadata))  # store metadata
     txn.put(b"__len__", pickle.dumps(global_idx))  # store number of samples
+
+    # Store the data in the LMDB
     txn.commit()
-    env.sync()
-    env.close()
 
 
 def load_lmdb_metadata(lmdb_path: str, key: bytes = b"__meta__") -> dict:

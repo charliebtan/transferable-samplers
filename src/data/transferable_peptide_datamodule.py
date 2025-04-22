@@ -51,6 +51,7 @@ class TransferablePeptideDataModule(BaseDataModule):
         num_eval_samples: int = 10_000,
         num_val_sequences: int = 20,
         energy_hist_config: Optional[dict[str, Any]] = None,
+        resume_build_lmdb: bool = False,
     ):
         super().__init__(batch_size=batch_size, num_workers=num_workers, pin_memory=pin_memory)
 
@@ -59,9 +60,8 @@ class TransferablePeptideDataModule(BaseDataModule):
         self.train_data_path = f"{self.hparams.data_dir}/train"
         self.val_data_path = f"{self.hparams.data_dir}/val"
 
-        # TODO move to data_dir
-        self.train_lmdb_path = f"{self.train_data_path}/train.lmdb"
-        self.val_lmdb_path = f"{self.val_data_path}/val.lmdb"
+        self.train_lmdb_path = f"{self.hparams.data_dir}/train.lmdb"
+        self.val_lmdb_path = f"{self.hparams.data_dir}/val.lmdb"
 
         self.num_aa_range = list(range(num_aa_min, num_aa_max + 1))
 
@@ -74,33 +74,32 @@ class TransferablePeptideDataModule(BaseDataModule):
         Do not use it to assign state (self.x = y).
         """
 
-        train_npz_paths, train_pdb_paths = check_and_get_files(self.train_data_path)
-        val_npz_paths, val_pdb_paths = check_and_get_files(self.val_data_path)
+        if (
+            os.path.exists(self.train_lmdb_path)
+            and os.path.exists(self.val_lmdb_path)
+            and not self.hparams.resume_build_lmdb
+        ):
+            pass
+        else:
+            train_npz_paths, train_pdb_paths = check_and_get_files(self.train_data_path)
+            val_npz_paths, val_pdb_paths = check_and_get_files(self.val_data_path)
 
-        cross_reference_files(train_npz_paths, val_npz_paths)
+            cross_reference_files(train_npz_paths, val_npz_paths)
 
-        # if os.path.exists(self.train_lmdb_path):
-        #     shutil.rmtree(self.train_lmdb_path)
-        if not os.path.exists(self.train_lmdb_path):
             build_lmdb(
                 train_npz_paths,
                 train_pdb_paths,
                 lmdb_path=self.train_lmdb_path,
+                resume=self.hparams.resume_build_lmdb,
             )
-        else:
-            logging.info(f"LMDB file {self.train_lmdb_path} already exists, skipping LMDB creation")
 
-        # if os.path.exists(self.val_lmdb_path):
-        #     shutil.rmtree(self.val_lmdb_path)
-        if not os.path.exists(self.val_lmdb_path):
             build_lmdb(
                 val_npz_paths,
                 val_pdb_paths,
                 subset=VALIDATION_SUBSET_MIXED,
                 lmdb_path=self.val_lmdb_path,
+                resume=self.hparams.resume_build_lmdb,
             )
-        else:
-            logging.info(f"LMDB file {self.val_lmdb_path} already exists, skipping LMDB creation")
 
     def setup(self, stage: Optional[str] = None) -> None:
         """Load data. Set variables: `self.data_train`, `self.data_val`, `self.data_test`.
@@ -124,15 +123,6 @@ class TransferablePeptideDataModule(BaseDataModule):
         train_metadata = load_lmdb_metadata(self.train_lmdb_path)
         val_metadata = load_lmdb_metadata(self.val_lmdb_path)
 
-        train_mean_min_dist = train_metadata["mean_min_dist"]
-        val_mean_min_dist = val_metadata["mean_min_dist"]
-
-        assert math.isclose(
-            train_mean_min_dist,
-            val_mean_min_dist,
-            rel_tol=1e-2,
-        ), "Raw data scaling is probably wrong. Train and val data should have similar mean min dist."
-
         train_max_num_particles = train_metadata["max_num_particles"]
         val_max_num_particles = val_metadata["max_num_particles"]
 
@@ -147,11 +137,15 @@ class TransferablePeptideDataModule(BaseDataModule):
         )
 
         self.val_sequences = list(val_metadata["num_samples"].keys())
-        self.std = torch.tensor(train_metadata["std"])  # train data std used for standardization
 
-        pdb_paths = [*train_metadata["pdb_paths"].values(), *val_metadata["pdb_paths"].values()]
+        pdb_paths = [*val_metadata["pdb_paths"].values()]
         self.pdb_dict, self.topology_dict = load_pdbs_and_topologies(pdb_paths, self.num_aa_range)
         self.encoding_dict = get_encoding_dict(self.topology_dict)
+
+        self.std = (
+            torch.sqrt(torch.sum(torch.tensor([v for v in train_metadata["weighted_vars"].values()])))
+            / train_metadata["total_num_samples"]
+        )
 
         transform_list = [
             StandardizeTransform(self.std, self.hparams.num_dimensions),
@@ -173,7 +167,7 @@ class TransferablePeptideDataModule(BaseDataModule):
             # The atom noise augmentation factor is a scaling factor for the noise
             transform_list.append(
                 AtomNoiseTransform(
-                    self.hparams.atom_noise_augmentation_factor * train_metadata["mean_min_dist"] / self.std,
+                    self.hparams.atom_noise_augmentation_factor * 0.1 / self.std,  # 0.1 is length in nm of N-H bond
                 )
             )
         transform_list = transform_list + [
@@ -228,7 +222,7 @@ class TransferablePeptideDataModule(BaseDataModule):
         # how to do nice plots? - i suppose plots will be a more rare occasion
         true_samples = true_samples[: self.hparams.num_eval_samples]
 
-        true_samples = torch.tensor(true_samples).reshape(
+        true_samples = true_samples.reshape(
             true_samples.shape[0],
             -1,
         )

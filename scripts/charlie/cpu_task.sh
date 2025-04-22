@@ -3,10 +3,10 @@
 #SBATCH -N 1                          # Total number of nodes requested
 #SBATCH --get-user-env                # retrieve the users login environment
 #SBATCH --mem=48G                     # server memory requested (per node)
-#SBATCH -t 24:00:00                  # Time limit (hh:mm:ss)
+#SBATCH -t 70:00:00                  # Time limit (hh:mm:ss)
 #SBATCH --partition=main-cpu              # Request partition
 #SBATCH --ntasks-per-node=1
 #SBATCH -c 4
 #SBATCH --open-mode=append            # Do not overwrite logs
 
-python -u scripts/charlie/data_moving.py
+zip -r --verbose /network/archive/t/tanc/md-runner.zip /network/scratch/m/majdi.hassan/md-runner

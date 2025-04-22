@@ -7,19 +7,22 @@ from src.data.components.prepare_data import load_lmdb_metadata
 
 
 class PeptideDataset(torch.utils.data.Dataset):
-    def __init__(self, lmdb_path: str, num_dimensions: int, transform=None):
+    def __init__(self, lmdb_path: str, num_dimensions: int, aa_range: list[int] = None, transform=None):
         self.lmdb_path = lmdb_path
         self.transform = transform
         self.num_dimensions = num_dimensions
 
-        self.index = load_lmdb_metadata(lmdb_path)["index"]
+        self.metadata = load_lmdb_metadata(lmdb_path)
+        self.index = self.metadata["seq_idx"]
 
-        # Open the LMDB environment
-        self.env = lmdb.open(lmdb_path, readonly=True, lock=False, readahead=False, meminit=False)
+        if aa_range is not None:
+            self.index = {k: v for k, v in self.index.items() if len(v) in aa_range}
+        self.length = sum(self.metadata["num_samples"][k] for k in self.index.keys())
 
-        # Read the length
-        with self.env.begin() as txn:
-            self.length = pickle.loads(txn.get(b"__len__"))  # noqa: S301
+    def worker_init(self, worker_id):
+        worker_info = torch.utils.data.get_worker_info()
+        dataset = worker_info.dataset
+        dataset.env = lmdb.open(dataset.lmdb_path, readonly=True, lock=False, readahead=False)
 
     def __len__(self):
         return self.length
@@ -43,6 +46,8 @@ class PeptideDataset(torch.utils.data.Dataset):
 
     def get_seq_data(self, seq_name: str):
         with self.env.begin() as txn:
+            if seq_name not in self.index:
+                raise KeyError(f"Sequence name {seq_name} not found in the dataset - has it been filtered out?")
             indexes = self.index[seq_name]
             samples = []
             for idx in indexes:
