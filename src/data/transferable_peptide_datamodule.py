@@ -150,6 +150,8 @@ class TransferablePeptideDataModule(BaseDataModule):
 
     def pad_encoding(self, encoding):
         for key, value in encoding.items():
+            if key == "seq_len":
+                continue
             encoding[key] = torch.cat(
                 [value, torch.zeros(self.hparams.num_particles - value.shape[0], dtype=torch.int64)]
             )
