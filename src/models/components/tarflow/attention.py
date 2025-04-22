@@ -67,6 +67,9 @@ class Attention(torch.nn.Module):
         q = self.q_layer_norm(q)
         k = self.k_layer_norm(k)
 
+        # if provided, project pair from (B, seq_len, seq_len, C) to (B, seq_len, seq_len, num_heads)
+        # and then rearrange to (B, num_heads, seq_len, seq_len).
+        # if not provided, set bias to 0.0
         bias = rearrange(self.bias_proj(pair), "b ... h -> b h ...") if (exists(pair) and self.use_pair_bias) else 0.0
         q, k, v = map(lambda t: rearrange(t, "b ... (h d) -> b h ... d", h=self.num_heads), (q, k, v))
 
