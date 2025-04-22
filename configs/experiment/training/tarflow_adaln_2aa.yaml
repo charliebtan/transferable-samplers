@@ -1,0 +1,38 @@
+# @package _global_
+
+defaults:
+  - override /model: normalizing_flow
+  - override /data: 2aa
+
+model:
+  transferable: true
+  net:
+    in_channels: 3
+    channels: 384
+    num_blocks: 6
+    layers_per_block: 6
+    use_adaln: true
+    use_pair_bias: true
+    use_qkln: true
+    cond_embed:
+      _target_: src.models.components.tarflow.embed.ConditionalEmbedder
+      channels: ${model.net.channels}
+      num_residue_pos: ${data.num_aa}
+
+  optimizer:
+    lr: 1e-4
+    weight_decay: 4e-4
+
+  sampling_config:
+    num_proposal_samples: 5_000
+
+data:
+  batch_size: 512
+  com_augmentation: True
+  num_samples_per_seq: 20_000
+
+trainer:
+  check_val_every_n_epoch: 50
+  limit_train_batches: 0.5
+  max_epochs: 500
+  num_sanity_val_steps: 1
