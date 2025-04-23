@@ -23,7 +23,7 @@ class Attention(torch.nn.Module):
         self,
         in_channels: int,
         head_channels: int,
-        use_pair_bias: bool = True,
+        use_attn_pair_bias: bool = True,
         use_qkln: bool = True,
         dropout: float = 0.0,
     ):
@@ -34,14 +34,14 @@ class Attention(torch.nn.Module):
         self.qkv = torch.nn.Linear(in_channels, in_channels * 3)
         self.proj = torch.nn.Linear(in_channels, in_channels)
 
-        if use_pair_bias:
+        if use_attn_pair_bias:
             self.bias_proj = torch.nn.Linear(in_channels, self.num_heads, bias=False)
             self.pair_norm = torch.nn.LayerNorm(in_channels)
 
         self.sqrt_scale = head_channels ** (-0.25)
         self.sample = False
         self.dropout = dropout
-        self.use_pair_bias = use_pair_bias
+        self.use_attn_pair_bias = use_attn_pair_bias
 
         self.q_layer_norm = torch.nn.LayerNorm(in_channels) if use_qkln else torch.nn.Identity()
         self.k_layer_norm = torch.nn.LayerNorm(in_channels) if use_qkln else torch.nn.Identity()
@@ -57,8 +57,8 @@ class Attention(torch.nn.Module):
         temp: float = 1.0,
         which_cache: str = "cond",
     ):
-        if (self.use_pair_bias and not exists(pair)) or (not self.use_pair_bias and exists(pair)):
-            raise ValueError("pair must be provided if use_pair_bias is True")
+        if (self.use_attn_pair_bias and not exists(pair)) or (not self.use_attn_pair_bias and exists(pair)):
+            raise ValueError("pair must be provided if use_attn_pair_bias is True")
 
         B, T, C = x.size()
         x = self.norm(x.float()).type(x.dtype)
@@ -70,7 +70,7 @@ class Attention(torch.nn.Module):
         # if provided, project pair from (B, seq_len, seq_len, C) to (B, seq_len, seq_len, num_heads)
         # and then rearrange to (B, num_heads, seq_len, seq_len).
         # if not provided, set bias to 0.0
-        bias = rearrange(self.bias_proj(pair), "b ... h -> b h ...") if (exists(pair) and self.use_pair_bias) else 0.0
+        bias = rearrange(self.bias_proj(pair), "b ... h -> b h ...") if (exists(pair) and self.use_attn_pair_bias) else 0.0
         q, k, v = map(lambda t: rearrange(t, "b ... (h d) -> b h ... d", h=self.num_heads), (q, k, v))
 
         if self.sample:
@@ -83,7 +83,7 @@ class Attention(torch.nn.Module):
         if mask is not None:
             mask = mask.bool()
 
-        if self.use_pair_bias:
+        if self.use_attn_pair_bias:
             if mask is not None:
                 if mask.ndim < 4:
                     mask = mask.reshape(*([1] * (4 - mask.ndim)), *mask.shape)
@@ -107,9 +107,9 @@ class Attention(torch.nn.Module):
         temp: float = 1.0,
         which_cache: str = "cond",
     ):
-        if (self.use_pair_bias and not exists(pair)) or (not self.use_pair_bias and exists(pair)):
-            print(self.use_pair_bias, exists(pair))
-            raise ValueError("pair must be provided if use_pair_bias is True")
+        if (self.use_attn_pair_bias and not exists(pair)) or (not self.use_attn_pair_bias and exists(pair)):
+            print(self.use_attn_pair_bias, exists(pair))
+            raise ValueError("pair must be provided if use_attn_pair_bias is True")
 
         x = self.norm(x.float()).type(x.dtype)
         pair = self.pair_norm(pair) if exists(pair) else None
@@ -117,7 +117,7 @@ class Attention(torch.nn.Module):
         q = self.q_layer_norm(q)
         k = self.k_layer_norm(k)
 
-        bias = rearrange(self.bias_proj(pair), "b ... h -> b h ...") if (exists(pair) and self.use_pair_bias) else 0.0
+        bias = rearrange(self.bias_proj(pair), "b ... h -> b h ...") if (exists(pair) and self.use_attn_pair_bias) else 0.0
 
         q, k, v = map(lambda t: rearrange(t, "b ... (h d) -> b h ... d", h=self.num_heads), (q, k, v))
         if self.sample:
@@ -187,14 +187,14 @@ class AttentionBlock(torch.nn.Module):
         head_channels: int,
         expansion: int = 4,
         use_qkln: bool = False,
-        use_pair_bias: bool = True,
+        use_attn_pair_bias: bool = True,
         dropout: float = 0.0,
     ):
         super().__init__()
         self.attention = Attention(
             in_channels=channels,
             head_channels=head_channels,
-            use_pair_bias=use_pair_bias,
+            use_attn_pair_bias=use_attn_pair_bias,
             use_qkln=use_qkln,
             dropout=dropout,
         )
@@ -230,7 +230,7 @@ if __name__ == "__main__":
     torch.set_printoptions(sci_mode=True, precision=2)
     torch.manual_seed(1)
 
-    attn = Attention(128, 64, use_qkln=True, use_pair_bias=True)
+    attn = Attention(128, 64, use_qkln=True, use_attn_pair_bias=True)
 
     x = torch.randn((128, 10, 128))
     mask = torch.tril(torch.ones((x.shape[1], x.shape[1]), dtype=torch.bool))

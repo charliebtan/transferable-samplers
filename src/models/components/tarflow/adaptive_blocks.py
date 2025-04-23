@@ -132,7 +132,7 @@ class MultiHeadAttentionADALN(nn.Module):
         channels: int = 128,
         head_channels: int = 64,
         use_qkln: bool = True,
-        use_pair_bias: bool = True,
+        use_attn_pair_bias: bool = True,
         dropout: float = 0.0,
         expansion: int = 4,
     ):
@@ -145,7 +145,7 @@ class MultiHeadAttentionADALN(nn.Module):
             head_channels=head_channels,
             expansion=expansion,
             use_qkln=use_qkln,
-            use_pair_bias=use_pair_bias,
+            use_attn_pair_bias=use_attn_pair_bias,
             dropout=dropout,
         )
         self.scale_output = AdaptiveLayerNormOutputScale(channels=channels, channels_cond=channels)
@@ -221,7 +221,7 @@ class AdaptiveAttnAndTransition(torch.nn.Module):
         residual_mha: bool = True,
         residual_transition: bool = True,
         use_qkln: bool = True,
-        use_pair_bias: bool = True,
+        use_attn_pair_bias: bool = True,
         dropout=0.0,
         expansion=4,
     ):
@@ -235,7 +235,7 @@ class AdaptiveAttnAndTransition(torch.nn.Module):
             channels=channels,
             head_channels=head_channels,
             use_qkln=use_qkln,
-            use_pair_bias=use_pair_bias,
+            use_attn_pair_bias=use_attn_pair_bias,
             dropout=dropout,
             expansion=expansion,
         )

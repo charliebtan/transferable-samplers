@@ -11,8 +11,8 @@ model:
     channels: 384
     num_blocks: 6
     layers_per_block: 6
-    use_adaln: true
-    use_pair_bias: true
+    use_adapt_ln: true
+    use_attn_pair_bias: true
     use_qkln: true
     cond_embed:
       _target_: src.models.components.tarflow.embed.ConditionalEmbedder

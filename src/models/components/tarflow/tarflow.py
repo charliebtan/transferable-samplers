@@ -49,8 +49,8 @@ class MetaBlock(torch.nn.Module):
         expansion: int = 4,
         nvp: bool = True,
         conditional: bool = False,
-        use_adaln: bool = False,
-        use_pair_bias: bool = False,
+        use_adapt_ln: bool = False,
+        use_attn_pair_bias: bool = False,
         use_qkln: bool = False,
         dropout: float = 0.0,
         debug: bool = False,
@@ -61,13 +61,12 @@ class MetaBlock(torch.nn.Module):
         if conditional:
             self.proj_cond = torch.nn.Linear(channels, channels)
 
-        if use_pair_bias:
+        if use_attn_pair_bias:
             self.pair_proj = torch.nn.Linear(1, channels)
 
-        self.use_adaln = use_adaln
-        self.use_pair_bias = use_pair_bias
+        self.use_attn_pair_bias = use_attn_pair_bias
         self.pos_embed = torch.nn.Parameter(torch.randn(num_patches, channels) * 1e-2)
-        attn_block = AdaptiveAttnAndTransition if self.use_adaln else AttentionBlock
+        attn_block = AdaptiveAttnAndTransition if use_adapt_ln else AttentionBlock
         self.attn_blocks = torch.nn.ModuleList(
             [
                 attn_block(
@@ -75,7 +74,7 @@ class MetaBlock(torch.nn.Module):
                     head_channels=head_dim,
                     expansion=expansion,
                     use_qkln=use_qkln,
-                    use_pair_bias=use_pair_bias,
+                    use_attn_pair_bias=use_attn_pair_bias,
                     dropout=dropout,
                 )
                 for _ in range(num_layers)
@@ -113,7 +112,7 @@ class MetaBlock(torch.nn.Module):
             cond_emb = self.proj_cond(cond)
 
         pair_emb = None
-        if self.use_pair_bias:
+        if self.use_attn_pair_bias:
             # pairwise distance matrix
             dist_matrix = torch.cdist(x_in, x_in)[..., None]
             pair_emb = self.pair_proj(dist_matrix)
@@ -182,7 +181,7 @@ class MetaBlock(torch.nn.Module):
             cond_emb = self.proj_cond(cond_in)
 
         pair_emb = None
-        if self.use_pair_bias:
+        if self.use_attn_pair_bias:
             # pairwise distance row
             dist_matrix = torch.cdist(x_in[:, : i + 1], x_in[:, : i + 1])[..., None]
             dist_row = dist_matrix[:, i : i + 1]
@@ -250,8 +249,8 @@ class TarFlow(torch.nn.Module):
         num_blocks: int,
         layers_per_block: int,
         head_dim: int = 64,
-        use_adaln: bool = False,
-        use_pair_bias: bool = False,
+        use_adapt_ln: bool = False,
+        use_attn_pair_bias: bool = False,
         use_qkln: bool = False,
         dropout: float = 0.0,
         cond_embed: ConditionalEmbedder | None = None,
@@ -283,8 +282,8 @@ class TarFlow(torch.nn.Module):
                     layers_per_block,
                     head_dim=head_dim,
                     nvp=nvp,
-                    use_adaln=use_adaln,
-                    use_pair_bias=use_pair_bias,
+                    use_adapt_ln=use_adapt_ln,
+                    use_attn_pair_bias=use_attn_pair_bias,
                     use_qkln=use_qkln,
                     dropout=dropout,
                     conditional=self.conditional,
@@ -561,9 +560,9 @@ if __name__ == "__main__":
 
     cond_embed = ConditionalEmbedder(channels=channels)
 
-    for use_adaln in [False, True]:
-        for use_pair_bias in [False, True]:
-            print(f"Testing with use_adaln={use_adaln} and use_pair_bias={use_pair_bias}")
+    for use_adapt_ln in [False, True]:
+        for use_attn_pair_bias in [False, True]:
+            print(f"Testing with use_adapt_ln={use_adapt_ln} and use_attn_pair_bias={use_attn_pair_bias}")
             model_pad = TarFlow(
                 in_channels,
                 img_size + pad_dim,
@@ -572,8 +571,8 @@ if __name__ == "__main__":
                 num_blocks,
                 layers_per_block,
                 cond_embed=cond_embed,
-                use_adaln=use_adaln,
-                use_pair_bias=use_pair_bias,
+                use_adapt_ln=use_adapt_ln,
+                use_attn_pair_bias=use_attn_pair_bias,
                 debug=True,
             )
             model = TarFlow(
@@ -584,8 +583,8 @@ if __name__ == "__main__":
                 num_blocks,
                 layers_per_block,
                 cond_embed=cond_embed,
-                use_adaln=use_adaln,
-                use_pair_bias=use_pair_bias,
+                use_adapt_ln=use_adapt_ln,
+                use_attn_pair_bias=use_attn_pair_bias,
                 debug=True,
             )
             model = load_padded_model_weights(model_pad, model)
