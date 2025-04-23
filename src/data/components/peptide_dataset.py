@@ -7,19 +7,28 @@ from src.data.components.prepare_data import load_lmdb_metadata
 
 
 class PeptideDataset(torch.utils.data.Dataset):
-    def __init__(self, lmdb_path: str, num_dimensions: int, aa_range: list[int] = None, transform=None):
+    def __init__(self, lmdb_path: str, seq_names: list[str], num_dimensions: int, transform=None):
         self.lmdb_path = lmdb_path
+        self.seq_names = seq_names
         self.transform = transform
         self.num_dimensions = num_dimensions
 
         self.metadata = load_lmdb_metadata(lmdb_path)
+
+        # Filter the metadata based on the provided seq_names
+        for key in self.metadata.keys():
+            if isinstance(self.metadata[key], dict):
+                self.metadata[key] = {k: v for k, v in self.metadata[key].items() if k in seq_names}
+
+        # The following will now only include the sequences in seq_names
         self.seq_to_idx = self.metadata["seq_to_idx"]
+        self.valid_indices = []
+        for seq_name in self.seq_to_idx:
+            self.valid_indices.extend(self.seq_to_idx[seq_name])
 
-        if aa_range is not None:
-            self.seq_to_idx = {k: v for k, v in self.seq_to_idx.items() if len(v) in aa_range}
-        self.length = sum(self.metadata["num_samples"][k] for k in self.seq_to_idx.keys())
+        self.length = len(self.valid_indices)
 
-        self.env = None
+        self.env = None  # LMDB environment is lazily loaded due to multiple processes accessing itj
 
     def __len__(self):
         return self.length
@@ -29,12 +38,14 @@ class PeptideDataset(torch.utils.data.Dataset):
         return pickle.loads(txn.get(key))  # noqa: S301
 
     def __getitem__(self, idx):
+        lmdb_idx = self.valid_indices[idx]  # transform the index to the global index
+
         if self.env is None:
             # Lazily open the LMDB environment when the first item is accessed
             self.env = lmdb.open(self.lmdb_path, readonly=True, lock=False, readahead=False)
 
         with self.env.begin() as txn:
-            sample = self._load_lmdb_entry(txn, idx)
+            sample = self._load_lmdb_entry(txn, lmdb_idx)
 
         if self.transform is not None:
             x = torch.tensor(sample["x"]).float()

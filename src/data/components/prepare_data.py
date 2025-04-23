@@ -96,10 +96,7 @@ def build_lmdb(
 
     if not resume:
         metadata = {
-            "total_num_samples": 0,
-            "min_num_particles": float("inf"),
-            "max_num_particles": 0,
-            "weighted_vars": {},
+            "weighted_vars": {},  # TODO could prob just store var and compute weighted var on the fly
             "num_samples": {},
             "num_particles": {},
             "pdb_paths": {},
@@ -136,7 +133,7 @@ def build_lmdb(
             x = data["positions"]  # shape (N, num_particles, num_dimensions)
 
         if len(seq_name) == 2:
-            x = x / 30.0  # 2AA is currently scaled wrong in the files
+            x = x / 30.0  # 2AA is currently scaled wrong in the files # TODO fix files
 
         assert len(x.shape) == 3, f"Expected 3D array, got {x.shape}"
 
@@ -147,8 +144,6 @@ def build_lmdb(
 
         num_particles = x.shape[1]
 
-        metadata["min_num_particles"] = min(metadata["min_num_particles"], num_particles)
-        metadata["max_num_particles"] = max(metadata["max_num_particles"], num_particles)
         metadata["num_particles"][seq_name] = int(num_particles)
 
         x_tensor = torch.from_numpy(x).to("cuda:0")  # move to GPU
@@ -184,7 +179,6 @@ def build_lmdb(
 
         num_samples = len(seq_to_idx)
 
-        metadata["total_num_samples"] += num_samples
         metadata["num_samples"][seq_name] = num_samples
         metadata["weighted_vars"][seq_name] = float(x_var * num_samples)
         metadata["seq_to_idx"][seq_name] = np.array(seq_to_idx, dtype=np.int32)
@@ -229,7 +223,8 @@ def load_lmdb_metadata(lmdb_path: str, key: bytes = b"__meta__") -> dict:
 
 
 def load_pdbs_and_topologies(
-    pdb_paths: list[str], num_aa_range: int
+    pdb_paths: list[str],
+    num_aa_range: list[int],
 ) -> tuple[dict[str, openmm.app.PDBFile], dict[str, md.Topology]]:
     """
     Loads PDB files and their topologies.

@@ -27,7 +27,7 @@ from src.data.components.transforms.center_of_mass import CenterOfMassTransform
 from src.data.components.transforms.padding import PaddingTransform
 from src.data.components.transforms.rotation import Random3DRotationTransform
 from src.data.components.transforms.standardize import StandardizeTransform
-from src.data.components.validation_subset import VALIDATION_SUBSET_MIXED
+from src.data.components.validation_subset import ALL_VALIDATION_SUBSET, VALIDATION_SUBSET_DICT
 from src.evaluation.metrics.evaluate_peptide_data import evaluate_peptide_data
 
 
@@ -58,8 +58,8 @@ class TransferablePeptideDataModule(BaseDataModule):
         self.train_data_path = f"{self.hparams.data_dir}/train"
         self.val_data_path = f"{self.hparams.data_dir}/val"
 
-        self.train_lmdb_path = f"{self.hparams.data_dir}/train_small_v3.lmdb"
-        self.val_lmdb_path = f"{self.hparams.data_dir}/val_small_v3.lmdb"
+        self.train_lmdb_path = f"{self.hparams.data_dir}/train_small_v2.lmdb"
+        self.val_lmdb_path = f"{self.hparams.data_dir}/val.lmdb"
 
         self.num_aa_range = list(range(num_aa_min, num_aa_max + 1))
 
@@ -94,7 +94,7 @@ class TransferablePeptideDataModule(BaseDataModule):
             build_lmdb(
                 val_npz_paths,
                 val_pdb_paths,
-                subset=VALIDATION_SUBSET_MIXED,
+                subset=ALL_VALIDATION_SUBSET,  # prevents adding sequences we aren't going to use
                 lmdb_path=self.val_lmdb_path,
                 resume=self.hparams.resume_build_lmdb,
             )
@@ -121,10 +121,51 @@ class TransferablePeptideDataModule(BaseDataModule):
         train_metadata = load_lmdb_metadata(self.train_lmdb_path)
         val_metadata = load_lmdb_metadata(self.val_lmdb_path)
 
-        # TODO this is where to filter the sequences and pass into the dataset and filter the metadata too
+        train_seq_names = list(train_metadata["num_samples"].keys())
+        all_val_seq_names = list(val_metadata["num_samples"].keys())
 
-        train_max_num_particles = train_metadata["max_num_particles"]
-        val_max_num_particles = val_metadata["max_num_particles"]
+        # Fitler out train sequences that are not in the num_aa_range
+        train_seq_names = [seq_name for seq_name in train_seq_names if len(seq_name) in self.num_aa_range]
+
+        # Find the correct validation subset
+        if self.num_aa_range == [2]:
+            val_seq_names = list(VALIDATION_SUBSET_DICT["2"].keys())
+        elif self.num_aa_range == [4]:
+            val_seq_names = list(VALIDATION_SUBSET_DICT["4"].keys())
+        elif self.num_aa_range == [8]:
+            val_seq_names = list(VALIDATION_SUBSET_DICT["8"].keys())
+        elif self.num_aa_range == [2, 3, 4]:
+            val_seq_names = list(VALIDATION_SUBSET_DICT["24"].keys())
+        elif self.num_aa_range == [2, 3, 4, 5, 6, 7, 8]:
+            val_seq_names = list(VALIDATION_SUBSET_DICT["248"].keys())
+        else:
+            raise ValueError(
+                f"Validation subset not defined for num_aa_range {self.num_aa_range}. "
+                "Please define a new validation subset in VALIDATION_SUBSET_DICT."
+            )
+
+        # Check that the validation subset sequences are all present in the lmdb database
+        missing_seq_names = [seq_name for seq_name in val_seq_names if seq_name not in all_val_seq_names]
+        if missing_seq_names:
+            raise ValueError(
+                "Some validation subset sequence names are not present in the validation sequence names: "
+                f"{missing_seq_names}. Please ensure that all subset sequence names are valid."
+            )
+
+        # Filter the metadata to only include the sequences in the train / validation sets
+        for key in train_metadata.keys():
+            if isinstance(train_metadata[key], dict):
+                train_metadata[key] = {k: v for k, v in train_metadata[key].items() if k in train_seq_names}
+        for key in val_metadata.keys():
+            if isinstance(val_metadata[key], dict):
+                val_metadata[key] = {k: v for k, v in val_metadata[key].items() if k in val_seq_names}
+        val_seq_names = val_seq_names
+
+        self.train_seq_names = train_seq_names
+        self.val_seq_names = val_seq_names
+
+        train_max_num_particles = max(list(train_metadata["num_particles"].values()))
+        val_max_num_particles = max(list(val_metadata["num_particles"].values()))
 
         assert train_max_num_particles >= val_max_num_particles, (
             "Train largest system must be greater than or equal to val largest system for pos_embed learning."
@@ -136,15 +177,13 @@ class TransferablePeptideDataModule(BaseDataModule):
             + f"to {train_max_num_particles + 1}."
         )
 
-        self.val_sequences = list(val_metadata["num_samples"].keys())
-
         pdb_paths = [*train_metadata["pdb_paths"].values(), *val_metadata["pdb_paths"].values()]
         self.pdb_dict, self.topology_dict = load_pdbs_and_topologies(pdb_paths, self.num_aa_range)
         self.encoding_dict = get_encoding_dict(self.topology_dict)
 
         self.std = torch.sqrt(
             torch.sum(torch.tensor([v for v in train_metadata["weighted_vars"].values()]))
-            / train_metadata["total_num_samples"]
+            / sum(train_metadata["num_samples"].values())
         )
 
         transform_list = [
@@ -155,12 +194,15 @@ class TransferablePeptideDataModule(BaseDataModule):
             # Center of mass augmentation has std 1/sqrt(N) where N is the mean number of atoms
             # in the system. This is the same center of mass std deviation as the prior.
 
+            # Compute the mean number of particles per system in the training set
             weighted_num_particles = []
-            for seq_name in train_metadata["num_samples"].keys():
+            total_num_samples = 0
+            for seq_name in self.train_seq_names:
                 num_samples = train_metadata["num_samples"][seq_name]
                 num_particles = train_metadata["num_particles"][seq_name]
                 weighted_num_particles.append(num_samples * num_particles)
-            mean_num_particles = sum(weighted_num_particles) / train_metadata["total_num_samples"]
+                total_num_samples += num_samples
+            mean_num_particles = sum(weighted_num_particles) / total_num_samples
 
             logging.info(f"Mean number of training particles: {mean_num_particles}")
 
@@ -171,10 +213,6 @@ class TransferablePeptideDataModule(BaseDataModule):
                 )
             )
         if self.hparams.atom_noise_augmentation_factor:
-            # Mean min dist is the average min interatomic distance in the training data
-            # corresponding to a C-H bond. As this is in unnormalized scale we must
-            # divide by the std to get the correct scale for the noise.
-            # The atom noise augmentation factor is a scaling factor for the noise
             transform_list.append(
                 AtomNoiseTransform(
                     self.hparams.atom_noise_augmentation_factor * 0.1 / self.std,  # 0.1 is length in nm of N-H bond
@@ -189,12 +227,14 @@ class TransferablePeptideDataModule(BaseDataModule):
 
         self.data_train = PeptideDataset(
             self.train_lmdb_path,
+            seq_names=self.train_seq_names,
             num_dimensions=self.hparams.num_dimensions,
             transform=transforms,
         )
 
         self.data_val = PeptideDataset(
             self.val_lmdb_path,
+            seq_names=self.val_seq_names,
             num_dimensions=self.hparams.num_dimensions,
             transform=transforms,
         )

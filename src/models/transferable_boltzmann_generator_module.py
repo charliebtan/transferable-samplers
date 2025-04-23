@@ -273,16 +273,16 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
 
     def evaluate_all(self, prefix):
         metrics = {}
-        for val_sequence in self.datamodule.val_sequences:
-            true_samples, encoding, energy_fn = self.datamodule.prepare_eval(val_sequence)
-            logging.info(f"Evaluating {val_sequence} samples")
+        for seq_name in self.datamodule.val_seq_names:
+            true_samples, encoding, energy_fn = self.datamodule.prepare_eval(seq_name)
+            logging.info(f"Evaluating {seq_name} samples")
             metrics.update(
                 self.evaluate(
-                    val_sequence,
+                    seq_name,
                     true_samples,
                     encoding,
                     energy_fn,
-                    prefix=f"{prefix}/{val_sequence}",
+                    prefix=f"{prefix}/{seq_name}",
                     proposal_generator=self.batched_generate_samples,
                 )
             )

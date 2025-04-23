@@ -1,10 +1,10 @@
 # TODO this could be done using yaml
 
-VALIDATION_SUBSET_2AA = {
+VALIDATION_SUBSET_2 = {
     "HD": 0,
     "DQ": 1,
     "SM": 2,
-    "AL": 3,
+    # "AL": 3,
     "NG": 4,
     "TG": 5,
     "HQ": 6,
@@ -33,7 +33,7 @@ VALIDATION_SUBSET_2AA = {
     "AA": 29,
 }
 
-VALIDATION_SUBSET_4AA = {
+VALIDATION_SUBSET_4 = {
     "VPAA": 30,
     "VGPY": 31,
     "YFGV": 32,
@@ -66,7 +66,7 @@ VALIDATION_SUBSET_4AA = {
     "TAQE": 59,
 }
 
-VALIDATION_SUBSET_8AA = {
+VALIDATION_SUBSET_8 = {
     "EFWNDGED": 60,
     "RPVHFCMY": 61,
     "IDFAELFV": 62,
@@ -99,11 +99,44 @@ VALIDATION_SUBSET_8AA = {
     "NCWFEPCN": 89,
 }
 
-VALIDATION_SUBSET_MIXED = {
+VALIDATION_SUBSET_24 = {
     "HD": 0,
     "DQ": 1,
     "SM": 2,
-    "AL": 3,
+    # "AL": 3,
+    "NG": 4,
+    "TG": 5,
+    "HQ": 6,
+    "DD": 7,
+    "MF": 8,
+    "WY": 9,
+    "SW": 10,
+    "MD": 11,
+    "TS": 12,
+    "KA": 13,
+    "VF": 14,
+    "TGRC": 45,
+    "SGKG": 46,
+    "NLFD": 47,
+    "LCVP": 48,
+    "CWVY": 49,
+    "GPLM": 50,
+    "RGGF": 51,
+    "VDPI": 52,
+    "TLSP": 53,
+    "CFLK": 54,
+    "LAKS": 55,
+    "RSCR": 56,
+    "LIGY": 57,
+    "VSSL": 58,
+    "TAQE": 59,
+}
+
+VALIDATION_SUBSET_248 = {
+    "HD": 0,
+    "DQ": 1,
+    "SM": 2,
+    # "AL": 3,
     "NG": 4,
     "TG": 5,
     "HQ": 6,
@@ -132,9 +165,12 @@ VALIDATION_SUBSET_MIXED = {
     "TQRFRNCL": 69,
 }
 
+ALL_VALIDATION_SUBSET = {**VALIDATION_SUBSET_2, **VALIDATION_SUBSET_4, **VALIDATION_SUBSET_8}
+
 VALIDATION_SUBSET_DICT = {
-    "2AA": VALIDATION_SUBSET_2AA,
-    "4AA": VALIDATION_SUBSET_4AA,
-    "8AA": VALIDATION_SUBSET_8AA,
-    "MIXED": VALIDATION_SUBSET_MIXED,
+    "2": VALIDATION_SUBSET_2,
+    "4": VALIDATION_SUBSET_4,
+    "8": VALIDATION_SUBSET_8,
+    "24": VALIDATION_SUBSET_24,
+    "248": VALIDATION_SUBSET_248,
 }
