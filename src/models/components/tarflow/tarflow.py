@@ -10,29 +10,16 @@ if __name__ == "__main__":
     from attention import Attention, AttentionBlock
     from embed import ConditionalEmbedder
 else:
+    from src.models.components.tarflow.permutation import (
+        PermutationIdentity, 
+        PermutationFlip,
+        PermutationBackBone,
+        PermutationBackBoneFlip
+    )
+
     from src.models.components.tarflow.adaptive_blocks import AdaptiveAttnAndTransition
     from src.models.components.tarflow.attention import Attention, AttentionBlock
     from src.models.components.tarflow.embed import ConditionalEmbedder
-
-
-class Permutation(torch.nn.Module):
-    def __init__(self):
-        super().__init__()
-
-    def forward(self, x: torch.Tensor, dim: int = 1, inverse: bool = False) -> torch.Tensor:
-        raise NotImplementedError("Overload me")
-
-
-class PermutationIdentity(Permutation):
-    def forward(self, x: torch.Tensor, dim: int = 1, inverse: bool = False) -> torch.Tensor:
-        return x
-
-
-class PermutationFlip(Permutation):
-    def forward(self, x: torch.Tensor, dim: int = 1, inverse: bool = False) -> torch.Tensor:
-        if isinstance(dim, int):
-            dim = [dim]
-        return x.flip(dims=dim)
 
 
 class MetaBlock(torch.nn.Module):
