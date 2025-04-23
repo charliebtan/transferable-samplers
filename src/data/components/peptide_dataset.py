@@ -13,24 +13,28 @@ class PeptideDataset(torch.utils.data.Dataset):
         self.num_dimensions = num_dimensions
 
         self.metadata = load_lmdb_metadata(lmdb_path)
-        self.index = self.metadata["seq_idx"]
+        self.seq_to_idx = self.metadata["seq_to_idx"]
 
         if aa_range is not None:
-            self.index = {k: v for k, v in self.index.items() if len(v) in aa_range}
-        self.length = sum(self.metadata["num_samples"][k] for k in self.index.keys())
+            self.seq_to_idx = {k: v for k, v in self.seq_to_idx.items() if len(v) in aa_range}
+        self.length = sum(self.metadata["num_samples"][k] for k in self.seq_to_idx.keys())
 
-    def worker_init(self, worker_id):
-        worker_info = torch.utils.data.get_worker_info()
-        dataset = worker_info.dataset
-        dataset.env = lmdb.open(dataset.lmdb_path, readonly=True, lock=False, readahead=False)
+        self.env = None
 
     def __len__(self):
         return self.length
 
+    def _load_lmdb_entry(self, txn, idx):
+        key = f"{idx:08}".encode()
+        return pickle.loads(txn.get(key))  # noqa: S301
+
     def __getitem__(self, idx):
+        if self.env is None:
+            # Lazily open the LMDB environment when the first item is accessed
+            self.env = lmdb.open(self.lmdb_path, readonly=True, lock=False, readahead=False)
+
         with self.env.begin() as txn:
-            key = f"{idx:08}".encode()
-            sample = pickle.loads(txn.get(key))  # noqa: S301
+            sample = self._load_lmdb_entry(txn, idx)
 
         if self.transform is not None:
             x = torch.tensor(sample["x"]).float()
@@ -45,13 +49,16 @@ class PeptideDataset(torch.utils.data.Dataset):
         return sample
 
     def get_seq_data(self, seq_name: str):
+        if self.env is None:
+            # Lazily open the LMDB environment when the first item is accessed
+            self.env = lmdb.open(self.lmdb_path, readonly=True, lock=False, readahead=False)
+
         with self.env.begin() as txn:
-            if seq_name not in self.index:
+            if seq_name not in self.seq_to_idx:
                 raise KeyError(f"Sequence name {seq_name} not found in the dataset - has it been filtered out?")
-            indexes = self.index[seq_name]
-            samples = []
+            indexes = self.seq_to_idx[seq_name]
+            xs = []
             for idx in indexes:
-                key = f"{idx:08}".encode()
-                sample = torch.tensor(pickle.loads(txn.get(key))["x"])  # noqa: S301
-                samples.append(sample)
-        return torch.stack(samples)
+                x = self._load_lmdb_entry(txn, idx)["x"]
+                xs.append(torch.tensor(x))
+        return torch.stack(xs)

@@ -4,7 +4,6 @@ import os
 import pickle
 
 import lmdb
-import lz4
 import mdtraj as md
 import numpy as np
 import openmm.app
@@ -105,7 +104,7 @@ def build_lmdb(
             "num_particles": {},
             "pdb_paths": {},
             "npz_paths": {},
-            "seq_idx": {},
+            "seq_to_idx": {},
         }
     else:
         metadata = load_lmdb_metadata(lmdb_path)
@@ -130,6 +129,9 @@ def build_lmdb(
 
         assert npz_path.replace("-traj-arrays.npz", "-traj-state0.pdb") in pdb_paths
 
+        metadata["npz_paths"][seq_name] = npz_path
+        metadata["pdb_paths"][seq_name] = npz_path.replace("-traj-arrays.npz", "-traj-state0.pdb")
+
         with np.load(npz_path, allow_pickle=False) as data:
             x = data["positions"]  # shape (N, num_particles, num_dimensions)
 
@@ -143,7 +145,11 @@ def build_lmdb(
             np.random.seed(subset[seq_name])
             x = x[np.random.choice(x.shape[0], size=10_000, replace=False)]
 
-        num_samples, num_particles, _ = x.shape
+        num_particles = x.shape[1]
+
+        metadata["min_num_particles"] = min(metadata["min_num_particles"], num_particles)
+        metadata["max_num_particles"] = max(metadata["max_num_particles"], num_particles)
+        metadata["num_particles"][seq_name] = int(num_particles)
 
         x_tensor = torch.from_numpy(x).to("cuda:0")  # move to GPU
 
@@ -160,35 +166,28 @@ def build_lmdb(
 
         # Compute var
         x_tensor = x_tensor - x_tensor.mean(dim=1, keepdim=True)  # Center for var computation
-        positions_var = x_tensor.var(unbiased=False)
+        x_var = x_tensor.var(unbiased=False)
 
-        # Update global metadata
-        metadata["min_num_particles"] = min(metadata["min_num_particles"], num_particles)
-        metadata["max_num_particles"] = max(metadata["max_num_particles"], num_particles)
-        metadata["total_num_samples"] += num_samples
+        step = 10 if "small" in lmdb_path else 1
 
-        # Add sequence metadata
-        metadata["weighted_vars"][seq_name] = float(positions_var * num_samples)
-        metadata["num_samples"][seq_name] = int(num_samples)
-        metadata["num_particles"][seq_name] = int(num_particles)
-        metadata["npz_paths"][seq_name] = npz_path
-        metadata["pdb_paths"][seq_name] = npz_path.replace("-traj-arrays.npz", "-traj-state0.pdb")
-        metadata["seq_idx"][seq_name] = []
-
-        for i in range(num_samples):
+        seq_to_idx = []
+        for t_idx in range(0, x.shape[0], step):
             # Create sequence data item
-            sample = {"seq_name": seq_name, "x": x[i]}
-            metadata["seq_idx"][seq_name].append(global_idx)
+            sample = {"seq_name": seq_name, "x": x[t_idx]}
+            seq_to_idx.append(global_idx)
 
             # Prepare the data for LMDB
             key = f"{global_idx:08}".encode()
-            value = lz4.frame.compress(pickle.dumps(sample, protocol=pickle.HIGHEST_PROTOCOL))  # Compress the data
+            value = pickle.dumps(sample, protocol=pickle.HIGHEST_PROTOCOL)
             txn.put(key, value)
             global_idx += 1
 
-        metadata["seq_idx"][seq_name] = np.array(
-            metadata["seq_idx"][seq_name], dtype=np.int32
-        )  # convert to numpy array
+        num_samples = len(seq_to_idx)
+
+        metadata["total_num_samples"] += num_samples
+        metadata["num_samples"][seq_name] = num_samples
+        metadata["weighted_vars"][seq_name] = float(x_var * num_samples)
+        metadata["seq_to_idx"][seq_name] = np.array(seq_to_idx, dtype=np.int32)
 
         if seq_idx % 500 == 0:
             # Store the data in the LMDB

@@ -60,7 +60,6 @@ class BaseDataModule(LightningDataModule):
             pin_memory=self.hparams.pin_memory,
             shuffle=True,
             persistent_workers=True if self.hparams.num_workers > 0 else False,
-            worker_init_fn=self.data_train.worker_init,
         )
 
     def val_dataloader(self) -> DataLoader[Any]:
@@ -75,7 +74,6 @@ class BaseDataModule(LightningDataModule):
             pin_memory=self.hparams.pin_memory,
             shuffle=False,
             persistent_workers=True if self.hparams.num_workers > 0 else False,
-            worker_init_fn=self.data_val.worker_init,
         )
 
     def test_dataloader(self) -> DataLoader[Any]:
@@ -90,7 +88,6 @@ class BaseDataModule(LightningDataModule):
             pin_memory=self.hparams.pin_memory,
             shuffle=False,
             persistent_workers=True if self.hparams.num_workers > 0 else False,
-            worker_init_fn=self.data_test.worker_init,
         )
 
     def zero_center_of_mass(self, x):

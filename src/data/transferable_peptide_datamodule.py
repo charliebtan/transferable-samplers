@@ -30,8 +30,6 @@ from src.data.components.transforms.standardize import StandardizeTransform
 from src.data.components.validation_subset import VALIDATION_SUBSET_MIXED
 from src.evaluation.metrics.evaluate_peptide_data import evaluate_peptide_data
 
-MEAN_ATOMS_PER_AA = 17.67
-
 
 class TransferablePeptideDataModule(BaseDataModule):
     def __init__(
@@ -60,8 +58,8 @@ class TransferablePeptideDataModule(BaseDataModule):
         self.train_data_path = f"{self.hparams.data_dir}/train"
         self.val_data_path = f"{self.hparams.data_dir}/val"
 
-        self.train_lmdb_path = f"{self.hparams.data_dir}/train.lmdb"
-        self.val_lmdb_path = f"{self.hparams.data_dir}/val.lmdb"
+        self.train_lmdb_path = f"{self.hparams.data_dir}/train_small_v3.lmdb"
+        self.val_lmdb_path = f"{self.hparams.data_dir}/val_small_v3.lmdb"
 
         self.num_aa_range = list(range(num_aa_min, num_aa_max + 1))
 
@@ -123,6 +121,8 @@ class TransferablePeptideDataModule(BaseDataModule):
         train_metadata = load_lmdb_metadata(self.train_lmdb_path)
         val_metadata = load_lmdb_metadata(self.val_lmdb_path)
 
+        # TODO this is where to filter the sequences and pass into the dataset and filter the metadata too
+
         train_max_num_particles = train_metadata["max_num_particles"]
         val_max_num_particles = val_metadata["max_num_particles"]
 
@@ -138,12 +138,12 @@ class TransferablePeptideDataModule(BaseDataModule):
 
         self.val_sequences = list(val_metadata["num_samples"].keys())
 
-        pdb_paths = [*val_metadata["pdb_paths"].values()]
+        pdb_paths = [*train_metadata["pdb_paths"].values(), *val_metadata["pdb_paths"].values()]
         self.pdb_dict, self.topology_dict = load_pdbs_and_topologies(pdb_paths, self.num_aa_range)
         self.encoding_dict = get_encoding_dict(self.topology_dict)
 
-        self.std = (
-            torch.sqrt(torch.sum(torch.tensor([v for v in train_metadata["weighted_vars"].values()])))
+        self.std = torch.sqrt(
+            torch.sum(torch.tensor([v for v in train_metadata["weighted_vars"].values()]))
             / train_metadata["total_num_samples"]
         )
 
@@ -154,9 +154,19 @@ class TransferablePeptideDataModule(BaseDataModule):
         if self.hparams.com_augmentation:
             # Center of mass augmentation has std 1/sqrt(N) where N is the mean number of atoms
             # in the system. This is the same center of mass std deviation as the prior.
+
+            weighted_num_particles = []
+            for seq_name in train_metadata["num_samples"].keys():
+                num_samples = train_metadata["num_samples"][seq_name]
+                num_particles = train_metadata["num_particles"][seq_name]
+                weighted_num_particles.append(num_samples * num_particles)
+            mean_num_particles = sum(weighted_num_particles) / train_metadata["total_num_samples"]
+
+            logging.info(f"Mean number of training particles: {mean_num_particles}")
+
             transform_list.append(
                 CenterOfMassTransform(
-                    1 / math.sqrt(MEAN_ATOMS_PER_AA * self.hparams.num_aa_max),  # TODO using max?
+                    1 / math.sqrt(mean_num_particles),
                     self.hparams.num_dimensions,
                 )
             )

@@ -1,3 +1,8 @@
+# ruff: noqa: E402, I001
+import torch.multiprocessing
+
+torch.multiprocessing.set_start_method("spawn", force=True)
+
 import os
 from typing import Any, Optional
 
@@ -11,10 +16,10 @@ from omegaconf import DictConfig
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
-from src.utils.instantiators import instantiate_callbacks, instantiate_loggers  # noqa: E402
-from src.utils.logging_utils import log_hyperparameters  # noqa: E402
-from src.utils.pylogger import RankedLogger  # noqa: E402
-from src.utils.utils import extras, get_metric_value, task_wrapper  # noqa: E402
+from src.utils.instantiators import instantiate_callbacks, instantiate_loggers
+from src.utils.logging_utils import log_hyperparameters
+from src.utils.pylogger import RankedLogger
+from src.utils.utils import extras, get_metric_value, task_wrapper
 
 torch.set_float32_matmul_precision("high")  # high at minimum!
 torch.backends.cuda.matmul.allow_tf32 = False
