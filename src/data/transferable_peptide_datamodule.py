@@ -11,8 +11,8 @@ import openmm.app
 import torch
 import torchvision
 import wget
-from bgflow import OpenMMBridge, OpenMMEnergy
 
+from src.data.components.openmm import OpenMMBridge, OpenMMEnergy
 from src.data.base_datamodule import BaseDataModule
 from src.data.components.center_of_mass import CenterOfMassTransform
 from src.data.components.data_types import SamplesData
