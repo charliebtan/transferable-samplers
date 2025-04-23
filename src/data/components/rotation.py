@@ -9,11 +9,10 @@ class Random3DRotationTransform(torch.nn.Module):
 
     def forward(self, data):
         x = data["x"]
-        mask = data["mask"]
+        assert len(x.shape) == 1, f"only process single molecules, got shape of {x.shape}"
 
-        assert len(x.shape) == 1, "only process single molecules"
-
-        num_particles = mask.sum()
+        mask = data.get("mask", None)
+        num_particles = mask.sum() if mask is not None else x.shape[0]
 
         x = x.reshape(1, -1, self.num_dimensions)  # batch dimension needed for einsum
         x, padding = x[:, :num_particles], x[:, num_particles:]  # slice out the data and padding
@@ -28,6 +27,7 @@ class Random3DRotationTransform(torch.nn.Module):
         # Reshape back to original shape
         x = x.reshape(-1)
 
-        data.update({"x": x})
-
-        return data
+        return {
+            **data,
+            "x": x,
+        }

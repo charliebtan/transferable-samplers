@@ -1,6 +1,8 @@
 import logging
 import os
+import statistics as stats
 import time
+from collections import defaultdict
 from typing import Any, Optional
 
 import hydra
@@ -95,6 +97,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         :param batch_idx: The index of the current batch.
         :return: A tensor of losses between model predictions and targets.
         """
+        assert len(batch["x"].shape) == 2, "molecules must be in vector format"
         loss = self.model_step(batch)
         batch_value = self.train_metrics(loss)
         self.log_dict(batch_value, prog_bar=True)
@@ -212,7 +215,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         self.eval_step(batch, batch_idx, prefix="test")
 
     def on_eval_epoch_end(self, metrics, prefix: str = "val") -> None:
-        self.log_dict(metrics.compute())
+        self.log_dict(metrics.compute(), sync_dist=True)
         metrics.reset()
         if self.hparams.ema_decay > 0:
             if self.hparams.eval_ema:
@@ -225,6 +228,48 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         else:
             self.evaluate(prefix)
         plt.close("all")
+
+    def add_aggregate_metrics(self, metrics: dict[str, torch.Tensor], prefix: str = "val") -> dict[str, torch.Tensor]:
+        """Aggregate metrics across all sequences."""
+
+        mean_dict_list = defaultdict(list)
+        median_dict_list = defaultdict(list)
+        count_dict = defaultdict(int)
+
+        # Parse and aggregate metrics along peptide sequences
+        for key, value in metrics.items():
+            if key.startswith(prefix):
+                # Extract sequence and metric name
+                parts = key.split("/")
+                metric_name = "/".join(parts[2:])
+
+                # Add to mean and median dictionaries
+                mean_key = f"{prefix}/mean/{metric_name}"
+                median_key = f"{prefix}/median/{metric_name}"
+                count_key = f"{prefix}/count/{metric_name}"
+
+                if isinstance(value, torch.Tensor):
+                    value = value.item()
+                elif isinstance(value, (int, float)):
+                    value = float(value)
+
+                mean_dict_list[mean_key].append(value)
+                median_dict_list[median_key].append(value)
+                count_dict[count_key] += 1
+
+        # Compute mean and median for each metric
+        mean_dict = {}
+        median_dict = {}
+        for key, value in mean_dict_list.items():
+            mean_dict[key] = stats.mean(value)
+
+        for key, value in median_dict_list.items():
+            median_dict[key] = stats.median(value)
+
+        metrics.update(mean_dict)
+        metrics.update(median_dict)
+        metrics.update(count_dict)
+        return metrics
 
     def evaluate_all(self, prefix):
         metrics = {}
@@ -240,8 +285,15 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
                     proposal_generator=self.batched_generate_samples,
                 )
             )
+
+        # Aggregate metrics across all sequences
         if self.local_rank == 0:
-            self.log_dict(metrics)
+            metric_object_list = [self.add_aggregate_metrics(metrics, prefix=prefix)]
+        else:
+            metric_object_list = [None]  # List must have same length for broadcast
+        # Broadcast metrics to all processes - must log from all for checkpointing
+        torch.distributed.broadcast_object_list(metric_object_list, src=0)
+        self.log_dict(metric_object_list[0])
 
     @torch.no_grad()
     def evaluate(
@@ -276,8 +328,8 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         proposal_samples, proposal_log_p, prior_samples = proposal_generator(num_proposal_samples, encodings)
         torch.cuda.synchronize()
         time_duration = time.time() - start_time
-        self.log(f"{prefix}/samples_walltime", time_duration)
-        self.log(f"{prefix}/samples_per_second", len(proposal_samples) / time_duration)
+        self.log(f"{prefix}/samples_walltime", time_duration, sync_dist=True)
+        self.log(f"{prefix}/samples_per_second", len(proposal_samples) / time_duration, sync_dist=True)
 
         # Save samples to disk
         samples_dict = {
@@ -346,8 +398,8 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             )  # already returned resampled
             torch.cuda.synchronize()
             time_duration = time.time() - start_time
-            self.log(f"{prefix}/smc/samples_walltime", time_duration)
-            self.log(f"{prefix}/smc/samples_per_second", len(smc_samples) / time_duration)
+            self.log(f"{prefix}/smc/samples_walltime", time_duration, sync_dist=True)
+            self.log(f"{prefix}/smc/samples_per_second", len(smc_samples) / time_duration, sync_dist=True)
 
             # Save samples to disk
             smc_samples_dict = {
