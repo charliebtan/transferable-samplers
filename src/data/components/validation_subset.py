@@ -4,7 +4,7 @@ VALIDATION_SUBSET_2 = {
     "HD": 0,
     "DQ": 1,
     "SM": 2,
-    # "AL": 3,
+    "DT": 3,
     "NG": 4,
     "TG": 5,
     "HQ": 6,
@@ -30,7 +30,7 @@ VALIDATION_SUBSET_2 = {
     "LR": 26,
     "NI": 27,
     "NV": 28,
-    # "AA": 29,
+    "MN": 29,
 }
 
 VALIDATION_SUBSET_4 = {
@@ -103,7 +103,7 @@ VALIDATION_SUBSET_24 = {
     "HD": 0,
     "DQ": 1,
     "SM": 2,
-    # "AL": 3,
+    "DT": 3,
     "NG": 4,
     "TG": 5,
     "HQ": 6,
@@ -136,7 +136,7 @@ VALIDATION_SUBSET_248 = {
     "HD": 0,
     "DQ": 1,
     "SM": 2,
-    # "AL": 3,
+    "DT": 3,
     "NG": 4,
     "TG": 5,
     "HQ": 6,
@@ -174,3 +174,36 @@ VALIDATION_SUBSET_DICT = {
     "24": VALIDATION_SUBSET_24,
     "248": VALIDATION_SUBSET_248,
 }
+
+
+if __name__ == "__main__":
+    all_codes = [
+        "A",
+        "R",
+        "N",
+        "D",
+        "C",
+        "Q",
+        "E",
+        "G",
+        "H",
+        "I",
+        "L",
+        "K",
+        "M",
+        "F",
+        "P",
+        "S",
+        "T",
+        "W",
+        "Y",
+        "V",
+    ]
+
+    # Check all AA present at least once in the subsets
+    for subset_name, subset in VALIDATION_SUBSET_DICT.items():
+        missing_codes = [code for code in all_codes if not any(code in key for key in subset.keys())]
+        if missing_codes:
+            print(f"Subset {subset_name} is missing the following codes: {missing_codes}")
+        else:
+            print(f"Subset {subset_name} contains all codes.")
