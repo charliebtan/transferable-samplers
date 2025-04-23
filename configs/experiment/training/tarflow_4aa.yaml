@@ -2,13 +2,13 @@
 
 defaults:
   - override /model: normalizing_flow
-  - override /data: up_to_8aa
+  - override /data: 4aa
   - override /trainer: gpu
 
 model:
   net:
     in_channels: 3
-    channels: 512
+    channels: 384
     num_blocks: 8
     layers_per_block: 8
     cond_embed:

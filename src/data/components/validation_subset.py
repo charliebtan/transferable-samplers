@@ -30,7 +30,7 @@ VALIDATION_SUBSET_2 = {
     "LR": 26,
     "NI": 27,
     "NV": 28,
-    "AA": 29,
+    # "AA": 29,
 }
 
 VALIDATION_SUBSET_4 = {

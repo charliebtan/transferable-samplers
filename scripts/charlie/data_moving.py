@@ -1,6 +1,5 @@
 import glob
 import os
-import shutil
 
 import numpy as np
 from tqdm import tqdm
@@ -40,7 +39,7 @@ from tqdm import tqdm
 
 # 4AA
 
-# def download_data(huggingface_repo_id: str, huggingface_data_dir: str, local_dir: str) -> None:
+# def download_data() -> None:
 #     """
 #     Downloads a dat repo from a Hugging Face repository.
 #
@@ -50,12 +49,14 @@ from tqdm import tqdm
 #         local_dir (str): The local directory to save the downloaded data.
 #     """
 #     huggingface_hub.snapshot_download(
-#         repo_id=huggingface_repo_id,
+#         repo_id="microsoft/timewarp",
 #         repo_type="dataset",
-#         allow_patterns=f"{huggingface_data_dir}/*",
-#         local_dir=local_dir,
+#         allow_patterns="4AA-huge/test/**",
+#         local_dir="/home/mila/t/tanc/scratch/self-consume-bg/data/new/test",
 #         max_workers=4,
 #     )
+#
+# download_data()
 
 # source = "/home/mila/t/tanc/scratch/self-consume-bg/data/4aa/train/4AA-large/train"
 # dest = "/home/mila/t/tanc/scratch/self-consume-bg/data/new/train"
@@ -240,37 +241,60 @@ all_codes = [
 
 # 3/5/6/7AA - majdi
 
-root_dir = "/network/scratch/m/majdi.hassan/md-runner/data/md"
-dirs = [d for d in os.listdir(root_dir) if os.path.isdir(os.path.join(root_dir, d))]
+# root_dir = "/network/scratch/m/majdi.hassan/md-runner/data/md"
+# dirs = [d for d in os.listdir(root_dir) if os.path.isdir(os.path.join(root_dir, d))]
+#
+# def process_md_dir(dirs, prefix):
+#     for d in tqdm(dirs):
+#         path = f"{root_dir}/{d}/{d}_310_50000"
+#
+#         npz_files = [file for file in glob.glob(f"{path}/*.npz") if not file.endswith("_vel.npz")]
+#         npz_files = sorted(npz_files, key=lambda x: int(os.path.basename(x).split("-")[0][:-4]))
+#
+#         npz_list = []
+#         for npz_file in npz_files:
+#             npz_data = np.load(npz_file, allow_pickle=True)
+#             npz_list.append(npz_data["all_positions"])
+#
+#         if len(npz_list):
+#             npz_cat = np.concatenate(npz_list, axis=0)
+#             np.savez(f"{prefix}/{d}-traj-arrays.npz", positions=npz_cat)
+#         else:
+#             print(f"No data found in {path}")
+#
+#
+# prefix = "/home/mila/t/tanc/scratch/self-consume-bg/data/new/train"
+# process_md_dir(dirs, prefix)
+#
+# pdb_dir = "/network/scratch/m/majdi.hassan/md-runner/data/pdbs"
+# pdb_files = [f for f in os.listdir(pdb_dir) if os.path.isfile(os.path.join(pdb_dir, f))]
+#
+# prefix_train = "/home/mila/t/tanc/scratch/self-consume-bg/data/new/train"
+#
+# for pdb_file in tqdm(pdb_files):
+#     seq_name = pdb_file.split(".")[0]
+#     shutil.copy(os.path.join(pdb_dir, pdb_file), f"{prefix_train}/{seq_name}-traj-state0.pdb")
 
 
-def process_md_dir(dirs, prefix):
-    for d in tqdm(dirs):
-        path = f"{root_dir}/{d}/{d}_310_50000"
-
-        npz_files = [file for file in glob.glob(f"{path}/*.npz") if not file.endswith("_vel.npz")]
-        npz_files = sorted(npz_files, key=lambda x: int(os.path.basename(x).split("-")[0][:-4]))
-
-        npz_list = []
-        for npz_file in npz_files:
-            npz_data = np.load(npz_file, allow_pickle=True)
-            npz_list.append(npz_data["all_positions"])
-
-        if len(npz_list):
-            npz_cat = np.concatenate(npz_list, axis=0)
-            np.savez(f"{prefix}/{d}-traj-arrays.npz", positions=npz_cat)
-        else:
-            print(f"No data found in {path}")
-
+from glob import glob
 
 prefix = "/home/mila/t/tanc/scratch/self-consume-bg/data/new/train"
-process_md_dir(dirs, prefix)
 
-pdb_dir = "/network/scratch/m/majdi.hassan/md-runner/data/pdbs"
-pdb_files = [f for f in os.listdir(pdb_dir) if os.path.isfile(os.path.join(pdb_dir, f))]
+# Get all .npz files in the target directory
+npz_files = glob(os.path.join(prefix, "*-traj-arrays.npz"))
 
-prefix_train = "/home/mila/t/tanc/scratch/self-consume-bg/data/new/train"
+corrupted = []
 
-for pdb_file in tqdm(pdb_files):
-    seq_name = pdb_file.split(".")[0]
-    shutil.copy(os.path.join(pdb_dir, pdb_file), f"{prefix_train}/{seq_name}-traj-state0.pdb")
+print("🔍 Checking for corrupted .npz files...")
+
+for f in tqdm(npz_files):
+    try:
+        _ = np.load(f)  # attempt to load
+    except Exception as e:
+        print(f"❌ Corrupted: {f} ({e})")
+        corrupted.append(f)
+
+if not corrupted:
+    print("✅ All .npz files loaded successfully!")
+else:
+    print(f"\n⚠️ Found {len(corrupted)} corrupted file(s).")
