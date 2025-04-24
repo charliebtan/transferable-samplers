@@ -167,3 +167,5 @@ AImplicitUnconstrained*
 /models/
 /scratch/
 /wandb/
+
+___*.py

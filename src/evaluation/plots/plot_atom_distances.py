@@ -8,7 +8,9 @@ matplotlib.rcParams["mathtext.fontset"] = "stix"
 matplotlib.rcParams["font.family"] = "STIXGeneral"
 
 
-def interatomic_dist(x):
+def interatomic_dist(x, flatten=True):
+    assert len(x.shape) == 3, f"Expected 3D array, got {x.shape}"
+
     num_particles = x.shape[1]
 
     # Compute the pairwise interatomic distances
@@ -20,7 +22,9 @@ def interatomic_dist(x):
     ]
     dist = torch.linalg.norm(distances, dim=-1)
 
-    return dist.flatten()
+    if flatten:
+        dist = dist.flatten()
+    return dist
 
 
 def plot_atom_distances(

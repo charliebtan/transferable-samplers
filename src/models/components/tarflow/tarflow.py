@@ -307,7 +307,7 @@ class TarFlow(torch.nn.Module):
     def forward(
         self,
         x: torch.Tensor,
-        encodings: dict[str, torch.Tensor] | None = None,
+        encoding: dict[str, torch.Tensor] | None = None,
         mask: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor], torch.Tensor]:
         batch_size = x.shape[0]
@@ -317,25 +317,25 @@ class TarFlow(torch.nn.Module):
         if mask is not None:
             assert mask.ndim == 2, "Mask should be 2D"
             assert torch.all(x.sum(dim=-1)[mask == 0] == 0), "x is not zero where mask is zero"
-            assert torch.all(encodings["atom_type"][mask == 0] == 0), "atom_type is not zero where mask is zero"
-            assert torch.all(encodings["aa_type"][mask == 0] == 0), "aa_type is not zero where mask is zero"
-            assert torch.all(encodings["aa_pos"][mask == 0] == 0), "aa_pos is not zero where mask is zero"
+            assert torch.all(encoding["atom_type"][mask == 0] == 0), "atom_type is not zero where mask is zero"
+            assert torch.all(encoding["aa_type"][mask == 0] == 0), "aa_type is not zero where mask is zero"
+            assert torch.all(encoding["aa_pos"][mask == 0] == 0), "aa_pos is not zero where mask is zero"
 
             mask = mask.view(x.shape[0], -1)  # needs to be this shape for embedder
 
         cond = None
-        if encodings is not None:
+        if encoding is not None:
             assert self.conditional, (
-                f"Passed in encodings for transferrability, but conditional={self.conditional}."
+                f"Passed in encoding for transferrability, but conditional={self.conditional}."
                 + " Set conditional attribute to True"
             )
 
             # (batch_size, seq_len, channels)
             cond = self.cond_embed(
-                atom_type=encodings["atom_type"],
-                aa_type=encodings["aa_type"],
-                aa_pos=encodings["aa_pos"],
-                seq_len=encodings["seq_len"],
+                atom_type=encoding["atom_type"],
+                aa_type=encoding["aa_type"],
+                aa_pos=encoding["aa_pos"],
+                seq_len=encoding["seq_len"],
                 mask=mask,
             )
 
@@ -352,34 +352,32 @@ class TarFlow(torch.nn.Module):
     def reverse(
         self,
         x: torch.Tensor,
-        encodings: dict[str, torch.Tensor] | None = None,
+        encoding: dict[str, torch.Tensor] | None = None,
         return_sequence: bool = False,
     ) -> torch.Tensor | list[torch.Tensor]:
         """No masking in reverse since we assume the model generates a single peptide system as a time."""
 
         batch_size = x.shape[0]
 
-        assert x.shape[1] == encodings["atom_type"].shape[1] * self.in_channels, "x and encodings do not match"
-        assert not torch.any(encodings["atom_type"] == 0), (
-            "atom_type has padding zeros, padding not supports in reverse"
-        )
-        assert not torch.any(encodings["aa_type"] == 0), "aa_type has padding zeros, padding not supports in reverse"
-        assert not torch.any(encodings["aa_pos"] == 0), "aa_pos has padding zeros, padding not supports in reverse"
+        assert x.shape[1] == encoding["atom_type"].shape[1] * self.in_channels, "x and encoding do not match"
+        assert not torch.any(encoding["atom_type"] == 0), "atom_type has padding zeros, padding not supports in reverse"
+        assert not torch.any(encoding["aa_type"] == 0), "aa_type has padding zeros, padding not supports in reverse"
+        assert not torch.any(encoding["aa_pos"] == 0), "aa_pos has padding zeros, padding not supports in reverse"
 
         # patchify
         x = x.reshape(batch_size, -1, self.in_channels)
 
         cond = None
-        if encodings is not None:
+        if encoding is not None:
             assert self.conditional, (
-                f"Passed in encodings for transferrability, but conditional={self.conditional}."
+                f"Passed in encoding for transferrability, but conditional={self.conditional}."
                 + " Set conditional attribute to True"
             )
             cond = self.cond_embed(
-                atom_type=encodings["atom_type"],
-                aa_type=encodings["aa_type"],
-                aa_pos=encodings["aa_pos"],
-                seq_len=encodings["seq_len"],
+                atom_type=encoding["atom_type"],
+                aa_type=encoding["aa_type"],
+                aa_pos=encoding["aa_pos"],
+                seq_len=encoding["seq_len"],
             )
 
         seq = [x.reshape(batch_size, -1)]
@@ -424,20 +422,23 @@ def load_padded_model_weights(model_pad, model):
 
 
 @torch.no_grad()
-def test_invertibility(model, x, encodings, mask=None, num_pad_tokens=4, num_dimensions=3):
-    x_pred, _ = model(x, encodings=encodings, mask=mask)
+def test_invertibility(model, x, encoding, mask=None, num_pad_tokens=4, num_dimensions=3):
+    x_pred, _ = model(x, encoding=encoding, mask=mask)
+
+    # print("x_pred", x_pred[0])
 
     if mask is not None:
         x = x[:, : num_pad_tokens * num_dimensions]
         x_pred = x_pred[:, : num_pad_tokens * num_dimensions]
 
-        encodings = {
-            "atom_type": encodings["atom_type"][:, :num_pad_tokens],
-            "aa_type": encodings["aa_type"][:, :num_pad_tokens],
-            "aa_pos": encodings["aa_pos"][:, :num_pad_tokens],
+        encoding = {
+            "atom_type": encoding["atom_type"][:, :num_pad_tokens],
+            "aa_type": encoding["aa_type"][:, :num_pad_tokens],
+            "aa_pos": encoding["aa_pos"][:, :num_pad_tokens],
         }
 
-    x_recon = model.reverse(x_pred, encodings=encodings)
+    x_recon = model.reverse(x_pred, encoding=encoding)
+
     # print((x - x_recon).reshape(x.shape[0], -1, num_dimensions).mean(dim=0))
     # print((x - x_recon).reshape(x.shape[0], -1, num_dimensions).mean(dim=1))
     # print((x - x_recon).reshape(x.shape[0], -1, num_dimensions).mean(dim=2))
@@ -458,9 +459,9 @@ def test_invertibility(model, x, encodings, mask=None, num_pad_tokens=4, num_dim
     print("Invertibility test passed")
 
 
-def test_mask_model(model, x, encodings, model_pad, x_pad, encodings_pad, mask):
-    x_fwd, _ = model(x, encodings=encodings)
-    x_fwd_pad, _ = model_pad(x_pad, encodings=encodings_pad, mask=mask)
+def test_mask_model(model, x, encoding, model_pad, x_pad, encoding_pad, mask):
+    x_fwd, _ = model(x, encoding=encoding)
+    x_fwd_pad, _ = model_pad(x_pad, encoding=encoding_pad, mask=mask)
 
     # print("x_fwd max error:", torch.max(abs(x_fwd - x_fwd_pad[:, :12])))
     # print("x_fwd mae:", torch.mean(abs(x_fwd - x_fwd_pad[:, :12])))
@@ -469,9 +470,9 @@ def test_mask_model(model, x, encodings, model_pad, x_pad, encodings_pad, mask):
     print("Masked model fwd test passed")
 
 
-def test_mask_model_no_pad(model, x, encodings, model_pad):
-    x_fwd, _ = model(x, encodings=encodings)
-    x_fwd_no_pad, _ = model_pad(x, encodings=encodings)
+def test_mask_model_no_pad(model, x, encoding, model_pad):
+    x_fwd, _ = model(x, encoding=encoding)
+    x_fwd_no_pad, _ = model_pad(x, encoding=encoding)
 
     # print("x_fwd max error:", torch.max(abs(x_fwd - x_fwd_no_pad)))
     # print("x_fwd mae:", torch.mean(abs(x_fwd - x_fwd_no_pad)))
@@ -486,7 +487,7 @@ def test_logdet(model, x_i, enc_i):
     _, fwd_logdets = model(x_pred, enc_i)
     fwd_logdets = fwd_logdets * x_i.shape[1]  # rescale from mean to sum
 
-    reverse_func = lambda x: model.reverse(x=x, encodings=enc_i)
+    reverse_func = lambda x: model.reverse(x=x, encoding=enc_i)
     rev_jac_true = torch.autograd.functional.jacobian(reverse_func, x_i, vectorize=True)
     rev_logdets_true = torch.logdet(rev_jac_true[0].squeeze())
 
@@ -536,8 +537,7 @@ if __name__ == "__main__":
 
     ### Dummy data
     x = torch.randn([batch_size, img_size])
-
-    encodings = {
+    encoding = {
         "atom_type": torch.randint(high=2, size=(batch_size, img_size // in_channels)) + 1,
         "aa_type": torch.randint(high=2, size=(batch_size, img_size // in_channels)) + 1,
         "aa_pos": torch.randint(high=2, size=(batch_size, img_size // in_channels)) + 1,
@@ -549,15 +549,15 @@ if __name__ == "__main__":
     pad_dim = pad_tokens * in_channels
 
     x_pad = torch.cat([x, torch.zeros([batch_size, pad_dim])], dim=1)
-    encodings_pad = {
+    encoding_pad = {
         "atom_type": torch.cat(
-            [encodings["atom_type"].clone(), torch.zeros([batch_size, pad_tokens], dtype=torch.long)], dim=1
+            [encoding["atom_type"].clone(), torch.zeros([batch_size, pad_tokens], dtype=torch.long)], dim=1
         ),
         "aa_type": torch.cat(
-            [encodings["aa_type"].clone(), torch.zeros([batch_size, pad_tokens], dtype=torch.long)], dim=1
+            [encoding["aa_type"].clone(), torch.zeros([batch_size, pad_tokens], dtype=torch.long)], dim=1
         ),
         "aa_pos": torch.cat(
-            [encodings["aa_pos"].clone(), torch.zeros([batch_size, pad_tokens], dtype=torch.long)], dim=1
+            [encoding["aa_pos"].clone(), torch.zeros([batch_size, pad_tokens], dtype=torch.long)], dim=1
         ),
     }
     mask = torch.cat(
@@ -596,34 +596,32 @@ if __name__ == "__main__":
             )
             model = load_padded_model_weights(model_pad, model)
 
-            print("\nstandard")
-            test_invertibility(model, x, encodings)  # test invertibility of the original model
+    print("\nstandard")
+    test_invertibility(model, x, encoding)  # test invertibility of the original model
 
-            print("\npad + mask")
-            test_mask_model(
-                model, x, encodings, model_pad, x_pad, encodings_pad, mask
-            )  # test forward of the padded model
-            test_invertibility(model_pad, x_pad, encodings_pad, mask)  # test invertibility of the padded model
+    print("\npad + mask")
+    test_mask_model(model, x, encoding, model_pad, x_pad, encoding_pad, mask)  # test forward of the padded model
+    test_invertibility(model_pad, x_pad, encoding_pad, mask)  # test invertibility of the padded model
 
-            print("\npad model with non-pad data")
-            test_mask_model_no_pad(model, x, encodings, model_pad)  # test forward of the padded model
-            test_invertibility(model_pad, x, encodings)  # test invertibility of the padded model with non-padded data
+    print("\npad model with non-pad data")
+    test_mask_model_no_pad(model, x, encoding, model_pad)  # test forward of the padded model
+    test_invertibility(model_pad, x, encoding)  # test invertibility of the padded model with non-padded data
 
-            for i in range(batch_size - 1):
-                print("\nbatch item", i)
+    for i in range(batch_size - 1):
+        print("\nbatch item", i)
 
-                x_i = x[i : i + 1]
-                enc_i = {k: v[i : i + 1] for k, v in encodings.items()}
+        x_i = x[i : i + 1]
+        enc_i = {k: v[i : i + 1] for k, v in encoding.items()}
 
-                x_pad_i = x_pad[i : i + 1]
-                enc_pad_i = {k: v[i : i + 1] for k, v in encodings_pad.items()}
-                mask_i = mask[i : i + 1]
+        x_pad_i = x_pad[i : i + 1]
+        enc_pad_i = {k: v[i : i + 1] for k, v in encoding_pad.items()}
+        mask_i = mask[i : i + 1]
 
-                print("\nstandard")
-                test_logdet(model, x_i, enc_i)  # test logdet of the original model
+        print("\nstandard")
+        test_logdet(model, x_i, enc_i)  # test logdet of the original model
 
-                print("\npad + mask")
-                test_logdet_mask(model, model_pad, x_i, enc_i, enc_pad_i, mask_i)  # test logdet of the padded model
+        print("\npad + mask")
+        test_logdet_mask(model, model_pad, x_i, enc_i, enc_pad_i, mask_i)  # test logdet of the padded model
 
-                print("\npad model with non-pad data")
-                test_logdet(model_pad, x_i, enc_i)  # test logdet of the padded model with non-padded data
+        print("\npad model with non-pad data")
+        test_logdet(model_pad, x_i, enc_i)  # test logdet of the padded model with non-padded data

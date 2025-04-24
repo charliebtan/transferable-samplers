@@ -1,27 +1,37 @@
 """Adapted from https://github.com/noegroup/bgflow/blob/main/bgflow/distribution/energy/base.py"""
 
-from typing import Union, Optional, Sequence
-from collections.abc import Sequence as _Sequence
 import warnings
+from collections.abc import Sequence
+from collections.abc import Sequence as _Sequence
+from typing import Optional, Union
 
-import torch
 import numpy as np
+import torch
 
-from src.data.components.utils import assert_numpy
+
+def is_list_or_tuple(x):
+    return isinstance(x, list) or isinstance(x, tuple)
+
+
+def assert_numpy(x, arr_type=None):
+    if isinstance(x, torch.Tensor):
+        if x.is_cuda:
+            x = x.cpu()
+        x = x.detach().numpy()
+    if is_list_or_tuple(x):
+        x = np.array(x)
+    assert isinstance(x, np.ndarray)
+    if arr_type is not None:
+        x = x.astype(arr_type)
+    return x
 
 
 def _is_non_empty_sequence_of_integers(x):
-    return (
-        isinstance(x, _Sequence) and (len(x) > 0) and all(isinstance(y, int) for y in x)
-    )
+    return isinstance(x, _Sequence) and (len(x) > 0) and all(isinstance(y, int) for y in x)
 
 
 def _is_sequence_of_non_empty_sequences_of_integers(x):
-    return (
-        isinstance(x, _Sequence)
-        and len(x) > 0
-        and all(_is_non_empty_sequence_of_integers(y) for y in x)
-    )
+    return isinstance(x, _Sequence) and len(x) > 0 and all(_is_non_empty_sequence_of_integers(y) for y in x)
 
 
 def _parse_dim(dim):
@@ -33,10 +43,10 @@ def _parse_dim(dim):
         return list(map(torch.Size, dim))
     else:
         raise ValueError(
-            f"dim must be either:"
-            f"\n\t- an integer"
-            f"\n\t- a non-empty list of integers"
-            f"\n\t- a list with len > 1 containing non-empty lists containing integers"
+            "dim must be either:"
+            "\n\t- an integer"
+            "\n\t- a non-empty list of integers"
+            "\n\t- a list with len > 1 containing non-empty lists containing integers"
         )
 
 
@@ -82,7 +92,6 @@ class Energy(torch.nn.Module):
     """
 
     def __init__(self, dim: Union[int, Sequence[int], Sequence[Sequence[int]]], **kwargs):
-
         super().__init__(**kwargs)
         self._event_shapes = _parse_dim(dim)
 
@@ -121,19 +130,17 @@ class Energy(torch.nn.Module):
         raise NotImplementedError()
 
     def energy(self, *xs, temperature=1.0, **kwargs):
-        assert len(xs) == len(
-            self._event_shapes
-        ), f"Expected {len(self._event_shapes)} arguments but only received {len(xs)}"
+        assert len(xs) == len(self._event_shapes), (
+            f"Expected {len(self._event_shapes)} arguments but only received {len(xs)}"
+        )
         batch_shape = xs[0].shape[: -len(self._event_shapes[0])]
         for i, (x, s) in enumerate(zip(xs, self._event_shapes)):
             assert x.shape[: -len(s)] == batch_shape, (
                 f"Inconsistent batch shapes."
-                f"Input at index {i} has batch shape {x.shape[:-len(s)]}"
+                f"Input at index {i} has batch shape {x.shape[: -len(s)]}"
                 f"however input at index 0 has batch shape {batch_shape}."
             )
-            assert (
-                x.shape[-len(s) :] == s
-            ), f"Input at index {i} as wrong shape {x.shape[-len(s):]} instead of {s}"
+            assert x.shape[-len(s) :] == s, f"Input at index {i} as wrong shape {x.shape[-len(s) :]} instead of {s}"
         return self._energy(*xs, **kwargs) / temperature
 
     def force(
@@ -200,7 +207,9 @@ class Energy(torch.nn.Module):
                     else:
                         with_grad = i not in no_grad
                     force = -torch.autograd.grad(
-                        energy.sum(), x, create_graph=with_grad,
+                        energy.sum(),
+                        x,
+                        create_graph=with_grad,
                     )[0]
                     forces.append(force)
                     x.requires_grad_(requires_grad_states[i])
@@ -222,7 +231,7 @@ class _BridgeEnergyWrapper(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        neg_force, = ctx.saved_tensors
+        (neg_force,) = ctx.saved_tensors
         grad_input = grad_output * neg_force
         return grad_input, None
 
@@ -239,12 +248,7 @@ class _Bridge:
         self.last_forces = None
 
     def evaluate(
-            self,
-            positions: torch.Tensor,
-            *args,
-            evaluate_force: bool = True,
-            evaluate_energy: bool = True,
-            **kwargs
+        self, positions: torch.Tensor, *args, evaluate_force: bool = True, evaluate_energy: bool = True, **kwargs
     ):
         shape = positions.shape
         assert shape[-2:] == (self.n_atoms, 3) or shape[-1] == self.n_atoms * 3
@@ -258,11 +262,7 @@ class _Bridge:
 
         for i, pos in enumerate(position_batch):
             energy_batch[i], force_batch[i] = self._evaluate_single(
-                pos,
-                *args,
-                evaluate_energy=evaluate_energy,
-                evaluate_force=evaluate_force,
-                **kwargs
+                pos, *args, evaluate_energy=evaluate_energy, evaluate_force=evaluate_force, **kwargs
             )
 
         energies = torch.tensor(energy_batch.reshape(*energy_shape)).to(positions)
@@ -274,14 +274,7 @@ class _Bridge:
 
         return energies, forces
 
-    def _evaluate_single(
-            self,
-            positions: torch.Tensor,
-            *args,
-            evaluate_force=True,
-            evaluate_energy=True,
-            **kwargs
-    ):
+    def _evaluate_single(self, positions: torch.Tensor, *args, evaluate_force=True, evaluate_energy=True, **kwargs):
         raise NotImplementedError
 
     @property
@@ -290,9 +283,8 @@ class _Bridge:
 
 
 class _BridgeEnergy(Energy):
-
     def __init__(self, bridge, two_event_dims=True):
-        event_shape = (bridge.n_atoms, 3) if two_event_dims else (bridge.n_atoms * 3, )
+        event_shape = (bridge.n_atoms, 3) if two_event_dims else (bridge.n_atoms * 3,)
         super().__init__(event_shape)
         self._bridge = bridge
         self._last_batch = None
