@@ -152,7 +152,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
     def batched_generate_samples(
         self,
         total_size: int,
-        encodings: Optional[dict[str, torch.Tensor]] = None,
+        encoding: Optional[dict[str, torch.Tensor]] = None,
         batch_size: Optional[int] = None,
         dummy_ll: bool = False,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -162,12 +162,12 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         log_ps = []
         prior_samples = []
         for _ in tqdm(range(total_size // batch_size)):
-            s, lp, ps = self.generate_samples(batch_size, encodings=encodings, dummy_ll=dummy_ll)
+            s, lp, ps = self.generate_samples(batch_size, encoding=encoding, dummy_ll=dummy_ll)
             samples.append(s)
             log_ps.append(lp)
             prior_samples.append(ps)
         if total_size % batch_size > 0:
-            s, lp, ps = self.generate_samples(total_size % batch_size, encodings=encodings, dummy_ll=dummy_ll)
+            s, lp, ps = self.generate_samples(total_size % batch_size, encoding=encoding, dummy_ll=dummy_ll)
             samples.append(s)
             log_ps.append(lp)
             prior_samples.append(ps)
@@ -177,7 +177,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         return samples, log_ps, prior_samples
 
     def generate_samples(
-        self, batch_size: int, encodings: Optional[dict[str, torch.Tensor]] = None, n_timesteps: int = None
+        self, batch_size: int, encoding: Optional[dict[str, torch.Tensor]] = None, n_timesteps: int = None
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Generate samples from the model.
 
@@ -273,15 +273,16 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
 
     def evaluate_all(self, prefix):
         metrics = {}
-        for val_sequence in self.datamodule.val_sequences:
-            true_data, energy_fn = self.datamodule.prepare_eval(val_sequence)
-            logging.info(f"Evaluating {val_sequence} samples")
+        for seq_name in self.datamodule.val_seq_names:
+            true_samples, encoding, energy_fn = self.datamodule.prepare_eval(seq_name)
+            logging.info(f"Evaluating {seq_name} samples")
             metrics.update(
                 self.evaluate(
-                    true_data,
-                    val_sequence,
+                    seq_name,
+                    true_samples,
+                    encoding,
                     energy_fn,
-                    prefix=f"{prefix}/{val_sequence}",
+                    prefix=f"{prefix}/{seq_name}",
                     proposal_generator=self.batched_generate_samples,
                 )
             )
@@ -297,11 +298,16 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
 
     @torch.no_grad()
     def evaluate(
-        self, true_data, sequence, energy_fn, prefix: str = "val", proposal_generator=None, output_dir=None
+        self, sequence, true_samples, encoding, energy_fn, prefix: str = "val", proposal_generator=None, output_dir=None
     ) -> None:
         """Generates samples from the proposal and runs SMC if enabled.
         Also computes metrics, through the datamodule function "metrics_and_plots".
         """
+
+        true_data = SamplesData(
+            self.datamodule.as_pointcloud(self.datamodule.unnormalize(true_samples)),
+            energy_fn(true_samples),
+        )
 
         # Define proposal generator
         if proposal_generator is None:
@@ -314,18 +320,10 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         else:
             num_proposal_samples = self.hparams.sampling_config.num_proposal_samples
 
-        true_samples = true_data["x"]
-        encodings = true_data["encoding"]  # noqa: F841
-
-        true_data = SamplesData(
-            self.datamodule.as_pointcloud(self.datamodule.unnormalize(true_samples)),
-            energy_fn(true_samples),
-        )
-
         # Generate samples and record time
         torch.cuda.synchronize()
         start_time = time.time()
-        proposal_samples, proposal_log_p, prior_samples = proposal_generator(num_proposal_samples, encodings)
+        proposal_samples, proposal_log_p, prior_samples = proposal_generator(num_proposal_samples, encoding)
         torch.cuda.synchronize()
         time_duration = time.time() - start_time
         self.log(f"{prefix}/samples_walltime", time_duration, sync_dist=True)

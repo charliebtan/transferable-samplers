@@ -16,8 +16,11 @@
 RUN_NAME=$1
 
 srun python -u src/train.py \
-experiment=training/tarflow_2aa_ddp_4 logger=wandb \
-tags=[2aa,ddp] \
+experiment=training/tarflow_4aa logger=wandb \
+trainer=ddp \
+# batch size could be 2000 but each iteration almost 2x as slow - priorised keeping the time for 1000 batches epoch lower
+batch_size=1024 \
+tags=[4aa,ddp] \
 hydra.run.dir='${paths.log_dir}/${task_name}/runs/'${RUN_NAME} \
 ckpt_path='${paths.log_dir}/${task_name}/runs/'${RUN_NAME}/checkpoints/last.ckpt \
 logger.wandb.id=${RUN_NAME} \

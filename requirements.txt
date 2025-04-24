@@ -48,6 +48,7 @@ zuko
 wandb
 huggingface-hub
 wget
+lmdb
 
 # flash-attn no build isolation
 # pip install flash-attn --no-build-isolation

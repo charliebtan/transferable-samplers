@@ -1,6 +1,27 @@
 import logging
 
+import numpy as np
 import torch
+
+
+def get_atom_types(topology):
+    atom_dict = {"C": 0, "H": 1, "N": 2, "O": 3, "S": 4}
+    atom_types = []
+    for atom_name in topology.atoms:
+        atom_types.append(atom_name.name[0])
+    atom_types = torch.from_numpy(np.array([atom_dict[atom_type] for atom_type in atom_types]))
+
+    return atom_types
+
+
+def get_adj_list(topology):
+    adj_list = torch.from_numpy(
+        np.array(
+            [(b.atom1.index, b.atom2.index) for b in topology.bonds],
+            dtype=np.int32,
+        )
+    )
+    return adj_list
 
 
 def find_chirality_centers(adj_list: torch.Tensor, atom_types: torch.Tensor, num_h_atoms: int = 2) -> torch.Tensor:
@@ -69,7 +90,10 @@ def check_symmetry_change(true_coords: torch.Tensor, pred_coords: torch.Tensor, 
     return (perm_sign != reference_signs.to(pred_coords)).any(dim=-1)
 
 
-def resolve_chirality(true_samples, pred_samples, adj_list, atom_types, prefix=""):
+def resolve_chirality(true_samples, pred_samples, topology, prefix=""):
+    adj_list = get_adj_list(topology)
+    atom_types = get_atom_types(topology)
+
     symmetry_change = check_symmetry_change(true_samples, pred_samples, adj_list, atom_types)
     pred_samples[symmetry_change] *= -1
     correct_symmetry_rate = 1 - symmetry_change.sum() / len(symmetry_change)
