@@ -235,6 +235,12 @@ def load_lmdb_metadata(lmdb_path: str, key: bytes = b"__meta__") -> dict:
         if value is None:
             raise KeyError(f"Metadata key {key} not found in LMDB at {lmdb_path}")
         metadata = pickle.loads(value)  # noqa: S301
+        # metadata = {}
+        for pdb, pdb_path in metadata["pdb_paths"].items():
+            # TODO: temp fix for wrong dir path. FIX
+            _pdb_path = pdb_path.replace("/home/mila/t/tanc/scratch", "/network/scratch/t/tanc")
+            metadata["pdb_paths"][pdb] = _pdb_path
+
     env.close()
     return metadata
 
