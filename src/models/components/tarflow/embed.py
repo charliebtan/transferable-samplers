@@ -4,26 +4,31 @@ import torch
 import torch.nn as nn
 
 
-def sinusodial_embedding(indices, embed_size, max_len=2056):
-    """Creates sine / cosine positional embeddings from a prespecified indices.
+class SinusodialEmbedding(nn.Module):
+    def __init__(self, embed_size, max_len=512):
+        self.embed_size = embed_size
+        self.max_len = max_len
 
-    Args:
-        indices: offsets of size [..., N_edges] of type integer
-        max_len: maximum length.
-        embed_size: dimension of the embeddings to create
+    def forward(self, indices):
+        """Creates sine / cosine positional embeddings from a prespecified indices.
 
-    Returns:
-        positional embedding of shape [N, embed_size]
-    """
-    K = torch.arange(embed_size // 2, device=indices.device)
-    pos_embedding_sin = torch.sin(indices[..., None] * math.pi / (max_len ** (2 * K[None] / embed_size))).to(
-        indices.device
-    )
-    pos_embedding_cos = torch.cos(indices[..., None] * math.pi / (max_len ** (2 * K[None] / embed_size))).to(
-        indices.device
-    )
-    pos_embedding = torch.cat([pos_embedding_sin, pos_embedding_cos], axis=-1)
-    return pos_embedding
+        Args:
+            indices: offsets of size [..., N_edges] of type integer
+            max_len: maximum length.
+            embed_size: dimension of the embeddings to create
+
+        Returns:
+            positional embedding of shape [N, embed_size]
+        """
+        K = torch.arange(self.embed_size // 2, device=indices.device)
+        pos_embedding_sin = torch.sin(indices[..., None] * math.pi / (self.max_len ** (2 * K[None] / self.embed_size))).to(
+            indices.device
+        )
+        pos_embedding_cos = torch.cos(indices[..., None] * math.pi / (self.max_len ** (2 * K[None] / self.embed_size))).to(
+            indices.device
+        )
+        pos_embedding = torch.cat([pos_embedding_sin, pos_embedding_cos], axis=-1)
+        return pos_embedding
 
 
 class ConditionalEmbedder(nn.Module):
@@ -39,8 +44,8 @@ class ConditionalEmbedder(nn.Module):
 
         self.atom_embed = nn.Embedding(num_embeddings=num_atom_emb, embedding_dim=channels)
         self.residue_embed = nn.Embedding(num_embeddings=num_residue_emb, embedding_dim=channels)
-        self.residue_pos_embed = lambda x: sinusodial_embedding(x, embed_size=channels)
-        self.seq_len_embed = lambda x: sinusodial_embedding(x, embed_size=channels)
+        self.residue_pos_embed = SinusodialEmbedding(embed_size=channels)
+        self.seq_len_embed = SinusodialEmbedding(embed_size=channels)
 
         self.mlp = nn.Sequential(nn.Linear(4 * channels, channels), nn.GELU(), nn.Linear(channels, channels))
 
