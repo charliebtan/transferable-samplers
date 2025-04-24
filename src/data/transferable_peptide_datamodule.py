@@ -1,6 +1,5 @@
 import logging
 import math
-import os
 from typing import Any, Callable, Optional
 
 import openmm
@@ -35,8 +34,8 @@ class TransferablePeptideDataModule(BaseDataModule):
     def __init__(
         self,
         data_dir: str,
-        train_lmdb: str,
-        val_lmdb: str,
+        train_lmdb_prefix: str,
+        val_lmdb_prefix: str,
         num_aa_max: int,
         num_aa_min: int,
         num_dimensions: int,
@@ -56,12 +55,13 @@ class TransferablePeptideDataModule(BaseDataModule):
         super().__init__(batch_size=batch_size, num_workers=num_workers, pin_memory=pin_memory)
 
         assert dim == num_dimensions * num_particles, "dim must be equal to num_dimensions * num_particles"
+        assert num_workers < 2, "need a copy of lmdb for each worker, use at most 1 worker"
 
         self.train_data_path = f"{data_dir}/train"
         self.val_data_path = f"{data_dir}/val"
 
-        self.train_lmdb_path = f"{data_dir}/{train_lmdb}"
-        self.val_lmdb_path = f"{data_dir}/{val_lmdb}"
+        self.train_lmdb_prefix_path = f"{data_dir}/{train_lmdb_prefix}"
+        self.val_lmdb_prefix_path = f"{data_dir}/{val_lmdb_prefix}"
 
         self.num_aa_range = list(range(num_aa_min, num_aa_max + 1))
 
@@ -74,32 +74,25 @@ class TransferablePeptideDataModule(BaseDataModule):
         Do not use it to assign state (self.x = y).
         """
 
-        if (
-            os.path.exists(self.train_lmdb_path)
-            and os.path.exists(self.val_lmdb_path)
-            and not self.hparams.resume_build_lmdb
-        ):
-            pass
-        else:
-            train_npz_paths, train_pdb_paths = check_and_get_files(self.train_data_path)
-            val_npz_paths, val_pdb_paths = check_and_get_files(self.val_data_path)
+        train_npz_paths, train_pdb_paths = check_and_get_files(self.train_data_path)
+        val_npz_paths, val_pdb_paths = check_and_get_files(self.val_data_path)
 
-            cross_reference_files(train_npz_paths, val_npz_paths)
+        cross_reference_files(train_npz_paths, val_npz_paths)
 
-            build_lmdb(
-                train_npz_paths,
-                train_pdb_paths,
-                lmdb_path=self.train_lmdb_path,
-                resume=self.hparams.resume_build_lmdb,
-            )
+        build_lmdb(
+            train_npz_paths,
+            train_pdb_paths,
+            lmdb_prefix_path=self.train_lmdb_prefix_path,
+            resume=self.hparams.resume_build_lmdb,
+        )
 
-            build_lmdb(
-                val_npz_paths,
-                val_pdb_paths,
-                subset=ALL_VALIDATION_SUBSET,  # prevents adding sequences we aren't going to use
-                lmdb_path=self.val_lmdb_path,
-                resume=self.hparams.resume_build_lmdb,
-            )
+        build_lmdb(
+            val_npz_paths,
+            val_pdb_paths,
+            subset=ALL_VALIDATION_SUBSET,  # prevents adding sequences we aren't going to use
+            lmdb_prefix_path=self.val_lmdb_prefix_path,
+            resume=self.hparams.resume_build_lmdb,
+        )
 
     def setup(self, stage: Optional[str] = None) -> None:
         """Load data. Set variables: `self.data_train`, `self.data_val`, `self.data_test`.
@@ -119,6 +112,10 @@ class TransferablePeptideDataModule(BaseDataModule):
                     "the number of devices ({self.trainer.world_size})."
                 )
             self.batch_size_per_device = self.hparams.batch_size // self.trainer.world_size
+
+        # get the correct rank for the lmdb
+        self.train_lmdb_path = f"{self.train_lmdb_prefix_path}_{self.trainer.local_rank}.lmdb"
+        self.val_lmdb_path = f"{self.val_lmdb_prefix_path}_{self.trainer.local_rank}.lmdb"
 
         train_metadata = load_lmdb_metadata(self.train_lmdb_path)
         val_metadata = load_lmdb_metadata(self.val_lmdb_path)
@@ -183,10 +180,14 @@ class TransferablePeptideDataModule(BaseDataModule):
         self.pdb_dict, self.topology_dict = load_pdbs_and_topologies(pdb_paths, self.num_aa_range)
         self.encoding_dict = get_encoding_dict(self.topology_dict)
 
-        self.std = torch.sqrt(
-            torch.sum(torch.tensor([v for v in train_metadata["weighted_vars"].values()]))
-            / sum(train_metadata["num_samples"].values())
-        )
+        total_samples = 0
+        weighted_vars = []
+        for k, v in train_metadata["vars"].items():
+            num_samples = train_metadata["num_samples"][k]
+            total_samples += num_samples
+            weighted_vars.append(v * num_samples)
+        self.std = torch.sqrt(torch.sum(torch.tensor(weighted_vars)) / total_samples)
+        logging.info(f"Standard deviation of training data: {self.std}")
 
         transform_list = [
             StandardizeTransform(self.std, self.hparams.num_dimensions),

@@ -65,7 +65,7 @@ def cross_reference_files(train_npz_paths: list[str], val_npz_paths: list[str]) 
 def build_lmdb(
     npz_paths: list[str],
     pdb_paths: list[str],
-    lmdb_path: str,
+    lmdb_prefix_path: str,
     subset: dict[str, list[int]] = None,  # {seq_name: random_seed}
     map_size: int = 3 * (1 << 40),
     resume: bool = False,
@@ -82,7 +82,7 @@ def build_lmdb(
         resume (bool, optional): Whether to resume from an existing LMDB file. Defaults to False.
     """
 
-    lmdb_paths = [lmdb_path.replace(".lmdb", f"_{i}.lmdb") for i in range(4)]
+    lmdb_paths = [f"{lmdb_prefix_path}_{i}.lmdb" for i in range(4)]
 
     if any(os.path.exists(path) and not resume for path in lmdb_paths):
         if not all(os.path.exists(path) for path in lmdb_paths):
@@ -176,9 +176,9 @@ def build_lmdb(
         x_var = x_tensor.var(unbiased=False)
         metadata["vars"][seq_name] = float(x_var)
 
-        if "small" in lmdb_path:
+        if "small" in lmdb_prefix_path:
             step = 10
-        elif "medium" in lmdb_path:
+        elif "medium" in lmdb_prefix_path:
             step = 5
         else:
             step = 1
