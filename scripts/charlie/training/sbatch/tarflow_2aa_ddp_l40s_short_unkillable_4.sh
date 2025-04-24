@@ -16,7 +16,9 @@
 RUN_NAME=$1
 
 srun python -u src/train.py \
-experiment=training/tarflow_2aa_ddp_4 logger=wandb \
+experiment=training/tarflow_2aa logger=wandb \
+trainer=ddp \
+batch_size=2048 \
 tags=[2aa,ddp] \
 hydra.run.dir='${paths.log_dir}/${task_name}/runs/'${RUN_NAME} \
 ckpt_path='${paths.log_dir}/${task_name}/runs/'${RUN_NAME}/checkpoints/last.ckpt \

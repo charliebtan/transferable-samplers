@@ -9,4 +9,4 @@
 #SBATCH --gres=gpu:a100l:1                  # Type/number of GPUs needed
 #SBATCH -c 4
 
-srun python -u src/train.py experiment=training/tarflow_up_to_8aa \
+srun python -u src/train.py experiment=training/tarflow_up_to_8aa data.train_lmdb_prefix=train_medium

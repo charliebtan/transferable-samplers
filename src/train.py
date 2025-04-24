@@ -1,7 +1,4 @@
 # ruff: noqa: E402, I001
-import torch.multiprocessing
-
-torch.multiprocessing.set_start_method("spawn", force=True)
 
 import os
 from typing import Any, Optional

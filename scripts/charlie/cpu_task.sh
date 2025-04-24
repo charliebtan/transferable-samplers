@@ -9,4 +9,4 @@
 #SBATCH -c 4
 #SBATCH --open-mode=append            # Do not overwrite logs
 
-zip -r --verbose /network/archive/t/tanc/md-runner.zip /network/scratch/m/majdi.hassan/md-runner
+zip -r --verbose /network/archive/t/tanc/md-runner-charlie.zip /network/scratch/t/tanc/md-runner
