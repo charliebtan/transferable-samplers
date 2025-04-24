@@ -81,22 +81,34 @@ def build_lmdb(
         map_size (int, optional): Maximum size of the LMDB file. Defaults to 3 * (1 << 40).
         resume (bool, optional): Whether to resume from an existing LMDB file. Defaults to False.
     """
-    if os.path.exists(lmdb_path) and not resume:
-        logging.warning(f"LMDB file {lmdb_path} already exists, skipping LMDB creation")
-        return
-    assert not (not os.path.exists(lmdb_path) and resume), "LMDB file does not exist, cannot resume"
+
+    lmdb_paths = [lmdb_path.replace(".lmdb", f"_{i}.lmdb") for i in range(4)]
+
+    if any(os.path.exists(path) and not resume for path in lmdb_paths):
+        if not all(os.path.exists(path) for path in lmdb_paths):
+            raise ValueError("Some LMDB files exist but not all - cannot proceed")
+        else:
+            logging.info("LMDB files already exist, skipping LMDB creation")
+            return
+
+    if resume:
+        assert all(os.path.exists(path) for path in lmdb_paths), "Cannot resume if some LMDB files don't exist"
 
     # Ensure GPU is available - TODO is it actually faster?
     assert torch.cuda.is_available(), "GPU is required for data preprocessing - slow otherwise!"
 
-    # Was getting an error trying to create the LMDB file with a map size larger than 1TB
-    env = lmdb.open(lmdb_path, map_size=min(map_size, 1 << 40), writemap=True)
-    env.set_mapsize(map_size)  # Set the map size to the full size after creation
-    txn = env.begin(write=True)
+    envs = []
+    txns = []
+
+    for path in lmdb_paths:
+        env = lmdb.open(path, map_size=min(map_size, 1 << 40), writemap=True)
+        env.set_mapsize(map_size)
+        envs.append(env)
+        txns.append(env.begin(write=True))
 
     if not resume:
         metadata = {
-            "weighted_vars": {},  # TODO could prob just store var and compute weighted var on the fly
+            "vars": {},
             "num_samples": {},
             "num_particles": {},
             "pdb_paths": {},
@@ -104,30 +116,30 @@ def build_lmdb(
             "seq_to_idx": {},
         }
     else:
-        metadata = load_lmdb_metadata(lmdb_path)
+        metadata = load_lmdb_metadata(lmdb_paths[0])
 
     np.random.seed(0)
-    np.random.shuffle(npz_paths)  # shuffle the npz files for more even timing estimate
+    np.random.shuffle(npz_paths)
 
     global_idx = 0
-    for seq_idx, npz_path in enumerate(tqdm(npz_paths, desc="Building LMDB")):
+    for seq_idx, npz_path in enumerate(tqdm(npz_paths, desc="Building LMDBs")):
         seq_name = os.path.basename(npz_path).split("-")[0]
 
-        if subset is not None:
-            if seq_name not in subset.keys():
-                # avoids adding all the extra ones we're not going to use
-                logging.info(f"Sequence {seq_name} not found in subset, skipping")
-                continue
+        if subset and seq_name not in subset:
+            # avoids adding all the extra ones we're not going to use
+            logging.info(f"Sequence {seq_name} not found in subset, skipping")
+            continue
 
-        if seq_name in metadata["num_samples"].keys():
+        if seq_name in metadata["num_samples"]:
             # already added this sequence
             logging.info(f"Sequence {seq_name} already added, skipping")
             continue
 
-        assert npz_path.replace("-traj-arrays.npz", "-traj-state0.pdb") in pdb_paths
+        pdb_path = npz_path.replace("-traj-arrays.npz", "-traj-state0.pdb")
+        assert pdb_path in pdb_paths
 
         metadata["npz_paths"][seq_name] = npz_path
-        metadata["pdb_paths"][seq_name] = npz_path.replace("-traj-arrays.npz", "-traj-state0.pdb")
+        metadata["pdb_paths"][seq_name] = pdb_path
 
         with np.load(npz_path, allow_pickle=False) as data:
             x = data["positions"]  # shape (N, num_particles, num_dimensions)
@@ -137,7 +149,7 @@ def build_lmdb(
 
         assert len(x.shape) == 3, f"Expected 3D array, got {x.shape}"
 
-        if subset is not None:
+        if subset:
             # draw a deterministic random subset of 10k samples
             np.random.seed(subset[seq_name])
             x = x[np.random.choice(x.shape[0], size=10_000, replace=False)]
@@ -162,8 +174,14 @@ def build_lmdb(
         # Compute var
         x_tensor = x_tensor - x_tensor.mean(dim=1, keepdim=True)  # Center for var computation
         x_var = x_tensor.var(unbiased=False)
+        metadata["vars"][seq_name] = float(x_var)
 
-        step = 10 if "small" in lmdb_path else 1
+        if "small" in lmdb_path:
+            step = 10
+        elif "medium" in lmdb_path:
+            step = 5
+        else:
+            step = 1
 
         seq_to_idx = []
         for t_idx in range(0, x.shape[0], step):
@@ -174,28 +192,27 @@ def build_lmdb(
             # Prepare the data for LMDB
             key = f"{global_idx:08}".encode()
             value = pickle.dumps(sample, protocol=pickle.HIGHEST_PROTOCOL)
-            txn.put(key, value)
+            for txn in txns:
+                txn.put(key, value)
             global_idx += 1
 
         num_samples = len(seq_to_idx)
 
         metadata["num_samples"][seq_name] = num_samples
-        metadata["weighted_vars"][seq_name] = float(x_var * num_samples)
         metadata["seq_to_idx"][seq_name] = np.array(seq_to_idx, dtype=np.int32)
 
         if seq_idx % 500 == 0:
-            # Store the data in the LMDB
-            txn.put(b"__meta__", pickle.dumps(metadata))  # store metadata
-            txn.put(b"__len__", pickle.dumps(global_idx))  # store number of samples
-            txn.commit()
-            txn = env.begin(write=True)
+            for i in range(4):
+                txns[i].put(b"__meta__", pickle.dumps(metadata))  # store metadata
+                txns[i].put(b"__len__", pickle.dumps(global_idx))  # store number of samples
+                txns[i].commit()
+                txns[i] = envs[i].begin(write=True)
 
     # Store the final data
-    txn.put(b"__meta__", pickle.dumps(metadata))  # store metadata
-    txn.put(b"__len__", pickle.dumps(global_idx))  # store number of samples
-
-    # Store the data in the LMDB
-    txn.commit()
+    for i in range(4):
+        txns[i].put(b"__meta__", pickle.dumps(metadata))  # store metadata
+        txns[i].put(b"__len__", pickle.dumps(global_idx))  # store number of samples
+        txns[i].commit()
 
 
 def load_lmdb_metadata(lmdb_path: str, key: bytes = b"__meta__") -> dict:
