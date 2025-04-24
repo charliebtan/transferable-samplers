@@ -49,7 +49,6 @@ wandb
 huggingface-hub
 wget
 lmdb
-lz4
 
 # flash-attn no build isolation
 # pip install flash-attn --no-build-isolation

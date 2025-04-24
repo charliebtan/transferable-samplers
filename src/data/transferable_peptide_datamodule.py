@@ -35,6 +35,8 @@ class TransferablePeptideDataModule(BaseDataModule):
     def __init__(
         self,
         data_dir: str,
+        train_lmdb: str,
+        val_lmdb: str,
         num_aa_max: int,
         num_aa_min: int,
         num_dimensions: int,
@@ -55,11 +57,11 @@ class TransferablePeptideDataModule(BaseDataModule):
 
         assert dim == num_dimensions * num_particles, "dim must be equal to num_dimensions * num_particles"
 
-        self.train_data_path = f"{self.hparams.data_dir}/train"
-        self.val_data_path = f"{self.hparams.data_dir}/val"
+        self.train_data_path = f"{data_dir}/train"
+        self.val_data_path = f"{data_dir}/val"
 
-        self.train_lmdb_path = f"{self.hparams.data_dir}/train_small_v2.lmdb"
-        self.val_lmdb_path = f"{self.hparams.data_dir}/val.lmdb"
+        self.train_lmdb_path = f"{data_dir}/{train_lmdb}"
+        self.val_lmdb_path = f"{data_dir}/{val_lmdb}"
 
         self.num_aa_range = list(range(num_aa_min, num_aa_max + 1))
 

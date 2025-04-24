@@ -1,5 +1,7 @@
 _target_: src.data.transferable_peptide_datamodule.TransferablePeptideDataModule
 data_dir: ${paths.data_dir}new
+train_lmdb: train_small_v2.lmdb
+val_lmdb: val.lmdb
 batch_size: 512 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
 num_workers: 2
 pin_memory: False
