@@ -1,7 +1,112 @@
 import torch
 from itertools import groupby
 
-from src.data.components.encodings import AA_TYPE_ENCODING_DICT, ATOM_TYPE_ENCODING_DICT, AA_CODE_CONVERSION
+# from src.data.components.encodings import AA_TYPE_ENCODING_DICT, ATOM_TYPE_ENCODING_DICT, AA_CODE_CONVERSION
+
+
+ATOM_TYPE_ENCODING_DICT = {
+    "C": 1,
+    "CA": 2,
+    "CB": 3,
+    "CD": 4,
+    "CD1": 5,
+    "CD2": 6,
+    "CE": 7,
+    "CE1": 8,
+    "CE2": 9,
+    "CE3": 10,
+    "CG": 11,
+    "CG1": 12,
+    "CG2": 13,
+    "CH2": 14,
+    "CZ": 15,
+    "CZ2": 16,
+    "CZ3": 17,
+    "H": 18,
+    "HA": 19,
+    "HB": 20,
+    "HD": 21,
+    "HD1": 22,
+    "HD2": 23,
+    "HE": 24,
+    "HE1": 25,
+    "HE2": 26,
+    "HE3": 27,
+    "HG": 28,
+    "HG1": 29,
+    "HG2": 30,
+    "HH": 31,
+    "HH1": 32,
+    "HH2": 33,
+    "HZ": 34,
+    "HZ2": 35,
+    "HZ3": 36,
+    "N": 37,
+    "ND1": 38,
+    "ND2": 39,
+    "NE": 40,
+    "NE1": 41,
+    "NE2": 42,
+    "NH1": 43,
+    "NH2": 44,
+    "NZ": 45,
+    "O": 46,
+    "OD": 47,
+    "OE": 48,
+    "OG": 49,
+    "OG1": 50,
+    "OH": 51,
+    "OXT": 52,
+    "SD": 53,
+    "SG": 54,
+}
+
+AA_TYPE_ENCODING_DICT = {
+    "ALA": 1,
+    "ARG": 2,
+    "ASN": 3,
+    "ASP": 4,
+    "CYS": 5,
+    "GLN": 6,
+    "GLU": 7,
+    "GLY": 8,
+    "HIS": 9,
+    "ILE": 10,
+    "LEU": 11,
+    "LYS": 12,
+    "MET": 13,
+    "PHE": 14,
+    "PRO": 15,
+    "SER": 16,
+    "THR": 17,
+    "TRP": 18,
+    "TYR": 19,
+    "VAL": 20,
+}
+
+AA_CODE_CONVERSION = {
+    "ALA": "A",
+    "ARG": "R",
+    "ASN": "N",
+    "ASP": "D",
+    "CYS": "C",
+    "GLN": "Q",
+    "GLU": "E",
+    "GLY": "G",
+    "HIS": "H",
+    "ILE": "I",
+    "LEU": "L",
+    "LYS": "K",
+    "MET": "M",
+    "PHE": "F",
+    "PRO": "P",
+    "SER": "S",
+    "THR": "T",
+    "TRP": "W",
+    "TYR": "Y",
+    "VAL": "V",
+}
+
 
 # common backbone order
 BACKBONE_ORDER = ["N", "CA", "C", "O"]
@@ -45,9 +150,7 @@ class PermutationIdentity(Permutation):
 
 class PermutationFlip(Permutation):
     def forward(self, x: torch.Tensor, dim: int = 1, inverse: bool = False, **kwargs) -> torch.Tensor:
-        if isinstance(dim, int):
-            dim = [dim]
-        return x.flip(dims=dim)
+        return x.flip(dims=[dim])
 
 
 class PermutationBackBone(Permutation):
@@ -60,19 +163,19 @@ class PermutationBackBone(Permutation):
     def forward(
             self, 
             x: torch.Tensor, 
-            atom_type_seq: torch.Tensor, 
-            aa_type_seq: torch.Tensor, 
+            atom_type: torch.Tensor, 
+            aa_type: torch.Tensor, 
             dim: int = 1, 
             inverse: bool = False, 
             **kwargs
     ) -> torch.Tensor:
-        return self.permute(x, atom_type_seq, aa_type_seq, dim=dim)
+        return self.permute(x, atom_type, aa_type, dim=dim)
     
     def permute(
         self,
         x: torch.Tensor,             # (B, L, ...)
-        atom_type_seq: torch.Tensor, # (B, L)
-        aa_type_seq: torch.Tensor,   # (B, L)
+        atom_type: torch.Tensor, # (B, L)
+        aa_type: torch.Tensor,   # (B, L)
         dim: int = 1,
     ) -> torch.Tensor:
         B, L = x.shape[0], x.shape[dim]
@@ -83,11 +186,12 @@ class PermutationBackBone(Permutation):
         N_code = ATOM_TYPE_ENCODING_DICT["N"]
 
         for i in range(B):
-            types = atom_type_seq[i]   # (L,)
-            aas   = aa_type_seq[i]     # (L,)
+            # breakpoint()
+            types = atom_type[i]   # (L,)
+            aas   = aa_type[i]     # (L,)
             # aa_key = tuple(int(v) for v in aas.tolist())
             aa_key = "".join(
-                map(lambda a: AA_CODE_CONVERSION[self.rev_aa[int(a)]], tuple(k for k, _ in groupby(aas)))
+                map(lambda a: AA_CODE_CONVERSION.get(self.rev_aa.get(int(a), 0), "0"), tuple(k for k in aas))
             )
 
             if aa_key in self.permutation_cache:
@@ -138,14 +242,11 @@ class PermutationBackBoneFlip(PermutationBackBone):
     def forward(
             self, 
             x: torch.Tensor, 
-            atom_type_seq: torch.Tensor, 
-            aa_type_seq: torch.Tensor, 
+            atom_type: torch.Tensor, 
+            aa_type: torch.Tensor, 
             dim: int = 1, 
             inverse: bool = False, 
             **kwargs
     ) -> torch.Tensor:
-        if isinstance(dim, int):
-            dim = [dim]
-
-        x = self.permute(x, atom_type_seq, aa_type_seq, dim=dim)
-        return x.flip(dims=dim)
+        x = self.permute(x, atom_type, aa_type, dim=dim)
+        return x.flip(dims=[dim])

@@ -2,8 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from src.models.components.tarflow.attention import AttentionBlock
-
+# from src.models.components.tarflow.attention import AttentionBlock
+from attention import AttentionBlock
 
 # Code adapted from Lucidrain's implementation of AF3
 # https://github.com/lucidrains/alphafold3-pytorch
