@@ -28,4 +28,4 @@ tags=[2aa,ddp,adaln] \
 hydra.run.dir='${paths.log_dir}/${task_name}/runs/'${RUN_NAME} \
 ckpt_path='${paths.log_dir}/${task_name}/runs/'${RUN_NAME}/checkpoints/last.ckpt \
 logger.wandb.id=${RUN_NAME} \
-$2
+"${@:2}"
