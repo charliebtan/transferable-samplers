@@ -332,7 +332,11 @@ class TarFlow(torch.nn.Module):
 
             # (batch_size, seq_len, channels)
             cond = self.cond_embed(
-                atom_type=encodings["atom_type"], aa_type=encodings["aa_type"], aa_pos=encodings["aa_pos"], mask=mask
+                atom_type=encodings["atom_type"],
+                aa_type=encodings["aa_type"],
+                aa_pos=encodings["aa_pos"],
+                seq_len=encodings["seq_len"],
+                mask=mask,
             )
 
         logdets = torch.zeros((), device=x.device)
@@ -372,7 +376,10 @@ class TarFlow(torch.nn.Module):
                 + " Set conditional attribute to True"
             )
             cond = self.cond_embed(
-                atom_type=encodings["atom_type"], aa_type=encodings["aa_type"], aa_pos=encodings["aa_pos"]
+                atom_type=encodings["atom_type"],
+                aa_type=encodings["aa_type"],
+                aa_pos=encodings["aa_pos"],
+                seq_len=encodings["seq_len"],
             )
 
         seq = [x.reshape(batch_size, -1)]

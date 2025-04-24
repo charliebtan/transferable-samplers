@@ -144,6 +144,7 @@ def get_atom_encoding(topology):
         "atom_type": atom_type_encoding,
         "aa_pos": aa_pos_encoding,
         "aa_type": aa_type_encoding,
+        "seq_len": torch.tensor([topology.n_residues], dtype=torch.int64),
     }
 
     return encodings
