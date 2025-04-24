@@ -94,7 +94,9 @@ class Attention(torch.nn.Module):
             else:
                 mask = bias
 
-        x = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=mask, scale=scale, dropout=self.dropout if not self.sample else 0.)
+        x = torch.nn.functional.scaled_dot_product_attention(
+            q, k, v, attn_mask=mask, scale=scale, dropout_p=self.dropout if not self.sample else 0.
+        )
         x = x.transpose(1, 2).reshape(B, T, C)
         x = self.proj(x)
         return x
