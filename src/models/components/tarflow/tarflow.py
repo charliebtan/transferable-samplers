@@ -98,11 +98,11 @@ class MetaBlock(torch.nn.Module):
         mask: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         x_in = self.permutation(x, atom_type=atom_type, aa_type=aa_type)  # store permuted input for later
-        breakpoint()
+
         # by permuting after projection + pos_embed sum, we can have the same
         # output with / without padding tokens for PermutationFlip
         # without this, the pos_embed is flipped but then the "first" token
-        # pos_embed is applied to a pad token
+        # pos_embed is applied to a pad token        
         x = self.proj_in(x) + self.pos_embed[: x.shape[1]]
         x = self.permutation(x, atom_type=atom_type, aa_type=aa_type)
 
@@ -565,7 +565,7 @@ if __name__ == "__main__":
     in_channels = 3
     patch_size = 1
     channels = 64
-    num_blocks = 3  # needs to be at least 2 to cover both permutations
+    num_blocks = 4  # needs to be at least 2 to cover both permutations
     layers_per_block = 1
 
     encodings = {

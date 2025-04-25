@@ -1,5 +1,4 @@
 import torch
-from itertools import groupby
 
 # from src.data.components.encodings import AA_TYPE_ENCODING_DICT, ATOM_TYPE_ENCODING_DICT, AA_CODE_CONVERSION
 
@@ -169,7 +168,7 @@ class PermutationBackBone(Permutation):
             inverse: bool = False, 
             **kwargs
     ) -> torch.Tensor:
-        return self.permute(x, atom_type, aa_type, dim=dim)
+        return self.permute(x, atom_type, aa_type, dim=dim, inverse=inverse)
     
     def permute(
         self,
@@ -177,6 +176,7 @@ class PermutationBackBone(Permutation):
         atom_type: torch.Tensor, # (B, L)
         aa_type: torch.Tensor,   # (B, L)
         dim: int = 1,
+        inverse: bool = False
     ) -> torch.Tensor:
         B, L = x.shape[0], x.shape[dim]
         device = x.device
@@ -227,9 +227,19 @@ class PermutationBackBone(Permutation):
 
                     perm_list += heavy_pos + rest
 
+                
                 self.permutation_cache[aa_key] = perm_list
 
+            # invert if requested
+            if inverse:
+                inv = [0] * L
+                for new_i, old_i in enumerate(perm_list):
+                    inv[old_i] = new_i
+                
+                perm_list = inv
+
             perm_idx[i] = torch.tensor(perm_list, device=device)
+
 
         # now gather along dim=1
         # build a batch‐wise index for advanced indexing
@@ -248,5 +258,11 @@ class PermutationBackBoneFlip(PermutationBackBone):
             inverse: bool = False, 
             **kwargs
     ) -> torch.Tensor:
-        x = self.permute(x, atom_type, aa_type, dim=dim)
-        return x.flip(dims=[dim])
+        if inverse:
+            x = x.flip(dims=[dim])
+
+        x = self.permute(x, atom_type, aa_type, dim=dim, inverse=inverse)
+        if not inverse:
+            x = x.flip(dims=[dim])
+            
+        return x
