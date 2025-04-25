@@ -180,7 +180,7 @@ class TransferablePeptideDataModule(BaseDataModule):
         # TODO add data for 8
         if not test_seq_names:
             raise ValueError(
-                "Test subset not defined for num_aa_range {self.num_aa_range}. "
+                f"Test subset not defined for num_aa_range {self.num_aa_range}. "
                 "Please define a new test subset in TEST_SUBSET_DICT."
             )
         # Check that the test subset sequences are all present in the lmdb database
