@@ -20,6 +20,7 @@ from src.data.components.prepare_data import (
     load_pdbs_and_topologies,
 )
 from src.data.components.symmetry import resolve_chirality
+from src.data.components.test_subset import ALL_TEST_SUBSET, TEST_SUBSET_DICT
 from src.data.components.transforms.add_encoding import AddEncodingTransform
 from src.data.components.transforms.atom_noise import AtomNoiseTransform
 from src.data.components.transforms.center_of_mass import CenterOfMassTransform
@@ -36,6 +37,7 @@ class TransferablePeptideDataModule(BaseDataModule):
         data_dir: str,
         train_lmdb_prefix: str,
         val_lmdb_prefix: str,
+        test_lmdb_prefix: str,
         num_aa_max: int,
         num_aa_min: int,
         num_dimensions: int,
@@ -59,9 +61,11 @@ class TransferablePeptideDataModule(BaseDataModule):
 
         self.train_data_path = f"{data_dir}/train"
         self.val_data_path = f"{data_dir}/val"
+        self.test_data_path = f"{data_dir}/test"
 
         self.train_lmdb_prefix_path = f"{data_dir}/{train_lmdb_prefix}"
         self.val_lmdb_prefix_path = f"{data_dir}/{val_lmdb_prefix}"
+        self.test_lmdb_prefix_path = f"{data_dir}/{test_lmdb_prefix}"
 
         self.num_aa_range = list(range(num_aa_min, num_aa_max + 1))
 
@@ -76,8 +80,14 @@ class TransferablePeptideDataModule(BaseDataModule):
 
         train_npz_paths, train_pdb_paths = check_and_get_files(self.train_data_path)
         val_npz_paths, val_pdb_paths = check_and_get_files(self.val_data_path)
+        test_npz_paths, test_pdb_paths = check_and_get_files(self.test_data_path)
 
+        logging.info("Cross referencing train and val")
         cross_reference_files(train_npz_paths, val_npz_paths)
+        logging.info("Cross referencing train and test")
+        cross_reference_files(train_npz_paths, test_npz_paths)
+        logging.info("Cross referencing val and test")
+        cross_reference_files(val_npz_paths, test_npz_paths)
 
         build_lmdb(
             train_npz_paths,
@@ -91,6 +101,14 @@ class TransferablePeptideDataModule(BaseDataModule):
             val_pdb_paths,
             subset=ALL_VALIDATION_SUBSET,  # prevents adding sequences we aren't going to use
             lmdb_prefix_path=self.val_lmdb_prefix_path,
+            resume=self.hparams.resume_build_lmdb,
+        )
+
+        build_lmdb(
+            test_npz_paths,
+            test_pdb_paths,
+            subset=ALL_TEST_SUBSET,  # prevents adding sequences we aren't going to use
+            lmdb_prefix_path=self.test_lmdb_prefix_path,
             resume=self.hparams.resume_build_lmdb,
         )
 
@@ -116,16 +134,18 @@ class TransferablePeptideDataModule(BaseDataModule):
         # get the correct rank for the lmdb
         self.train_lmdb_path = f"{self.train_lmdb_prefix_path}_{self.trainer.local_rank}.lmdb"
         self.val_lmdb_path = f"{self.val_lmdb_prefix_path}_{self.trainer.local_rank}.lmdb"
+        self.test_lmdb_path = f"{self.test_lmdb_prefix_path}_{self.trainer.local_rank}.lmdb"
 
         train_metadata = load_lmdb_metadata(self.train_lmdb_path)
         val_metadata = load_lmdb_metadata(self.val_lmdb_path)
+        test_metadata = load_lmdb_metadata(self.test_lmdb_path)
 
         train_seq_names = list(train_metadata["num_samples"].keys())
-        all_val_seq_names = list(val_metadata["num_samples"].keys())
 
         # Fitler out train sequences that are not in the num_aa_range
         train_seq_names = [seq_name for seq_name in train_seq_names if len(seq_name) in self.num_aa_range]
 
+        all_val_seq_names = list(val_metadata["num_samples"].keys())
         # Find the correct validation subset
         if self.num_aa_range == [2]:
             val_seq_names = list(VALIDATION_SUBSET_DICT["2"].keys())
@@ -142,7 +162,6 @@ class TransferablePeptideDataModule(BaseDataModule):
                 f"Validation subset not defined for num_aa_range {self.num_aa_range}. "
                 "Please define a new validation subset in VALIDATION_SUBSET_DICT."
             )
-
         # Check that the validation subset sequences are all present in the lmdb database
         missing_seq_names = [seq_name for seq_name in val_seq_names if seq_name not in all_val_seq_names]
         if missing_seq_names:
@@ -151,23 +170,51 @@ class TransferablePeptideDataModule(BaseDataModule):
                 f"{missing_seq_names}. Please ensure that all subset sequence names are valid."
             )
 
-        # Filter the metadata to only include the sequences in the train / validation sets
+        # Eval on the unions of the different aa lengths
+        all_test_seq_names = list(test_metadata["num_samples"].keys())
+        test_seq_names = {}
+        if 2 in self.num_aa_range:
+            test_seq_names.update(TEST_SUBSET_DICT["2"])
+        if 4 in self.num_aa_range:
+            test_seq_names.update(TEST_SUBSET_DICT["4"])
+        # TODO add data for 8
+        if not test_seq_names:
+            raise ValueError(
+                "Test subset not defined for num_aa_range {self.num_aa_range}. "
+                "Please define a new test subset in TEST_SUBSET_DICT."
+            )
+        # Check that the test subset sequences are all present in the lmdb database
+        missing_test_seq_names = [seq_name for seq_name in test_seq_names if seq_name not in all_test_seq_names]
+        if missing_test_seq_names:
+            raise ValueError(
+                "Some test subset sequence names are not present in the test sequence names: "
+                f"{missing_test_seq_names}. Please ensure that all subset sequence names are valid."
+            )
+
+        # Filter the metadata to only include the sequences in the train / validation / test sets
         for key in train_metadata.keys():
             if isinstance(train_metadata[key], dict):
                 train_metadata[key] = {k: v for k, v in train_metadata[key].items() if k in train_seq_names}
         for key in val_metadata.keys():
             if isinstance(val_metadata[key], dict):
                 val_metadata[key] = {k: v for k, v in val_metadata[key].items() if k in val_seq_names}
-        val_seq_names = val_seq_names
+        for key in test_metadata.keys():
+            if isinstance(test_metadata[key], dict):
+                test_metadata[key] = {k: v for k, v in test_metadata[key].items() if k in test_seq_names}
 
         self.train_seq_names = train_seq_names
         self.val_seq_names = val_seq_names
+        self.test_seq_names = test_seq_names
 
         train_max_num_particles = max(list(train_metadata["num_particles"].values()))
         val_max_num_particles = max(list(val_metadata["num_particles"].values()))
+        test_max_num_particles = max(list(test_metadata["num_particles"].values()))
 
         assert train_max_num_particles >= val_max_num_particles, (
             "Train largest system must be greater than or equal to val largest system for pos_embed learning."
+        )
+        assert train_max_num_particles >= test_max_num_particles, (
+            "Train largest system must be greater than or equal to test largest system for pos_embed learning."
         )
         # Need to check here so TarFlow is correctly initalized for data
         assert self.hparams.num_particles > train_max_num_particles, (
@@ -176,7 +223,11 @@ class TransferablePeptideDataModule(BaseDataModule):
             + f"to {train_max_num_particles + 1}."
         )
 
-        pdb_paths = [*train_metadata["pdb_paths"].values(), *val_metadata["pdb_paths"].values()]
+        pdb_paths = [
+            *train_metadata["pdb_paths"].values(),
+            *val_metadata["pdb_paths"].values(),
+            *test_metadata["pdb_paths"].values(),
+        ]
         self.pdb_dict, self.topology_dict = load_pdbs_and_topologies(pdb_paths, self.num_aa_range)
         self.encoding_dict = get_encoding_dict(self.topology_dict)
 
@@ -242,6 +293,25 @@ class TransferablePeptideDataModule(BaseDataModule):
             transform=transforms,
         )
 
+        test_transform_list = [
+            StandardizeTransform(self.std, self.hparams.num_dimensions),
+            AddEncodingTransform(self.encoding_dict),
+            PaddingTransform(self.hparams.num_particles, self.hparams.num_dimensions),
+        ]
+
+        test_transforms = torchvision.transforms.Compose(test_transform_list)
+
+        self.data_test = PeptideDataset(
+            self.test_lmdb_path,
+            seq_names=self.test_seq_names,
+            num_dimensions=self.hparams.num_dimensions,
+            transform=test_transforms,
+        )
+
+        logging.info(f"Train dataset size: {len(self.data_train)}")
+        logging.info(f"Validation dataset size: {len(self.data_val)}")
+        logging.info(f"Test dataset size: {len(self.data_test)}")
+
     def setup_potential(self, val_sequence: str):
         forcefield = openmm.app.ForceField("amber14-all.xml", "implicit/obc1.xml")
         nonbondedMethod = openmm.app.CutoffNonPeriodic
@@ -268,8 +338,15 @@ class TransferablePeptideDataModule(BaseDataModule):
 
         return potential
 
-    def prepare_eval(self, val_sequence: str):
-        true_samples = self.data_val.get_seq_data(val_sequence)
+    def prepare_eval(self, eval_sequence: str):
+        if eval_sequence in self.val_seq_names:
+            true_samples = self.data_val.get_seq_data(eval_sequence)
+        elif eval_sequence in self.test_seq_names:
+            true_samples = self.data_test.get_seq_data(eval_sequence)
+        else:
+            raise ValueError(
+                f"Sequence {eval_sequence} not found in validation or test set. Please provide a valid sequence name."
+            )
 
         # TODO can this be handle better? in the lmdb?
         # how to do nice plots? - i suppose plots will be a more rare occasion
@@ -282,8 +359,8 @@ class TransferablePeptideDataModule(BaseDataModule):
 
         true_samples = self.normalize(true_samples)
 
-        encoding = self.encoding_dict[val_sequence]
-        potential = self.setup_potential(val_sequence)
+        encoding = self.encoding_dict[eval_sequence]
+        potential = self.setup_potential(eval_sequence)
         energy_fn = lambda x: potential.energy(self.unnormalize(x)).flatten()
         return true_samples, encoding, energy_fn
 
