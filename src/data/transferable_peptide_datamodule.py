@@ -29,6 +29,9 @@ from src.data.components.transforms.rotation import Random3DRotationTransform
 from src.data.components.transforms.standardize import StandardizeTransform
 from src.data.components.validation_subset import ALL_VALIDATION_SUBSET, VALIDATION_SUBSET_DICT
 from src.evaluation.metrics.evaluate_peptide_data import evaluate_peptide_data
+from src.evaluation.plots.plot_atom_distances import plot_atom_distances
+from src.evaluation.plots.plot_energies import plot_energies
+from src.evaluation.plots.plot_ramachandran import plot_ramachandran
 
 
 class TransferablePeptideDataModule(BaseDataModule):
@@ -372,6 +375,7 @@ class TransferablePeptideDataModule(BaseDataModule):
         proposal_data: SamplesData,
         resampled_data: SamplesData,
         smc_data: Optional[SamplesData] = None,
+        do_plots: bool = True,
         prefix: str = "",
     ) -> None:
         """Log metrics and plots at the end of an epoch."""
@@ -423,27 +427,29 @@ class TransferablePeptideDataModule(BaseDataModule):
                         compute_distribution_distances=False,
                     )
                 )
-                # plot_ramachandran(log_image_fn, data.samples, self.topology_dict[sequence], prefix=prefix + name)
+                if do_plots:
+                    plot_ramachandran(log_image_fn, data.samples, self.topology_dict[sequence], prefix=prefix + name)
 
-        # logging.info("Plotting energies")
-        # plot_energies(
-        #     log_image_fn,
-        #     true_data.energy[: self.hparams.num_eval_samples],
-        #     proposal_data.energy if len(proposal_data) > 0 else None,
-        #     resampled_data.energy if len(resampled_data) > 0 else None,
-        #     smc_data.energy if (smc_data is not None and len(smc_data) > 0) else None,
-        #     **self.hparams.energy_hist_config,
-        #     prefix=prefix,
-        # )
+        if do_plots:
+            logging.info("Plotting energies")
+            plot_energies(
+                log_image_fn,
+                true_data.energy[: self.hparams.num_eval_samples],
+                proposal_data.energy if len(proposal_data) > 0 else None,
+                resampled_data.energy if len(resampled_data) > 0 else None,
+                smc_data.energy if (smc_data is not None and len(smc_data) > 0) else None,
+                **self.hparams.energy_hist_config,
+                prefix=prefix,
+            )
 
-        # logging.info("Plotting interatomic distances")
-        # plot_atom_distances(
-        #     log_image_fn,
-        #     true_data.samples[: self.hparams.num_eval_samples],
-        #     proposal_data.samples if len(proposal_data) > 0 else None,
-        #     resampled_data.samples if len(resampled_data) > 0 else None,
-        #     smc_data.samples if (smc_data is not None and len(smc_data) > 0) else None,
-        #     prefix=prefix,
-        # )
+            logging.info("Plotting interatomic distances")
+            plot_atom_distances(
+                log_image_fn,
+                true_data.samples[: self.hparams.num_eval_samples],
+                proposal_data.samples if len(proposal_data) > 0 else None,
+                resampled_data.samples if len(resampled_data) > 0 else None,
+                smc_data.samples if (smc_data is not None and len(smc_data) > 0) else None,
+                prefix=prefix,
+            )
 
         return metrics
