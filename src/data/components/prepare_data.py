@@ -2,6 +2,7 @@ import logging
 import math
 import os
 import pickle
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import lmdb
 import mdtraj as md
@@ -10,6 +11,7 @@ import openmm.app
 import torch
 from tqdm import tqdm
 
+from src.evaluation.metrics.tica import run_tica
 from src.evaluation.plots.plot_atom_distances import interatomic_dist  # TODO move this
 
 
@@ -213,6 +215,32 @@ def build_lmdb(
         txns[i].put(b"__meta__", pickle.dumps(metadata))  # store metadata
         txns[i].put(b"__len__", pickle.dumps(global_idx))  # store number of samples
         txns[i].commit()
+
+
+def _prepare_single_tica(seq_name, npz_path, pdb_path):
+    logging.info(f"Loading {seq_name} for TICA")
+    samples = np.load(npz_path, allow_pickle=False)
+    topology = md.load_topology(pdb_path)
+    traj_samples = md.Trajectory(samples["positions"], topology=topology)
+    tica_model = run_tica(traj_samples, lagtime=100, dim=2)
+    return seq_name, tica_model
+
+
+def prepare_tica_models(npz_paths, pdb_paths):
+    tica_model_dict = {}
+
+    futures = []
+    with ProcessPoolExecutor(max_workers=8) as executor:
+        for seq_name in npz_paths.keys():
+            npz_path = npz_paths[seq_name]
+            pdb_path = pdb_paths[seq_name]
+            futures.append(executor.submit(_prepare_single_tica, seq_name, npz_path, pdb_path))
+
+        for future in tqdm(as_completed(futures), total=len(futures)):
+            seq_name, tica_model = future.result()
+            tica_model_dict[seq_name] = tica_model
+
+    return tica_model_dict
 
 
 def load_lmdb_metadata(lmdb_path: str, key: bytes = b"__meta__") -> dict:
