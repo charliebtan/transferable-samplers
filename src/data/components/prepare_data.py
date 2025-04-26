@@ -115,13 +115,15 @@ def build_lmdb(
             "npz_paths": {},
             "seq_to_idx": {},
         }
+        global_idx = 0
     else:
         metadata = load_lmdb_metadata(lmdb_paths[0])
+        global_idx = pickle.loads(txns[0].get(b"__len__"))  # noqa: S301
+        global_idx += 1  # start from the next index
 
     np.random.seed(0)
     np.random.shuffle(npz_paths)
 
-    global_idx = 0
     for seq_idx, npz_path in enumerate(tqdm(npz_paths, desc="Building LMDBs")):
         seq_name = os.path.basename(npz_path).split("-")[0]
 
