@@ -392,8 +392,9 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             # Generate smc samples and record time
             torch.cuda.synchronize()
             start_time = time.time()
+            self.smc_sampler.target_energy = energy_fn
             smc_samples, smc_logits = self.smc_sampler.sample(
-                proposal_samples[:num_smc_samples]
+                proposal_samples[:num_smc_samples], encoding=encoding
             )  # already returned resampled
             torch.cuda.synchronize()
             time_duration = time.time() - start_time
