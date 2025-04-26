@@ -274,6 +274,13 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
     def evaluate_all(self, prefix):
         metrics = {}
         eval_seq_names = self.datamodule.val_seq_names if prefix.startswith("val") else self.datamodule.test_seq_names
+        if prefix.startswith("test") and self.hparams.get("eval_seq_id") is not None:
+            id_to_seq = {v: k for k, v in eval_seq_names.items()}
+            if id_to_seq.get(self.hparams.eval_seq_id) is None:
+                raise ValueError(f"{self.hparams.eval_seq_id} not in set of test sequences: {eval_seq_names}")
+
+            eval_seq_names = {id_to_seq[self.hparams.eval_seq_id]: self.hparams.eval_seq_id}
+
         for seq_name in eval_seq_names:
             true_samples, encoding, energy_fn = self.datamodule.prepare_eval(seq_name)
             logging.info(f"Evaluating {seq_name} samples")
