@@ -11,24 +11,23 @@ if __name__ == "__main__":
     from embed import ConditionalEmbedder
     from permutation import (
         Permutation,
-        PermutationIdentity, 
-        PermutationFlip,
         PermutationBackBone,
-        PermutationBackBoneFlip
+        PermutationBackBoneFlip,
+        PermutationFlip,
+        PermutationIdentity,
     )
 
 else:
-    from src.models.components.tarflow.permutation import (
-        Permutation,
-        PermutationIdentity, 
-        PermutationFlip,
-        PermutationBackBone,
-        PermutationBackBoneFlip
-    )
-
     from src.models.components.tarflow.adaptive_blocks import AdaptiveAttnAndTransition
     from src.models.components.tarflow.attention import Attention, AttentionBlock
     from src.models.components.tarflow.embed import ConditionalEmbedder
+    from src.models.components.tarflow.permutation import (
+        Permutation,
+        PermutationBackBone,
+        PermutationBackBoneFlip,
+        PermutationFlip,
+        PermutationIdentity,
+    )
 
 
 class MetaBlock(torch.nn.Module):
@@ -102,7 +101,7 @@ class MetaBlock(torch.nn.Module):
         # by permuting after projection + pos_embed sum, we can have the same
         # output with / without padding tokens for PermutationFlip
         # without this, the pos_embed is flipped but then the "first" token
-        # pos_embed is applied to a pad token        
+        # pos_embed is applied to a pad token
         x = self.proj_in(x) + self.pos_embed[: x.shape[1]]
         x = self.permutation(x, atom_type=atom_type, aa_type=aa_type)
 
@@ -141,6 +140,7 @@ class MetaBlock(torch.nn.Module):
 
         x = self.proj_out(x)
 
+        breakpoint()
         if isinstance(self.permutation, PermutationFlip) or isinstance(self.permutation, PermutationBackBoneFlip):
             x = x * mask[..., None] if mask is not None else x
         x = torch.cat([torch.zeros_like(x[:, :1]), x[:, :-1]], dim=1)  # shift one token w/ zero pad
@@ -264,12 +264,7 @@ class TarFlow(torch.nn.Module):
         self.img_size = img_size
         self.patch_size = patch_size
         self.num_patches = img_size // patch_size // in_channels
-        permutations = [
-            PermutationIdentity(),
-            PermutationFlip(),
-            PermutationBackBone(),
-            PermutationBackBoneFlip()
-        ]
+        permutations = [PermutationIdentity(), PermutationFlip(), PermutationBackBone(), PermutationBackBoneFlip()]
 
         self.conditional = False if cond_embed is None else True
         self.cond_embed = cond_embed
@@ -432,14 +427,14 @@ def test_invertibility(model, x, encodings, mask=None, num_pad_tokens=4, num_dim
     x_pred, _ = model(x, encodings=encodings, mask=mask)
 
     if mask is not None:
-        x = x[:, : - num_pad_tokens * num_dimensions]
-        x_pred = x_pred[:, :  - num_pad_tokens * num_dimensions]
+        x = x[:, : -num_pad_tokens * num_dimensions]
+        x_pred = x_pred[:, : -num_pad_tokens * num_dimensions]
 
         encodings = {
-            "atom_type": encodings["atom_type"][:, : - num_pad_tokens],
-            "aa_type": encodings["aa_type"][:, :- num_pad_tokens],
-            "aa_pos": encodings["aa_pos"][:, : - num_pad_tokens],
-            "seq_len": encodings["seq_len"] # seq_len doesn't get padded
+            "atom_type": encodings["atom_type"][:, :-num_pad_tokens],
+            "aa_type": encodings["aa_type"][:, :-num_pad_tokens],
+            "aa_pos": encodings["aa_pos"][:, :-num_pad_tokens],
+            "seq_len": encodings["seq_len"],  # seq_len doesn't get padded
         }
 
     x_recon = model.reverse(x_pred, encodings=encodings)
@@ -452,12 +447,12 @@ def test_invertibility(model, x, encodings, mask=None, num_pad_tokens=4, num_dim
     # I often found it's clear that source of error is a few token positions
 
     # print()
-    print(x[0, 0:8])
-    print(x_recon[0, 0:8])
-    print("mae:", torch.abs(x - x_recon).mean())
-    print("mse:", torch.mean((x - x_recon) ** 2))
-    print("max abs:", torch.max(abs(x - x_recon)))
-    print("position wise MAE", torch.abs(x - x_recon).mean(dim=0))
+    # print(x[0, 0:8])
+    # print(x_recon[0, 0:8])
+    # print("mae:", torch.abs(x - x_recon).mean())
+    # print("mse:", torch.mean((x - x_recon) ** 2))
+    # print("max abs:", torch.max(abs(x - x_recon)))
+    # print("position wise MAE", torch.abs(x - x_recon).mean(dim=0))
 
     assert torch.allclose(x, x_recon, atol=1e-6), "Invertibility test failed"
     print("Invertibility test passed")
@@ -467,9 +462,9 @@ def test_mask_model(model, x, encodings, model_pad, x_pad, encodings_pad, mask):
     x_fwd, _ = model(x, encodings=encodings)
     x_fwd_pad, _ = model_pad(x_pad, encodings=encodings_pad, mask=mask)
 
-    # print("x_fwd max error:", torch.max(abs(x_fwd - x_fwd_pad[:, :12])))
-    # print("x_fwd mae:", torch.mean(abs(x_fwd - x_fwd_pad[:, :12])))
-    assert torch.allclose(x_fwd, x_fwd_pad[:, :x_fwd.shape[1]], atol=1e-6), "Models do not generate the same x_fwd"
+    print("x_fwd max error:", torch.max(abs(x_fwd - x_fwd_pad[:, : x_fwd.shape[1]])))
+    print("x_fwd mae:", torch.mean(abs(x_fwd - x_fwd_pad[:, : x_fwd.shape[1]])))
+    assert torch.allclose(x_fwd, x_fwd_pad[:, : x_fwd.shape[1]], atol=1e-6), "Models do not generate the same x_fwd"
     print("Masked model fwd test passed")
 
 
@@ -524,7 +519,6 @@ def test_logdet_mask(model, model_pad, x_i, enc_i, enc_i_pad, mask_i, num_pad_to
 
 
 if __name__ == "__main__":
-    
     torch.use_deterministic_algorithms(True)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
@@ -534,19 +528,92 @@ if __name__ == "__main__":
     ### Dummy data
     # alanine atoms
     alanine_atoms = torch.tensor(
-        [37, 18, 18, 18,  2, 19,  3, 20, 20, 20,  1, 46, 52, 37, 18, 18, 18,  2,
-         19,  3, 20, 20, 11, 30, 28,  4, 23, 21,  7, 26, 27, 45, 34, 35, 36,  1,
-         46, 52]
+        [
+            37,
+            18,
+            18,
+            18,
+            2,
+            19,
+            3,
+            20,
+            20,
+            20,
+            1,
+            46,
+            52,
+            37,
+            18,
+            18,
+            18,
+            2,
+            19,
+            3,
+            20,
+            20,
+            11,
+            30,
+            28,
+            4,
+            23,
+            21,
+            7,
+            26,
+            27,
+            45,
+            34,
+            35,
+            36,
+            1,
+            46,
+            52,
+        ]
     )
 
     # lysine atoms
     lysine_atoms = torch.tensor(
-        [37, 18, 18, 18,  2, 19,  3, 20, 20, 11, 30, 28,  4, 23, 21,  7, 26, 27,
-         45, 34, 35, 36,  1, 46, 52, 37, 18, 18, 18,  2, 19,  3, 20, 20, 20,  1,
-         46, 52]
+        [
+            37,
+            18,
+            18,
+            18,
+            2,
+            19,
+            3,
+            20,
+            20,
+            11,
+            30,
+            28,
+            4,
+            23,
+            21,
+            7,
+            26,
+            27,
+            45,
+            34,
+            35,
+            36,
+            1,
+            46,
+            52,
+            37,
+            18,
+            18,
+            18,
+            2,
+            19,
+            3,
+            20,
+            20,
+            20,
+            1,
+            46,
+            52,
+        ]
     )
 
-    
     atom_type = torch.concat([alanine_atoms, lysine_atoms], dim=-1)
     atom_type = torch.concat([atom_type[None, ...], atom_type[None, ...].flip(dims=[0])], dim=0)
     atom_type = atom_type.reshape(2, -1)
@@ -558,7 +625,6 @@ if __name__ == "__main__":
 
     aa_pos = torch.arange(aa_type.shape[-1])[None, ...].repeat(2, 1) + 1
     x = torch.randn((2, aa_type.shape[-1] * 3))
-
 
     batch_size = 2
     img_size = x.shape[-1]
@@ -572,7 +638,7 @@ if __name__ == "__main__":
         "atom_type": atom_type,
         "aa_type": aa_type,
         "aa_pos": aa_pos,
-        "seq_len": torch.ones(size=(batch_size, 1), dtype=torch.long) *2
+        "seq_len": torch.ones(size=(batch_size, 1), dtype=torch.long) * 2,
     }
 
     ### Padded data with mask
@@ -591,7 +657,7 @@ if __name__ == "__main__":
         "aa_pos": torch.cat(
             [encodings["aa_pos"].clone(), torch.zeros([batch_size, pad_tokens], dtype=torch.long)], dim=1
         ),
-        "seq_len": encodings["seq_len"].clone() # seq_len doesn't get padded
+        "seq_len": encodings["seq_len"].clone(),  # seq_len doesn't get padded
     }
     mask = torch.cat(
         [torch.ones([batch_size, img_size // in_channels], dtype=torch.float32), torch.zeros([batch_size, pad_tokens])],
@@ -636,7 +702,9 @@ if __name__ == "__main__":
             test_mask_model(
                 model, x, encodings, model_pad, x_pad, encodings_pad, mask
             )  # test forward of the padded model
-            test_invertibility(model_pad, x_pad, encodings_pad, mask, pad_tokens)  # test invertibility of the padded model
+            test_invertibility(
+                model_pad, x_pad, encodings_pad, mask, pad_tokens
+            )  # test invertibility of the padded model
 
             print("\npad model with non-pad data")
             test_mask_model_no_pad(model, x, encodings, model_pad)  # test forward of the padded model
