@@ -44,21 +44,21 @@ def check_and_get_files(data_dir: str) -> tuple[list[str], list[str]]:
     return npz_paths, pdb_paths
 
 
-def cross_reference_files(train_npz_paths: list[str], val_npz_paths: list[str]) -> None:
+def cross_reference_files(npz_paths_a: list[str], npz_paths_b: list[str]) -> None:
     """
-    Ensures there are no common sequences between training and validation datasets.
+    Ensures there are no common sequences between two datasets.
 
     Args:
-        train_npz_paths (List[str]): List of training .npz file paths.
-        val_npz_paths (List[str]): List of validation .npz file paths.
+        npz_paths_a (List[str]): List of .npz file paths for dataset A.
+        npz_paths_b (List[str]): List of .npz file paths for dataset B.
 
     Raises:
-        AssertionError: If common sequences are found between training and validation datasets.
+        AssertionError: If common sequences are found between the two datasets.
     """
-    train_sequences = [os.path.basename(path).split("-")[0] for path in train_npz_paths]
-    val_sequences = [os.path.basename(path).split("-")[0] for path in val_npz_paths]
-    common_keys = set(train_sequences).intersection(set(val_sequences))
-    assert len(common_keys) == 0, f"Common keys found between train and val data dict: {common_keys}"
+    sequences_a = [os.path.basename(path).split("-")[0] for path in npz_paths_a]
+    sequences_b = [os.path.basename(path).split("-")[0] for path in npz_paths_b]
+    common_keys = set(sequences_a).intersection(set(sequences_b))
+    assert len(common_keys) == 0, f"Common keys found between: {common_keys}"
 
 
 @torch.no_grad()
@@ -144,8 +144,8 @@ def build_lmdb(
         with np.load(npz_path, allow_pickle=False) as data:
             x = data["positions"]  # shape (N, num_particles, num_dimensions)
 
-        if len(seq_name) == 2:
-            x = x / 30.0  # 2AA is currently scaled wrong in the files # TODO fix files
+        if len(seq_name) == 2 and "test" not in lmdb_prefix_path:
+            x = x / 30.0  # train / val 2AA is currently scaled wrong in the files # TODO fix files
 
         assert len(x.shape) == 3, f"Expected 3D array, got {x.shape}"
 

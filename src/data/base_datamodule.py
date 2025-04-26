@@ -72,7 +72,7 @@ class BaseDataModule(LightningDataModule):
             batch_size=self.batch_size_per_device,
             num_workers=self.hparams.num_workers,
             pin_memory=self.hparams.pin_memory,
-            shuffle=False,
+            shuffle=True,  # i shuffle in case of trainer.limit_val_batches
             persistent_workers=True if self.hparams.num_workers > 0 else False,
         )
 
@@ -86,7 +86,7 @@ class BaseDataModule(LightningDataModule):
             batch_size=self.batch_size_per_device,
             num_workers=self.hparams.num_workers,
             pin_memory=self.hparams.pin_memory,
-            shuffle=False,
+            shuffle=True,  # shuffle in case of trainer.limit_test_batches
             persistent_workers=True if self.hparams.num_workers > 0 else False,
         )
 

@@ -18,8 +18,7 @@ RUN_NAME=$1
 srun python -u src/train.py \
 experiment=training/tarflow_up_to_8aa logger=wandb \
 trainer=ddp \
-# not tested this batch size yet
-batch_size=1024 \
+batch_size=512 \
 tags=[up_to_8aa,ddp] \
 hydra.run.dir='${paths.log_dir}/${task_name}/runs/'${RUN_NAME} \
 ckpt_path='${paths.log_dir}/${task_name}/runs/'${RUN_NAME}/checkpoints/last.ckpt \
