@@ -7,6 +7,7 @@ defaults:
 
 ckpt_path: null
 train: False
+task_name: eval
 
 model:
   use_com_energy: 1
@@ -27,10 +28,11 @@ model:
   smc_sampler:
     enabled: True
     langevin_eps: 1e-7
-    num_timesteps: 100
+    num_timesteps: 1000
     batch_size: 1024 # set for 48gb
     input_energy_cutoff: null # this might need tuning if you get NaNs!
 
 data:
   batch_size: 10_000
   num_eval_samples: 10_000
+
