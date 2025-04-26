@@ -24,6 +24,7 @@ class SMCSampler(torch.nn.Module):
         enabled: bool = False,
         do_energy_plots: bool = False,
         input_energy_cutoff: float = None,
+        systematic_resampling: bool = False,
     ):
         super().__init__()
         self.source_energy = source_energy
@@ -36,6 +37,7 @@ class SMCSampler(torch.nn.Module):
         self.enabled = enabled
         self.do_energy_plots = do_energy_plots
         self.input_energy_cutoff = input_energy_cutoff
+        self.systematic_resampling = systematic_resampling
 
     def plot_stepwise_energy(self, target_energy_list, interpolation_energy_list, t_list):
         stepwise_target_energy_np = np.stack(target_energy_list)
@@ -186,6 +188,23 @@ class SMCSampler(torch.nn.Module):
         return x_grad, t_grad
 
     @torch.no_grad()
+    def resample(self, x, logw):
+        if self.systematic_resampling:
+            # systematic resampling
+            N = len(logw)
+            w = torch.softmax(logw, dim=-1)
+            c = torch.cumsum(w, dim=0)
+            u = torch.rand(1) / N
+            indexes = torch.searchsorted(c, u + torch.arange(N) / N)
+        else:
+            # smc weights
+            w = torch.softmax(logw, dim=-1)
+            # multinomial resampling
+            indexes = torch.multinomial(w, len(x), replacement=True)
+
+        return x[indexes]
+
+    @torch.no_grad()
     def sample(self, proposal_samples):
         if not self.enabled:
             return None, None
@@ -267,7 +286,6 @@ class SMCSampler(torch.nn.Module):
             A = torch.cat(A_batches, dim=0)
 
             assert A.dim() == 1, "A should be a flat vector"
-            smc_weights = torch.softmax(A, dim=-1)
 
             if X.isnan().any() or A.isnan().any() or not (j + 1) % 100 or j + 1 == num_timesteps:
                 if self.do_energy_plots:
@@ -299,8 +317,7 @@ class SMCSampler(torch.nn.Module):
                 # qmc_rand = sampler.random(n=len(A))
                 # cum_prob = torch.cumsum(torch.softmax(A, dim=-1), dim=0)
                 # indexes = np.searchsorted(cum_prob, qmc_rand, side="left").flatten()
-                indexes = torch.multinomial(smc_weights, len(A), replacement=True)
-                X = X[indexes]
+                X = self.resample(x=X, logw=A)
                 A = torch.zeros_like(A)
                 logging.info(f"resampling @ step {j}")
 
@@ -328,12 +345,11 @@ class SMCSampler(torch.nn.Module):
             t_previous = t
 
         # Final resampling
-        indexes = torch.multinomial(smc_weights, len(A), replacement=True)
-        X = X[indexes]
+        X = self.resample(x=X, logw=A)
         logging.info(f"resampling @ step {j}")
 
         smc_samples = X
         smc_logits = A
         assert smc_samples.shape == proposal_samples.shape, "shape mismatch"
-        assert smc_weights.dim() == 1, "smc_weights should be a flat vector"
+        assert smc_logits.dim() == 1, "smc_weights should be a flat vector"
         return smc_samples, smc_logits
