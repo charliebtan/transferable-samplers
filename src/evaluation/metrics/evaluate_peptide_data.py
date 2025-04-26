@@ -25,7 +25,7 @@ def evaluate_peptide_data(
         num_eval_samples = min(num_eval_samples, len(pred_data), len(true_data))
     true_data = true_data[:num_eval_samples]
     pred_data = pred_data[:num_eval_samples]
-    metrics["num_eval_samples"] = min(num_eval_samples, len(pred_data))
+    metrics[f"{prefix}/num_eval_samples"] = min(num_eval_samples, len(pred_data))
 
     # Compute effective sample size
     if pred_data.logits is not None:

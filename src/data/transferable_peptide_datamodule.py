@@ -1,26 +1,33 @@
 import logging
 import math
-import os
-import zipfile
 from typing import Any, Callable, Optional
 
-import mdtraj as md
-import numpy as np
 import openmm
 import openmm.app
 import torch
 import torchvision
-import wget
 from bgflow import OpenMMBridge, OpenMMEnergy
 
 from src.data.base_datamodule import BaseDataModule
-from src.data.components.center_of_mass import CenterOfMassTransform
 from src.data.components.data_types import SamplesData
-from src.data.components.encodings import AA_CODE_CONVERSION, get_atom_encoding
+from src.data.components.encoding import get_encoding_dict
 from src.data.components.peptide_dataset import PeptideDataset
-from src.data.components.rotation import Random3DRotationTransform
+from src.data.components.prepare_data import (
+    build_lmdb,
+    check_and_get_files,
+    cross_reference_files,
+    load_lmdb_metadata,
+    load_pdbs_and_topologies,
+)
 from src.data.components.symmetry import resolve_chirality
-from src.data.components.utils import get_adj_list, get_atom_types
+from src.data.components.test_subset import ALL_TEST_SUBSET, TEST_SUBSET_DICT
+from src.data.components.transforms.add_encoding import AddEncodingTransform
+from src.data.components.transforms.atom_noise import AtomNoiseTransform
+from src.data.components.transforms.center_of_mass import CenterOfMassTransform
+from src.data.components.transforms.padding import PaddingTransform
+from src.data.components.transforms.rotation import Random3DRotationTransform
+from src.data.components.transforms.standardize import StandardizeTransform
+from src.data.components.validation_subset import ALL_VALIDATION_SUBSET, VALIDATION_SUBSET_DICT
 from src.evaluation.metrics.evaluate_peptide_data import evaluate_peptide_data
 
 
@@ -28,48 +35,39 @@ class TransferablePeptideDataModule(BaseDataModule):
     def __init__(
         self,
         data_dir: str,
-        train_data_url: str,
-        val_data_url: str,
-        train_data_filename: str,
-        val_data_filename: str,
-        train_pdb_zip_url: str,  # expects a dir of pdbs
-        val_pdb_zip_url: str,  # expects a dir of pdbs
-        num_aa: int,
+        train_lmdb_prefix: str,
+        val_lmdb_prefix: str,
+        test_lmdb_prefix: str,
+        num_aa_max: int,
+        num_aa_min: int,
         num_dimensions: int,
         num_particles: int,
         dim: int,  # dim of largest system
-        make_iid: bool = False,
         com_augmentation: bool = False,
+        atom_noise_augmentation_factor: float = 0.0,
         # TODO maybe make this all just *args?
-        num_samples_per_seq: int = 10_000,
         batch_size: int = 64,
         num_workers: int = 0,
         pin_memory: bool = False,
         num_eval_samples: int = 10_000,
-        num_val_sequences: int = 10,
+        num_val_sequences: int = 20,
         energy_hist_config: Optional[dict[str, Any]] = None,
+        resume_build_lmdb: bool = False,
     ):
-        super().__init__()
+        super().__init__(batch_size=batch_size, num_workers=num_workers, pin_memory=pin_memory)
 
-        self.train_data_path = f"{self.hparams.data_dir}/{self.hparams.train_data_filename}"
-        self.val_data_path = f"{self.hparams.data_dir}/{self.hparams.val_data_filename}"
+        assert dim == num_dimensions * num_particles, "dim must be equal to num_dimensions * num_particles"
+        assert num_workers < 2, "need a copy of lmdb for each worker, use at most 1 worker"
 
-        self.train_pdb_zip_path = f"{self.hparams.data_dir}/pdb_train.zip"
-        self.val_pdb_zip_path = f"{self.hparams.data_dir}/pdb_val.zip"
+        self.train_data_path = f"{data_dir}/train"
+        self.val_data_path = f"{data_dir}/val"
+        self.test_data_path = f"{data_dir}/test"
 
-        self.train_pdb_path = f"{self.hparams.data_dir}/pdb_train"
-        self.val_pdb_path = f"{self.hparams.data_dir}/pdb_val"
+        self.train_lmdb_prefix_path = f"{data_dir}/{train_lmdb_prefix}"
+        self.val_lmdb_prefix_path = f"{data_dir}/{val_lmdb_prefix}"
+        self.test_lmdb_prefix_path = f"{data_dir}/{test_lmdb_prefix}"
 
-        # Setup transforms
-        transform_list = [Random3DRotationTransform(self.hparams.num_dimensions)]
-        if self.hparams.com_augmentation:
-            transform_list.append(
-                CenterOfMassTransform(
-                    self.hparams.num_dimensions,
-                    1 / math.sqrt(10 * self.hparams.num_aa),  # TODO check this value
-                )
-            )
-        self.transforms = torchvision.transforms.Compose(transform_list)
+        self.num_aa_range = list(range(num_aa_min, num_aa_max + 1))
 
     def prepare_data(self) -> None:
         """Download data if needed. Lightning ensures that `self.prepare_data()` is called only
@@ -80,215 +78,39 @@ class TransferablePeptideDataModule(BaseDataModule):
         Do not use it to assign state (self.x = y).
         """
 
-        os.makedirs(self.hparams.data_dir, exist_ok=True)
+        train_npz_paths, train_pdb_paths = check_and_get_files(self.train_data_path)
+        val_npz_paths, val_pdb_paths = check_and_get_files(self.val_data_path)
+        test_npz_paths, test_pdb_paths = check_and_get_files(self.test_data_path)
 
-        # Download data files
-        if not os.path.exists(self.train_data_path):
-            wget.download(self.hparams.train_data_url, self.train_data_path)
+        logging.info("Cross referencing train and val")
+        cross_reference_files(train_npz_paths, val_npz_paths)
+        logging.info("Cross referencing train and test")
+        cross_reference_files(train_npz_paths, test_npz_paths)
+        logging.info("Cross referencing val and test")
+        cross_reference_files(val_npz_paths, test_npz_paths)
 
-        if not os.path.exists(self.val_data_path):
-            wget.download(self.hparams.val_data_url, self.val_data_path)
+        build_lmdb(
+            train_npz_paths,
+            train_pdb_paths,
+            lmdb_prefix_path=self.train_lmdb_prefix_path,
+            resume=self.hparams.resume_build_lmdb,
+        )
 
-        # Download + extract pdb files
-        if not os.path.exists(self.train_pdb_zip_path):
-            wget.download(self.hparams.train_pdb_zip_url, self.train_pdb_zip_path)
-            os.makedirs(self.train_pdb_path, exist_ok=False)
-            with zipfile.ZipFile(self.train_pdb_zip_path, "r") as zip_ref:
-                zip_ref.extractall(self.train_pdb_path)
+        build_lmdb(
+            val_npz_paths,
+            val_pdb_paths,
+            subset=ALL_VALIDATION_SUBSET,  # prevents adding sequences we aren't going to use
+            lmdb_prefix_path=self.val_lmdb_prefix_path,
+            resume=self.hparams.resume_build_lmdb,
+        )
 
-        if not os.path.exists(self.val_pdb_zip_path):
-            wget.download(self.hparams.val_pdb_zip_url, self.val_pdb_zip_path)
-            os.makedirs(self.val_pdb_path, exist_ok=False)
-            with zipfile.ZipFile(self.val_pdb_zip_path, "r") as zip_ref:
-                zip_ref.extractall(self.val_pdb_path)
-
-    def setup_topolgy(self):
-        train_pdb_files = os.listdir(self.train_pdb_path)
-        val_pdb_files = os.listdir(self.val_pdb_path)
-
-        self.pdb_dict = {}
-        self.topology_dict = {}
-
-        self.train_sequences = []
-        self.val_sequences = []
-
-        for filelist, pdb_path in zip([train_pdb_files, val_pdb_files], [self.train_pdb_path, self.val_pdb_path]):
-            for filename in filelist:
-                if not filename.endswith(".pdb"):
-                    logging.info(f"Skipping non-PDB file: {filename}")
-                    continue
-
-                filepath = os.path.join(pdb_path, filename)
-                pdb = openmm.app.PDBFile(filepath)
-
-                assert len(list(pdb.topology.chains())) == 1, "Only single chain PDBs are supported"
-
-                name = "".join([AA_CODE_CONVERSION[aa.name] for aa in pdb.topology.residues()])
-
-                if pdb_path == self.train_pdb_path:
-                    self.train_sequences.append(name)
-                else:
-                    self.val_sequences.append(name)
-
-                self.pdb_dict[name] = pdb
-                self.topology_dict[name] = md.load_topology(filepath)
-
-    def setup_atom_encoding(self):
-        self.encoding_dict = {}
-        for name, topology in self.topology_dict.items():
-            self.encoding_dict[name] = get_atom_encoding(topology)
-
-    def pad_data(self, x):
-        assert len(x.shape) == 2
-        pad_tensor = torch.zeros((x.shape[0], self.max_num_particles * self.hparams.num_dimensions - x.shape[1]))
-        return torch.cat([x, pad_tensor], dim=1)
-
-    def pad_encoding(self, encoding):
-        for key, value in encoding.items():
-            encoding[key] = torch.cat([value, torch.zeros(self.max_num_particles - value.shape[0], dtype=torch.int64)])
-        return encoding
-
-    def create_mask(self, x):
-        assert len(x.shape) == 1
-        num_particles = x.shape[0] // self.hparams.num_dimensions
-        true_mask = torch.ones(num_particles)
-        false_mask = torch.zeros(self.max_num_particles - num_particles)
-        return torch.cat([true_mask, false_mask]).bool()
-
-    def load_data_as_tensor_dict(self, path):
-        data = np.load(path, allow_pickle=True).item()
-
-        tensor_dict = {}
-
-        max_num_particles = 0
-
-        # Load + center + tensorize data
-        i = 0
-        for key, data in data.items():
-            num_samples = data.shape[0]
-            num_particles = data.shape[1] // self.hparams.num_dimensions
-            max_num_particles = max(max_num_particles, num_particles)
-            assert not data.shape[1] // num_samples
-            data = torch.tensor(data).float()
-            data = self.zero_center_of_mass(data)
-
-            rng = np.random.default_rng(seed=i)
-            data = torch.tensor(rng.permutation(data))[: self.hparams.num_samples_per_seq]  # TODO - need to copy Leon
-
-            tensor_dict[key] = data
-
-        return tensor_dict, max_num_particles
-
-    def normalize_tensor_dict(self, tensor_dict):
-        # TODO check the normalization
-        for key, data in tensor_dict.items():
-            tensor_dict[key] = self.normalize(data)
-        return tensor_dict
-
-    def add_encodings_to_tensor_dict(self, tensor_dict):
-        for key, data in tensor_dict.items():
-            encoding = self.encoding_dict[key]
-            tensor_dict[key] = {
-                "x": data,
-                "encoding": encoding,
-            }
-        return tensor_dict
-
-    def pad_and_mask_tensor_dict(self, tensor_dict):
-        for key, data in tensor_dict.items():
-            x = self.pad_data(data["x"])
-            encoding = self.pad_encoding(data["encoding"])
-
-            mask = self.create_mask(data["x"][0])
-
-            tensor_dict[key] = {
-                "x": x,
-                "encoding": encoding,
-                "mask": mask,
-            }
-
-        return tensor_dict
-
-    def tensor_dict_to_samples_list(self, tensor_dict):
-        data_list = []
-        for data in tensor_dict.values():
-            for i in range(data["x"].shape[0]):  # Iterate over each batch item
-                data_list.append(
-                    {
-                        **data,
-                        "x": data["x"][i],
-                    }
-                )
-        return data_list
-
-    def setup_data(self):
-        train_data_dict, self.max_num_particles = self.load_data_as_tensor_dict(self.train_data_path)
-        val_data_dict, _ = self.load_data_as_tensor_dict(self.val_data_path)
-
-        new_val_data_dict = {}
-        for key in val_data_dict.keys():
-            if key in self.train_sequences:
-                logging.info(f"Key {key} found in train_sequences, removing from val_sequences")
-            else:
-                assert key in self.val_sequences, f"Key {key} not found in val_sequences"
-                new_val_data_dict[key] = val_data_dict[key]
-        val_data_dict = new_val_data_dict
-
-        for key in train_data_dict.keys():
-            assert key in self.train_sequences, f"Key {key} not found in train_sequences"
-            assert key not in self.val_sequences, f"Key {key} found in val_sequences"
-
-        for key in self.val_sequences:
-            assert key in val_data_dict, f"Key {key} not found in val_data_dict"
-            assert key not in train_data_dict, f"Key {key} found in train_data_dict"
-
-        for key in self.train_sequences:
-            assert key in train_data_dict, f"Key {key} not found in train_data_dict"
-            assert key not in val_data_dict, f"Key {key} found in val_data_dict"
-
-        common_keys = set(train_data_dict.keys()).intersection(set(val_data_dict.keys()))
-        logging.info(f"Common keys between train and val data dict: {common_keys}")
-
-        # Need to check here so TarFlow is correctly initalized for data
-        assert self.hparams.dim == self.max_num_particles * self.hparams.num_dimensions
-        assert self.hparams.num_particles == self.max_num_particles
-
-        weighted_vars = [x.var() * x.shape[0] for x in train_data_dict.values()]
-        self.std = torch.sqrt(torch.sum(torch.tensor(weighted_vars)) / len(weighted_vars))
-
-        train_data_dict = self.normalize_tensor_dict(train_data_dict)
-        val_data_dict = self.normalize_tensor_dict(val_data_dict)
-
-        # slice out subset of val_data_dict
-        val_data_dict = {
-            key: val for i, (key, val) in enumerate(val_data_dict.items()) if i < self.hparams.num_val_sequences
-        }
-        self.val_sequences = list(val_data_dict.keys())
-
-        train_data_dict = self.add_encodings_to_tensor_dict(train_data_dict)
-        val_data_dict = self.add_encodings_to_tensor_dict(val_data_dict)
-
-        train_data_dict = self.pad_and_mask_tensor_dict(train_data_dict)
-
-        train_data_list = self.tensor_dict_to_samples_list(train_data_dict)
-        val_data_list = self.tensor_dict_to_samples_list(val_data_dict)
-
-        self.data_train = PeptideDataset(train_data_list, transform=self.transforms)
-        self.data_val = PeptideDataset(val_data_list, transform=None)
-
-        self.val_data_dict = val_data_dict
-
-    def setup_atom_types(self):
-        self.atom_types_dict = {}
-        for name, topology in self.topology_dict.items():
-            atom_types = get_atom_types(topology)
-            self.atom_types_dict[name] = atom_types
-
-    def setup_adj_list(self):
-        self.adj_list_dict = {}
-        for name, topology in self.topology_dict.items():
-            adj_list = get_adj_list(topology)
-            self.adj_list_dict[name] = adj_list
+        build_lmdb(
+            test_npz_paths,
+            test_pdb_paths,
+            subset=ALL_TEST_SUBSET,  # prevents adding sequences we aren't going to use
+            lmdb_prefix_path=self.test_lmdb_prefix_path,
+            resume=self.hparams.resume_build_lmdb,
+        )
 
     def setup(self, stage: Optional[str] = None) -> None:
         """Load data. Set variables: `self.data_train`, `self.data_val`, `self.data_test`.
@@ -309,20 +131,192 @@ class TransferablePeptideDataModule(BaseDataModule):
                 )
             self.batch_size_per_device = self.hparams.batch_size // self.trainer.world_size
 
-        self.setup_topolgy()
-        self.setup_atom_encoding()
-        self.setup_data()
-        self.setup_atom_types()
-        self.setup_adj_list()
+        # get the correct rank for the lmdb
+        self.train_lmdb_path = f"{self.train_lmdb_prefix_path}_{self.trainer.local_rank}.lmdb"
+        self.val_lmdb_path = f"{self.val_lmdb_prefix_path}_{self.trainer.local_rank}.lmdb"
+        self.test_lmdb_path = f"{self.test_lmdb_prefix_path}_{self.trainer.local_rank}.lmdb"
+
+        train_metadata = load_lmdb_metadata(self.train_lmdb_path)
+        val_metadata = load_lmdb_metadata(self.val_lmdb_path)
+        test_metadata = load_lmdb_metadata(self.test_lmdb_path)
+
+        train_seq_names = list(train_metadata["num_samples"].keys())
+
+        # Fitler out train sequences that are not in the num_aa_range
+        train_seq_names = [seq_name for seq_name in train_seq_names if len(seq_name) in self.num_aa_range]
+
+        all_val_seq_names = list(val_metadata["num_samples"].keys())
+        # Find the correct validation subset
+        if self.num_aa_range == [2]:
+            val_seq_names = list(VALIDATION_SUBSET_DICT["2"].keys())
+        elif self.num_aa_range == [4]:
+            val_seq_names = list(VALIDATION_SUBSET_DICT["4"].keys())
+        elif self.num_aa_range == [8]:
+            val_seq_names = list(VALIDATION_SUBSET_DICT["8"].keys())
+        elif self.num_aa_range == [2, 3, 4]:
+            val_seq_names = list(VALIDATION_SUBSET_DICT["24"].keys())
+        elif self.num_aa_range == [2, 3, 4, 5, 6, 7, 8]:
+            val_seq_names = list(VALIDATION_SUBSET_DICT["248"].keys())
+        else:
+            raise ValueError(
+                f"Validation subset not defined for num_aa_range {self.num_aa_range}. "
+                "Please define a new validation subset in VALIDATION_SUBSET_DICT."
+            )
+        # Check that the validation subset sequences are all present in the lmdb database
+        missing_seq_names = [seq_name for seq_name in val_seq_names if seq_name not in all_val_seq_names]
+        if missing_seq_names:
+            raise ValueError(
+                "Some validation subset sequence names are not present in the validation sequence names: "
+                f"{missing_seq_names}. Please ensure that all subset sequence names are valid."
+            )
+
+        # Eval on the unions of the different aa lengths
+        all_test_seq_names = list(test_metadata["num_samples"].keys())
+        test_seq_names = {}
+        if 2 in self.num_aa_range:
+            test_seq_names.update(TEST_SUBSET_DICT["2"])
+        if 4 in self.num_aa_range:
+            test_seq_names.update(TEST_SUBSET_DICT["4"])
+        # TODO add data for 8
+        if not test_seq_names:
+            raise ValueError(
+                f"Test subset not defined for num_aa_range {self.num_aa_range}. "
+                "Please define a new test subset in TEST_SUBSET_DICT."
+            )
+        # Check that the test subset sequences are all present in the lmdb database
+        missing_test_seq_names = [seq_name for seq_name in test_seq_names if seq_name not in all_test_seq_names]
+        if missing_test_seq_names:
+            raise ValueError(
+                "Some test subset sequence names are not present in the test sequence names: "
+                f"{missing_test_seq_names}. Please ensure that all subset sequence names are valid."
+            )
+
+        # Filter the metadata to only include the sequences in the train / validation / test sets
+        for key in train_metadata.keys():
+            if isinstance(train_metadata[key], dict):
+                train_metadata[key] = {k: v for k, v in train_metadata[key].items() if k in train_seq_names}
+        for key in val_metadata.keys():
+            if isinstance(val_metadata[key], dict):
+                val_metadata[key] = {k: v for k, v in val_metadata[key].items() if k in val_seq_names}
+        for key in test_metadata.keys():
+            if isinstance(test_metadata[key], dict):
+                test_metadata[key] = {k: v for k, v in test_metadata[key].items() if k in test_seq_names}
+
+        self.train_seq_names = train_seq_names
+        self.val_seq_names = val_seq_names
+        self.test_seq_names = test_seq_names
+
+        train_max_num_particles = max(list(train_metadata["num_particles"].values()))
+        val_max_num_particles = max(list(val_metadata["num_particles"].values()))
+        test_max_num_particles = max(list(test_metadata["num_particles"].values()))
+
+        assert train_max_num_particles >= val_max_num_particles, (
+            "Train largest system must be greater than or equal to val largest system for pos_embed learning."
+        )
+        assert train_max_num_particles >= test_max_num_particles, (
+            "Train largest system must be greater than or equal to test largest system for pos_embed learning."
+        )
+        # Need to check here so TarFlow is correctly initalized for data
+        assert self.hparams.num_particles > train_max_num_particles, (
+            "TarFlow num_particles must be greater than the largest system size. "
+            + f"Max num particles={train_max_num_particles}. Set num_particles in data config "
+            + f"to {train_max_num_particles + 1}."
+        )
+
+        pdb_paths = [
+            *train_metadata["pdb_paths"].values(),
+            *val_metadata["pdb_paths"].values(),
+            *test_metadata["pdb_paths"].values(),
+        ]
+        self.pdb_dict, self.topology_dict = load_pdbs_and_topologies(pdb_paths, self.num_aa_range)
+        self.encoding_dict = get_encoding_dict(self.topology_dict)
+
+        total_samples = 0
+        weighted_vars = []
+        for k, v in train_metadata["vars"].items():
+            num_samples = train_metadata["num_samples"][k]
+            total_samples += num_samples
+            weighted_vars.append(v * num_samples)
+        self.std = torch.sqrt(torch.sum(torch.tensor(weighted_vars)) / total_samples)
+        logging.info(f"Standard deviation of training data: {self.std}")
+
+        transform_list = [
+            StandardizeTransform(self.std, self.hparams.num_dimensions),
+            Random3DRotationTransform(self.hparams.num_dimensions),
+        ]
+        if self.hparams.com_augmentation:
+            # Center of mass augmentation has std 1/sqrt(N) where N is the mean number of atoms
+            # in the system. This is the same center of mass std deviation as the prior.
+
+            # Compute the mean number of particles per system in the training set
+            weighted_num_particles = []
+            total_num_samples = 0
+            for seq_name in self.train_seq_names:
+                num_samples = train_metadata["num_samples"][seq_name]
+                num_particles = train_metadata["num_particles"][seq_name]
+                weighted_num_particles.append(num_samples * num_particles)
+                total_num_samples += num_samples
+            mean_num_particles = sum(weighted_num_particles) / total_num_samples
+
+            logging.info(f"Mean number of training particles: {mean_num_particles}")
+
+            transform_list.append(
+                CenterOfMassTransform(
+                    1 / math.sqrt(mean_num_particles),
+                    self.hparams.num_dimensions,
+                )
+            )
+        if self.hparams.atom_noise_augmentation_factor:
+            transform_list.append(
+                AtomNoiseTransform(
+                    self.hparams.atom_noise_augmentation_factor * 0.1 / self.std,  # 0.1 is length in nm of N-H bond
+                )
+            )
+        transform_list = transform_list + [
+            AddEncodingTransform(self.encoding_dict),
+            PaddingTransform(self.hparams.num_particles, self.hparams.num_dimensions),
+        ]
+
+        transforms = torchvision.transforms.Compose(transform_list)
+
+        self.data_train = PeptideDataset(
+            self.train_lmdb_path,
+            seq_names=self.train_seq_names,
+            num_dimensions=self.hparams.num_dimensions,
+            transform=transforms,
+        )
+
+        self.data_val = PeptideDataset(
+            self.val_lmdb_path,
+            seq_names=self.val_seq_names,
+            num_dimensions=self.hparams.num_dimensions,
+            transform=transforms,
+        )
+
+        test_transform_list = [
+            StandardizeTransform(self.std, self.hparams.num_dimensions),
+            AddEncodingTransform(self.encoding_dict),
+            PaddingTransform(self.hparams.num_particles, self.hparams.num_dimensions),
+        ]
+
+        test_transforms = torchvision.transforms.Compose(test_transform_list)
+
+        self.data_test = PeptideDataset(
+            self.test_lmdb_path,
+            seq_names=self.test_seq_names,
+            num_dimensions=self.hparams.num_dimensions,
+            transform=test_transforms,
+        )
+
+        logging.info(f"Train dataset size: {len(self.data_train)}")
+        logging.info(f"Validation dataset size: {len(self.data_val)}")
+        logging.info(f"Test dataset size: {len(self.data_test)}")
 
     def setup_potential(self, val_sequence: str):
-        # TODO!! CHECK THIS
-        # MAJDI DO NOT LET ME MERGE THIS WITHOUT CHECKING LOL
-
-        forcefield = openmm.app.ForceField("amber99sbildn.xml", "tip3p.xml", "amber99_obc.xml")
-        nonbondedMethod = openmm.app.NoCutoff
-        nonbondedCutoff = 0.9 * openmm.unit.nanometer
-        temperature = 300
+        forcefield = openmm.app.ForceField("amber14-all.xml", "implicit/obc1.xml")
+        nonbondedMethod = openmm.app.CutoffNonPeriodic
+        nonbondedCutoff = 2.0 * openmm.unit.nanometer
+        temperature = 310
 
         # Initalize forcefield systemq
         system = forcefield.createSystem(
@@ -344,11 +338,31 @@ class TransferablePeptideDataModule(BaseDataModule):
 
         return potential
 
-    def prepare_eval(self, val_sequence: str):
-        true_data = self.val_data_dict[val_sequence]
-        potential = self.setup_potential(val_sequence)
-        energy_fn = lambda x: potential.energy(x).flatten()
-        return true_data, energy_fn
+    def prepare_eval(self, eval_sequence: str):
+        if eval_sequence in self.val_seq_names:
+            true_samples = self.data_val.get_seq_data(eval_sequence)
+        elif eval_sequence in self.test_seq_names:
+            true_samples = self.data_test.get_seq_data(eval_sequence)
+        else:
+            raise ValueError(
+                f"Sequence {eval_sequence} not found in validation or test set. Please provide a valid sequence name."
+            )
+
+        # TODO can this be handle better? in the lmdb?
+        # how to do nice plots? - i suppose plots will be a more rare occasion
+        true_samples = true_samples[: self.hparams.num_eval_samples]
+
+        true_samples = true_samples.reshape(
+            true_samples.shape[0],
+            -1,
+        )
+
+        true_samples = self.normalize(true_samples)
+
+        encoding = self.encoding_dict[eval_sequence]
+        potential = self.setup_potential(eval_sequence)
+        energy_fn = lambda x: potential.energy(self.unnormalize(x)).flatten()
+        return true_samples, encoding, energy_fn
 
     def metrics_and_plots(
         self,
@@ -390,8 +404,7 @@ class TransferablePeptideDataModule(BaseDataModule):
             symmetry_metrics, symmetry_change = resolve_chirality(
                 true_data.samples,
                 data.samples,
-                self.adj_list_dict[sequence],
-                self.atom_types_dict[sequence],
+                self.topology_dict[sequence],
                 prefix + name,
             )
             data = data[~symmetry_change]
@@ -402,7 +415,12 @@ class TransferablePeptideDataModule(BaseDataModule):
             else:
                 metrics.update(
                     evaluate_peptide_data(
-                        true_data, data, self.topology_dict[sequence], self.hparams.num_eval_samples, prefix + name
+                        true_data,
+                        data,
+                        topology=self.topology_dict[sequence],
+                        num_eval_samples=self.hparams.num_eval_samples,
+                        prefix=prefix + name,
+                        compute_distribution_distances=False,
                     )
                 )
                 # plot_ramachandran(log_image_fn, data.samples, self.topology_dict[sequence], prefix=prefix + name)

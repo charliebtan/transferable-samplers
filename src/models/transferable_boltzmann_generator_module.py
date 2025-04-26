@@ -1,6 +1,8 @@
 import logging
 import os
+import statistics as stats
 import time
+from collections import defaultdict
 from typing import Any, Optional
 
 import hydra
@@ -95,6 +97,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         :param batch_idx: The index of the current batch.
         :return: A tensor of losses between model predictions and targets.
         """
+        assert len(batch["x"].shape) == 2, "molecules must be in vector format"
         loss = self.model_step(batch)
         batch_value = self.train_metrics(loss)
         self.log_dict(batch_value, prog_bar=True)
@@ -149,7 +152,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
     def batched_generate_samples(
         self,
         total_size: int,
-        encodings: Optional[dict[str, torch.Tensor]] = None,
+        encoding: Optional[dict[str, torch.Tensor]] = None,
         batch_size: Optional[int] = None,
         dummy_ll: bool = False,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -159,12 +162,12 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         log_ps = []
         prior_samples = []
         for _ in tqdm(range(total_size // batch_size)):
-            s, lp, ps = self.generate_samples(batch_size, encodings=encodings, dummy_ll=dummy_ll)
+            s, lp, ps = self.generate_samples(batch_size, encoding=encoding, dummy_ll=dummy_ll)
             samples.append(s)
             log_ps.append(lp)
             prior_samples.append(ps)
         if total_size % batch_size > 0:
-            s, lp, ps = self.generate_samples(total_size % batch_size, encodings=encodings, dummy_ll=dummy_ll)
+            s, lp, ps = self.generate_samples(total_size % batch_size, encoding=encoding, dummy_ll=dummy_ll)
             samples.append(s)
             log_ps.append(lp)
             prior_samples.append(ps)
@@ -174,7 +177,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         return samples, log_ps, prior_samples
 
     def generate_samples(
-        self, batch_size: int, encodings: Optional[dict[str, torch.Tensor]] = None, n_timesteps: int = None
+        self, batch_size: int, encoding: Optional[dict[str, torch.Tensor]] = None, n_timesteps: int = None
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Generate samples from the model.
 
@@ -212,7 +215,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         self.eval_step(batch, batch_idx, prefix="test")
 
     def on_eval_epoch_end(self, metrics, prefix: str = "val") -> None:
-        self.log_dict(metrics.compute())
+        self.log_dict(metrics.compute(), sync_dist=True)
         metrics.reset()
         if self.hparams.ema_decay > 0:
             if self.hparams.eval_ema:
@@ -226,25 +229,86 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             self.evaluate(prefix)
         plt.close("all")
 
+    def add_aggregate_metrics(self, metrics: dict[str, torch.Tensor], prefix: str = "val") -> dict[str, torch.Tensor]:
+        """Aggregate metrics across all sequences."""
+
+        mean_dict_list = defaultdict(list)
+        median_dict_list = defaultdict(list)
+        count_dict = defaultdict(int)
+
+        # Parse and aggregate metrics along peptide sequences
+        for key, value in metrics.items():
+            if key.startswith(prefix):
+                # Extract sequence and metric name
+                parts = key.split("/")
+                metric_name = "/".join(parts[2:])
+
+                # Add to mean and median dictionaries
+                mean_key = f"{prefix}/mean/{metric_name}"
+                median_key = f"{prefix}/median/{metric_name}"
+                count_key = f"{prefix}/count/{metric_name}"
+
+                if isinstance(value, torch.Tensor):
+                    value = value.item()
+                elif isinstance(value, (int, float)):
+                    value = float(value)
+
+                mean_dict_list[mean_key].append(value)
+                median_dict_list[median_key].append(value)
+                count_dict[count_key] += 1
+
+        # Compute mean and median for each metric
+        mean_dict = {}
+        median_dict = {}
+        for key, value in mean_dict_list.items():
+            mean_dict[key] = stats.mean(value)
+
+        for key, value in median_dict_list.items():
+            median_dict[key] = stats.median(value)
+
+        metrics.update(mean_dict)
+        metrics.update(median_dict)
+        metrics.update(count_dict)
+        return metrics
+
     def evaluate_all(self, prefix):
-        for val_sequence in self.datamodule.val_sequences:
-            true_data, energy_fn = self.datamodule.prepare_eval(val_sequence)
-            logging.info(f"Evaluating {val_sequence} samples")
-            self.evaluate(
-                true_data,
-                val_sequence,
-                energy_fn,
-                prefix=f"{prefix}/{val_sequence}",
-                proposal_generator=self.batched_generate_samples,
+        metrics = {}
+        eval_seq_names = self.datamodule.val_seq_names if prefix.startswith("val") else self.datamodule.test_seq_names
+        for seq_name in eval_seq_names:
+            true_samples, encoding, energy_fn = self.datamodule.prepare_eval(seq_name)
+            logging.info(f"Evaluating {seq_name} samples")
+            metrics.update(
+                self.evaluate(
+                    seq_name,
+                    true_samples,
+                    encoding,
+                    energy_fn,
+                    prefix=f"{prefix}/{seq_name}",
+                    proposal_generator=self.batched_generate_samples,
+                )
             )
+
+        # Aggregate metrics across all sequences
+        if self.local_rank == 0:
+            metric_object_list = [self.add_aggregate_metrics(metrics, prefix=prefix)]
+        else:
+            metric_object_list = [None]  # List must have same length for broadcast
+        # Broadcast metrics to all processes - must log from all for checkpointing
+        torch.distributed.broadcast_object_list(metric_object_list, src=0)
+        self.log_dict(metric_object_list[0])
 
     @torch.no_grad()
     def evaluate(
-        self, true_data, sequence, energy_fn, prefix: str = "val", proposal_generator=None, output_dir=None
+        self, sequence, true_samples, encoding, energy_fn, prefix: str = "val", proposal_generator=None, output_dir=None
     ) -> None:
         """Generates samples from the proposal and runs SMC if enabled.
         Also computes metrics, through the datamodule function "metrics_and_plots".
         """
+
+        true_data = SamplesData(
+            self.datamodule.as_pointcloud(self.datamodule.unnormalize(true_samples)),
+            energy_fn(true_samples),
+        )
 
         # Define proposal generator
         if proposal_generator is None:
@@ -257,22 +321,14 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         else:
             num_proposal_samples = self.hparams.sampling_config.num_proposal_samples
 
-        true_samples = true_data["x"]
-        encodings = true_data["encoding"]  # noqa: F841
-
-        true_data = SamplesData(
-            self.datamodule.as_pointcloud(self.datamodule.unnormalize(true_samples)),
-            energy_fn(true_samples),
-        )
-
         # Generate samples and record time
         torch.cuda.synchronize()
         start_time = time.time()
-        proposal_samples, proposal_log_p, prior_samples = proposal_generator(num_proposal_samples, encodings)
+        proposal_samples, proposal_log_p, prior_samples = proposal_generator(num_proposal_samples, encoding)
         torch.cuda.synchronize()
         time_duration = time.time() - start_time
-        self.log(f"{prefix}/samples_walltime", time_duration)
-        self.log(f"{prefix}/samples_per_second", len(proposal_samples) / time_duration)
+        self.log(f"{prefix}/samples_walltime", time_duration, sync_dist=True)
+        self.log(f"{prefix}/samples_per_second", len(proposal_samples) / time_duration, sync_dist=True)
 
         # Save samples to disk
         samples_dict = {
@@ -282,9 +338,10 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         }
         if output_dir is None:
             output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
-        os.makedirs(f"{output_dir}/{prefix}")
-        logging.info(f"Saving {len(proposal_samples)} samples to {output_dir}/{prefix}_samples.pt")
-        torch.save(samples_dict, f"{output_dir}/{prefix}/samples.pt")
+        if self.local_rank == 0:
+            os.makedirs(f"{output_dir}/{prefix}", exist_ok=True)
+            torch.save(samples_dict, f"{output_dir}/{prefix}/samples.pt")
+            logging.info(f"Saving {len(proposal_samples)} samples to {output_dir}/{prefix}_samples.pt")
 
         # Compute energy
         proposal_samples_energy = energy_fn(proposal_samples)
@@ -340,16 +397,17 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             )  # already returned resampled
             torch.cuda.synchronize()
             time_duration = time.time() - start_time
-            self.log(f"{prefix}/smc/samples_walltime", time_duration)
-            self.log(f"{prefix}/smc/samples_per_second", len(smc_samples) / time_duration)
+            self.log(f"{prefix}/smc/samples_walltime", time_duration, sync_dist=True)
+            self.log(f"{prefix}/smc/samples_per_second", len(smc_samples) / time_duration, sync_dist=True)
 
             # Save samples to disk
             smc_samples_dict = {
                 "smc_samples": smc_samples,
                 "smc_logits": smc_logits,
             }
-            logging.info(f"Saving {len(smc_samples)} samples to {output_dir}/{prefix}_smc_samples.pt")
-            torch.save(smc_samples_dict, f"{output_dir}/{prefix}/smc_samples.pt")
+            if self.local_rank == 0:
+                torch.save(smc_samples_dict, f"{output_dir}/{prefix}/smc_samples.pt")
+                logging.info(f"Saving {len(smc_samples)} samples to {output_dir}/{prefix}_smc_samples.pt")
 
             # Datatype for easier metrics and plotting
             smc_data = SamplesData(
@@ -357,21 +415,23 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
                 energy_fn(smc_samples),
                 logits=smc_logits,
             )
-
         else:
             smc_data = None
 
-        # log dataset metrics
-        metrics = self.datamodule.metrics_and_plots(
-            self.log_image,
-            sequence,
-            true_data,
-            proposal_data,
-            reweighted_data,
-            smc_data,
-            prefix=prefix,
-        )
-        self.log_dict(metrics)
+        if self.local_rank == 0:
+            # log dataset metrics
+            metrics = self.datamodule.metrics_and_plots(
+                self.log_image,
+                sequence,
+                true_data,
+                proposal_data,
+                reweighted_data,
+                smc_data,
+                prefix=prefix,
+            )
+        else:
+            metrics = {}
+        return metrics
 
     def on_train_epoch_start(self) -> None:
         logging.info("Train epoch start")

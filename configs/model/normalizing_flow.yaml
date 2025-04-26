@@ -1,6 +1,6 @@
 defaults:
   - default
-  - net: tarflow_large
+  - net: tarflow
 
 _target_: src.models.normalizing_flow_module.NormalizingFlowLitModule
 mean_free_prior: False
