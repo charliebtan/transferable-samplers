@@ -15,18 +15,84 @@ class Permutation(torch.nn.Module):
     def __init__(self):
         super().__init__()
 
-    def forward(self, x: torch.Tensor, dim: int = 1, inverse: bool = False) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, dim: int = 1, inverse: bool = False, **kwargs) -> torch.Tensor:
         raise NotImplementedError("Overload me")
 
 
 class PermutationIdentity(Permutation):
-    def forward(self, x: torch.Tensor, dim: int = 1, inverse: bool = False) -> torch.Tensor:
-        return x
+    def forward(self, x: torch.Tensor, dim: int = 1, inverse: bool = False, **kwargs) -> torch.Tensor:
+        return x, None
 
 
 class PermutationFlip(Permutation):
-    def forward(self, x: torch.Tensor, dim: int = 1, inverse: bool = False) -> torch.Tensor:
-        return x.flip(dims=[dim])
+    def forward(self, x: torch.Tensor, dim: int = 1, inverse: bool = False, **kwargs) -> torch.Tensor:
+        return x.flip(dims=[dim]), None
+
+
+class PermutationRandom(Permutation):
+    def forward(
+        self,
+        x: torch.Tensor,  # (B, L) or (B, L, ...)
+        mask: torch.Tensor | None = None,  # (B, L) 1=real, 0=pad
+        dim: int = 1,
+        inverse: bool = False,
+        perm: torch.Tensor | None = None,  # (B, L) or None
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        B, L = x.shape[0], x.shape[dim]
+        device = x.device
+
+        # INVERSE: undo a previous perm
+        if inverse:
+            if perm is None:
+                raise ValueError("Must pass `perm` when inverse=True")
+            # build inv[batch,i] such that inv[batch,perm[batch,i]] = i
+            inv = torch.zeros_like(perm)
+            for b in range(B):
+                inv[b, perm[b]] = torch.arange(L, device=device)
+            # apply inverse shuffle
+            batch_idx = torch.arange(B, device=device).unsqueeze(1).expand(B, L)
+            x_inv = x[batch_idx, inv]
+            return x_inv, perm
+
+        if perm is None:
+            if mask is None:
+                # shuffle all positions
+                perm = torch.randperm(L, device=device).unsqueeze(0).repeat(B, 1)
+            else:
+                # shuffle _only_ the real tokens, then append the pad indices
+                perm = []
+                for b in range(B):
+                    real = torch.where(mask[b] == 1)[0]
+                    pad = torch.where(mask[b] == 0)[0]
+                    real_shuf = real[torch.randperm(real.numel(), device=device)]
+                    perm.append(torch.cat([real_shuf, pad], dim=0))
+                perm = torch.stack(perm, dim=0)
+
+        # apply forward shuffle
+        batch_idx = torch.arange(B, device=device).unsqueeze(1).expand(B, L)
+        x_perm = x[batch_idx, perm]
+        return x_perm, perm
+
+
+class PermutationRandomFlip(PermutationRandom):
+    def forward(
+        self,
+        x: torch.Tensor,
+        mask: torch.Tensor | None = None,
+        dim: int = 1,
+        inverse: bool = False,
+        perm: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        if inverse:
+            # 1) undo the flip
+            x_unflipped = x.flip(dims=[dim])
+            # 2) undo the permutation
+            return super().forward(x_unflipped, mask=mask, dim=dim, inverse=True, perm=perm)
+        else:
+            # 1) shuffle (pads to end)
+            x_perm, p = super().forward(x, mask=mask, dim=dim, inverse=False, perm=perm)
+            # 2) apply flip
+            return x_perm.flip(dims=[dim]), p
 
 
 class Attention(torch.nn.Module):
@@ -181,18 +247,22 @@ class MetaBlock(torch.nn.Module):
         x: torch.Tensor,
         cond: torch.Tensor,
         mask: torch.Tensor | None = None,
+        perm: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        x_in = self.permutation(x)  # store permuted input for later
+        perm_in = perm
+        x_in, perm = self.permutation(x, perm=perm, mask=mask)  # store permuted input for later
+        if perm_in is not None:
+            perm = perm_in
 
         # by permuting after projection + pos_embed sum, we can have the same
         # output with / without padding tokens for PermutationFlip
         # without this, the pos_embed is flipped but then the "first" token
         # pos_embed is applied to a pad token
         x = self.proj_in(x) + self.pos_embed[: x.shape[1]]
-        x = self.permutation(x)
+        x, _ = self.permutation(x, perm=perm)
 
         if cond is not None:
-            cond = self.permutation(cond)
+            cond, _ = self.permutation(cond, perm=perm)
             cond_emb = self.proj_cond(cond)
             x = x + cond_emb[:, : x.shape[1]]
 
@@ -201,10 +271,10 @@ class MetaBlock(torch.nn.Module):
             assert mask.shape[:1] == x.shape[:1], (
                 f"First two dimensions of mask {mask.shape[:1]} and x {x.shape[:1]} do not match"
             )
-            mask = self.permutation(mask)
+            mask, _ = self.permutation(mask, perm=perm)
 
             attn_mask = attn_mask.unsqueeze(0)
-            if isinstance(self.permutation, PermutationIdentity):
+            if isinstance(self.permutation, PermutationIdentity) or isinstance(self.permutation, PermutationRandom):
                 # mask out final rows
                 attn_mask = attn_mask * mask
             else:
@@ -224,10 +294,10 @@ class MetaBlock(torch.nn.Module):
 
         x = self.proj_out(x)
 
-        if isinstance(self.permutation, PermutationFlip):
+        if isinstance(self.permutation, PermutationFlip) or isinstance(self.permutation, PermutationRandomFlip):
             x = x * mask if mask is not None else x
         x = torch.cat([torch.zeros_like(x[:, :1]), x[:, :-1]], dim=1)  # shift one token w/ zero pad
-        if isinstance(self.permutation, PermutationIdentity):
+        if isinstance(self.permutation, PermutationIdentity) or isinstance(self.permutation, PermutationRandom):
             x = x * mask if mask is not None else x
 
         if self.nvp:
@@ -237,14 +307,18 @@ class MetaBlock(torch.nn.Module):
             xa = torch.zeros_like(x)
 
         scale = (-xa.float()).exp().type(xa.dtype)
-        x_out = self.permutation((x_in - xb) * scale, inverse=True)
+        x_out, _ = self.permutation((x_in - xb) * scale, perm=perm, inverse=True)
 
         if mask is None:
             logdet = -xa.mean(dim=[1, 2])
         else:
             logdet = -xa.sum(dim=[1, 2]) / (mask.sum(dim=[1, 2]) * self.in_channels)
 
-        return x_out, logdet
+        # return perm for PermutationRandomFlip
+        if not isinstance(self.permutation, (PermutationRandom, PermutationRandomFlip)):
+            perm = None
+
+        return x_out, logdet, perm
 
     def reverse_step(
         self,
@@ -256,7 +330,7 @@ class MetaBlock(torch.nn.Module):
         which_cache: str = "cond",
     ) -> tuple[torch.Tensor, torch.Tensor]:
         x_in = x[:, i : i + 1]  # get i-th patch but keep the sequence dimension
-        x = self.proj_in(x_in) + pos_embed[i : i + 1]
+        x = self.proj_in(x_in) + pos_embed[:, i : i + 1]
 
         if cond is not None:
             cond_in = cond[:, i : i + 1]
@@ -284,17 +358,19 @@ class MetaBlock(torch.nn.Module):
                 m.v_cache = {"cond": [], "uncond": []}
 
     def reverse(
-        self,
-        x: torch.Tensor,
-        cond: torch.Tensor | None = None,
+        self, x: torch.Tensor, cond: torch.Tensor | None = None, perm: torch.Tensor | None = None
     ) -> torch.Tensor:
-        x = self.permutation(x)
+        perm_in = perm
+        x, perm = self.permutation(x, perm=perm)
+        if perm_in is not None:
+            perm = perm_in
 
         pos_embed = self.pos_embed[: x.shape[1]]  # slice pos_embed before permutation
-        pos_embed = self.permutation(pos_embed, dim=0)
+        pos_embed = pos_embed[None, ...].repeat(x.shape[0], 1, 1)
+        pos_embed, _ = self.permutation(pos_embed, perm=perm)
 
         if cond is not None:
-            cond = self.permutation(cond)
+            cond, _ = self.permutation(cond, perm=perm)
 
         self.set_sample_mode(True)
         xs = [x[:, i] for i in range(x.size(1))]
@@ -305,9 +381,15 @@ class MetaBlock(torch.nn.Module):
             x = torch.stack(xs, dim=1)
 
         self.set_sample_mode(False)
-        x = self.permutation(x, inverse=True)
+        x, _ = self.permutation(x, inverse=True, perm=perm)
 
-        return x
+        # return perm for PermutationRandomFlip
+        if not isinstance(self.permutation, PermutationRandom) or not isinstance(
+            self.permutation, PermutationRandomFlip
+        ):
+            perm = None
+
+        return x, perm
 
 
 class TarFlow(torch.nn.Module):
@@ -335,6 +417,8 @@ class TarFlow(torch.nn.Module):
         permutations = [
             PermutationIdentity(),
             PermutationFlip(),
+            PermutationRandom(),
+            PermutationRandomFlip(),
         ]
 
         self.conditional = False if cond_embed is None else True
@@ -348,7 +432,7 @@ class TarFlow(torch.nn.Module):
                     in_channels * patch_size,
                     channels,
                     self.num_patches,
-                    permutations[i % 2],
+                    permutations[i % 4],
                     layers_per_block,
                     nvp=nvp,
                     conditional=self.conditional,
@@ -402,8 +486,14 @@ class TarFlow(torch.nn.Module):
             )
 
         logdets = torch.zeros((), device=x.device)
+        perm = None
         for block in self.blocks:
-            x, logdet = block(x, cond, mask)
+            if mask is not None:
+                perm = torch.tensor([3, 1, 2, 0, 4, 5])[None, ...].repeat(x.shape[0], 1)
+            else:
+                perm = torch.tensor([3, 1, 2, 0])[None, ...].repeat(x.shape[0], 1)
+
+            x, logdet, perm = block(x, cond, mask, perm=perm)
             logdets = logdets + logdet
 
         # un-patch
@@ -441,8 +531,10 @@ class TarFlow(torch.nn.Module):
 
         seq = [x.reshape(batch_size, -1)]
         x = x * self.var.sqrt()[: x.shape[1]]
+        perm = None
         for block in reversed(self.blocks):
-            x = block.reverse(x, cond)
+            perm = torch.tensor([3, 1, 2, 0])[None, ...].repeat(x.shape[0], 1)
+            x, perm = block.reverse(x, cond, perm=perm)
             seq.append(x.reshape(batch_size, -1))
 
         # un-patch
@@ -481,19 +573,19 @@ def load_padded_model_weights(model_pad, model):
 
 
 @torch.no_grad()
-def test_invertibility(model, x, encoding, mask=None, num_pad_tokens=4, num_dimensions=3):
+def test_invertibility(model, x, encoding, mask=None, num_pad_tokens=2, num_dimensions=3):
     x_pred, _ = model(x, encoding=encoding, mask=mask)
 
     # print("x_pred", x_pred[0])
 
     if mask is not None:
-        x = x[:, : num_pad_tokens * num_dimensions]
-        x_pred = x_pred[:, : num_pad_tokens * num_dimensions]
+        x = x[:, : -num_pad_tokens * num_dimensions]
+        x_pred = x_pred[:, : -num_pad_tokens * num_dimensions]
 
         encoding = {
-            "atom_type": encoding["atom_type"][:, :num_pad_tokens],
-            "aa_type": encoding["aa_type"][:, :num_pad_tokens],
-            "aa_pos": encoding["aa_pos"][:, :num_pad_tokens],
+            "atom_type": encoding["atom_type"][:, :-num_pad_tokens],
+            "aa_type": encoding["aa_type"][:, :-num_pad_tokens],
+            "aa_pos": encoding["aa_pos"][:, :-num_pad_tokens],
         }
 
     x_recon = model.reverse(x_pred, encoding=encoding)
@@ -522,10 +614,9 @@ def test_mask_model(model, x, encoding, model_pad, x_pad, encoding_pad, mask):
     x_fwd, _ = model(x, encoding=encoding)
     x_fwd_pad, _ = model_pad(x_pad, encoding=encoding_pad, mask=mask)
 
-    # print("x_fwd max error:", torch.max(abs(x_fwd - x_fwd_pad[:, :12])))
-    # print("x_fwd mae:", torch.mean(abs(x_fwd - x_fwd_pad[:, :12])))
-
-    assert torch.allclose(x_fwd, x_fwd_pad[:, :12], atol=1e-6), "Models do not generate the same x_fwd"
+    print("x_fwd max error:", torch.max(abs(x_fwd - x_fwd_pad[:, : x_fwd.shape[1]])))
+    print("x_fwd mae:", torch.mean(abs(x_fwd - x_fwd_pad[:, : x_fwd.shape[1]])))
+    assert torch.allclose(x_fwd, x_fwd_pad[:, : x_fwd.shape[1]], atol=1e-6), "Models do not generate the same x_fwd"
     print("Masked model fwd test passed")
 
 
@@ -591,7 +682,7 @@ if __name__ == "__main__":
     in_channels = 3
     patch_size = 1
     channels = 64
-    num_blocks = 2  # needs to be at least 2 to cover both permutations
+    num_blocks = 4  # needs to be at least 2 to cover both permutations
     layers_per_block = 1
 
     ### Dummy data
