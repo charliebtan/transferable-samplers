@@ -148,8 +148,8 @@ class TransferablePeptideDataModule(BaseDataModule):
         val_pdb_paths = val_metadata["pdb_paths"]
         test_pdb_paths = test_metadata["pdb_paths"]
 
-        all_npz_paths = val_npz_paths + test_npz_paths
-        all_pdb_paths = val_pdb_paths + test_pdb_paths
+        all_npz_paths = {**val_npz_paths, **test_npz_paths}
+        all_pdb_paths = {**val_pdb_paths, **test_pdb_paths}
 
         tica_model_dict = prepare_tica_models(all_npz_paths, all_pdb_paths)
 
