@@ -273,7 +273,8 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
 
     def evaluate_all(self, prefix):
         metrics = {}
-        for seq_name in self.datamodule.val_seq_names:
+        eval_seq_names = self.datamodule.val_seq_names if prefix.startswith("val") else self.datamodule.test_seq_names
+        for seq_name in eval_seq_names:
             true_samples, encoding, energy_fn = self.datamodule.prepare_eval(seq_name)
             logging.info(f"Evaluating {seq_name} samples")
             metrics.update(
@@ -292,8 +293,9 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             metric_object_list = [self.add_aggregate_metrics(metrics, prefix=prefix)]
         else:
             metric_object_list = [None]  # List must have same length for broadcast
-        # Broadcast metrics to all processes - must log from all for checkpointing
-        torch.distributed.broadcast_object_list(metric_object_list, src=0)
+        if self.trainer.world_size > 1:
+            # Broadcast metrics to all processes - must log from all for checkpointing
+            torch.distributed.broadcast_object_list(metric_object_list, src=0)
         self.log_dict(metric_object_list[0])
 
     @torch.no_grad()

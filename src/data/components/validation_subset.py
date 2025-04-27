@@ -1,5 +1,6 @@
 # TODO this could be done using yaml
 
+# Random subset from TBG OSF
 VALIDATION_SUBSET_2 = {
     "HD": 0,
     "DQ": 1,
@@ -33,6 +34,7 @@ VALIDATION_SUBSET_2 = {
     "MN": 29,
 }
 
+# Random subset from huggingface
 VALIDATION_SUBSET_4 = {
     "VPAA": 30,
     "VGPY": 31,
@@ -66,6 +68,7 @@ VALIDATION_SUBSET_4 = {
     "TAQE": 59,
 }
 
+# Random subset from generated sequences
 VALIDATION_SUBSET_8 = {
     "EFWNDGED": 60,
     "RPVHFCMY": 61,
