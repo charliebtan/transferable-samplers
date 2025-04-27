@@ -5,13 +5,14 @@ defaults:
   - override /data: 2aa
   - override /trainer: gpu
 
-ckpt_path: null
+# ckpt_path: "/network/scratch/m/majdi.hassan/self-consume-bg/self-consume-bg/logs/train/runs/2aa_tarflow_noise_v3/checkpoints/last.ckpt"
+ckpt_path: "/network/scratch/t/tanc/self-consume-bg/logs/train/runs/2aa_tarflow_v4/checkpoints/last.ckpt"
 train: False
 task_name: eval
 
 model:
-  use_com_energy: 1
   sampling_config:
+    use_com_adjustment: True
     batch_size: 10_000
     num_test_proposal_samples: 10_000
     num_smc_samples: 10_000
@@ -36,3 +37,5 @@ data:
   batch_size: 10_000
   num_eval_samples: 10_000
 
+trainer:
+  limit_test_batches: 1

@@ -300,8 +300,9 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             metric_object_list = [self.add_aggregate_metrics(metrics, prefix=prefix)]
         else:
             metric_object_list = [None]  # List must have same length for broadcast
-        # Broadcast metrics to all processes - must log from all for checkpointing
-        torch.distributed.broadcast_object_list(metric_object_list, src=0)
+        if self.trainer.world_size > 1:
+            # Broadcast metrics to all processes - must log from all for checkpointing
+            torch.distributed.broadcast_object_list(metric_object_list, src=0)
         self.log_dict(metric_object_list[0])
 
     @torch.no_grad()
@@ -350,8 +351,10 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             torch.save(samples_dict, f"{output_dir}/{prefix}/samples.pt")
             logging.info(f"Saving {len(proposal_samples)} samples to {output_dir}/{prefix}_samples.pt")
 
+        logging.info("Computing energy")
         # Compute energy
         proposal_samples_energy = energy_fn(proposal_samples)
+        logging.info("Energy computed")
 
         # Datatype for easier metrics and plotting
         proposal_data = SamplesData(
@@ -359,10 +362,36 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             proposal_samples_energy,
         )
 
+        # if you don't remove all the noise you need to compute the mean to even do the reweighting I think
+        # mean = x_pred - self.datamodule.atom_aug_std ** 2 * energy_grad
+
+        # tweedy_logdet = self.tweedy_logdet_exact(x_pred[:1])
+
+        # print(tweedy_logdet_est, tweedy_logdet)
+
+        # self.datamodule.atom_noise_std = 0.1
+
+        # x_denoised = proposal_samples + (self.datamodule.atom_noise_std) ** 2 * - \
+        # self.proposal_energy_grad(proposal_samples)
+
+        # breakpoint()
+
+        # proposal_energy_x_noisy = self.proposal_energy(x_pred)
+        # proposal_energy_x_denoised = self.proposal_energy(x_denoised)
+
+        # logits = proposal_energy_x_noisy - proposal_energy_x_denoised + logdet_tweedy
+
+        # print(torch.softmax(logits))
+
+        # breakpoint()
+
+        # breakpoint()
+
         # Compute proposal center of mass std - TODO should this just be 1 / sqrt(N) ?
-        coms = self.datamodule.center_of_mass(proposal_samples).mean(dim=1)
+        coms = self.datamodule.center_of_mass(proposal_samples)
         proposal_com_std = coms.std()
         self.proposal_com_std = proposal_com_std
+        logging.info(f"Proposal CoM std: {proposal_com_std}")
         self.log(f"{prefix}/proposal_com_std", proposal_com_std, sync_dist=True)
 
         # Apply CoM adjustment to energy, this must be done here for compatibility with CNFs
@@ -384,6 +413,23 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             logging.info("Clipped logits for resampling")
 
         _, resampling_index = resample(proposal_samples, resampling_logits, return_index=True)
+
+        proposal_coms_norm = coms.norm(dim=-1)
+
+        resampled_samples = proposal_samples[resampling_index]
+        resampled_coms = self.datamodule.center_of_mass(resampled_samples)
+        resampled_coms_norm = resampled_coms.norm(dim=-1)
+
+        # Plot histogram of center of mass norms
+        plt.figure()
+        plt.hist(proposal_coms_norm.cpu().numpy(), bins=50, alpha=0.7, label="Proposal CoM Norm", density=True)
+        plt.hist(resampled_coms_norm.cpu().numpy(), bins=50, alpha=0.7, label="Resampled CoM Norm", density=True)
+        plt.xlabel("Center of Mass Norm")
+        plt.ylabel("Frequency")
+        plt.title("Histogram of Center of Mass Norms")
+        plt.legend()
+        plt.savefig(f"com_histogram_{sequence}.png")
+        plt.close()
 
         reweighted_data = SamplesData(
             self.datamodule.as_pointcloud(self.datamodule.unnormalize(proposal_samples[resampling_index])),

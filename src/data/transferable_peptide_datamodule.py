@@ -1,6 +1,7 @@
 import logging
 import math
-from typing import Any, Callable, Optional
+import os
+from typing import Callable, Optional
 
 import openmm
 import openmm.app
@@ -54,7 +55,6 @@ class TransferablePeptideDataModule(BaseDataModule):
         pin_memory: bool = False,
         num_eval_samples: int = 10_000,
         num_val_sequences: int = 20,
-        energy_hist_config: Optional[dict[str, Any]] = None,
         resume_build_lmdb: bool = False,
     ):
         super().__init__(batch_size=batch_size, num_workers=num_workers, pin_memory=pin_memory)
@@ -80,6 +80,14 @@ class TransferablePeptideDataModule(BaseDataModule):
 
         Do not use it to assign state (self.x = y).
         """
+
+        if (
+            all([os.path.exists(f"{self.train_lmdb_prefix_path}_{i}.lmdb") for i in range(self.trainer.world_size)])
+            and all(os.path.exists(f"{self.val_lmdb_prefix_path}_{i}.lmdb") for i in range(self.trainer.world_size))
+            and all(os.path.exists(f"{self.test_lmdb_prefix_path}_{i}.lmdb") for i in range(self.trainer.world_size))
+        ):
+            logging.info("LMDB files already exist, skipping build.")
+            return
 
         train_npz_paths, train_pdb_paths = check_and_get_files(self.train_data_path)
         val_npz_paths, val_pdb_paths = check_and_get_files(self.val_data_path)
@@ -270,11 +278,16 @@ class TransferablePeptideDataModule(BaseDataModule):
                 )
             )
         if self.hparams.atom_noise_augmentation_factor:
+            self.atom_noise_std = (
+                self.hparams.atom_noise_augmentation_factor * 0.1 / self.std
+            )  # 0.1 is length in nm of N-H bond
             transform_list.append(
                 AtomNoiseTransform(
-                    self.hparams.atom_noise_augmentation_factor * 0.1 / self.std,  # 0.1 is length in nm of N-H bond
+                    self.atom_noise_std,
                 )
             )
+        else:
+            self.atom_noise_std = 0.0
         transform_list = transform_list + [
             AddEncodingTransform(self.encoding_dict),
             PaddingTransform(self.hparams.num_particles, self.hparams.num_dimensions),
@@ -315,7 +328,7 @@ class TransferablePeptideDataModule(BaseDataModule):
         logging.info(f"Validation dataset size: {len(self.data_val)}")
         logging.info(f"Test dataset size: {len(self.data_test)}")
 
-    def setup_potential(self, val_sequence: str):
+    def setup_potential(self, sequence: str):
         forcefield = openmm.app.ForceField("amber14-all.xml", "implicit/obc1.xml")
         nonbondedMethod = openmm.app.CutoffNonPeriodic
         nonbondedCutoff = 2.0 * openmm.unit.nanometer
@@ -323,7 +336,7 @@ class TransferablePeptideDataModule(BaseDataModule):
 
         # Initalize forcefield systemq
         system = forcefield.createSystem(
-            self.pdb_dict[val_sequence].topology,
+            self.pdb_dict[sequence].topology,
             nonbondedMethod=nonbondedMethod,
             nonbondedCutoff=nonbondedCutoff,
             constraints=None,
@@ -385,12 +398,13 @@ class TransferablePeptideDataModule(BaseDataModule):
 
         metrics = {}
 
-        # plot_ramachandran(
-        #     log_image_fn,
-        #     true_data.samples[: self.hparams.num_eval_samples],
-        #     self.topology_dict[sequence],
-        #     prefix=prefix + "true",
-        # )
+        if do_plots:
+            plot_ramachandran(
+                log_image_fn,
+                true_data.samples[: self.hparams.num_eval_samples],
+                self.topology_dict[sequence],
+                prefix=prefix + "true",
+            )
 
         for data, name in [
             [proposal_data, "proposal"],
@@ -434,18 +448,17 @@ class TransferablePeptideDataModule(BaseDataModule):
             logging.info("Plotting energies")
             plot_energies(
                 log_image_fn,
-                true_data.energy[: self.hparams.num_eval_samples],
+                true_data.energy,
                 proposal_data.energy if len(proposal_data) > 0 else None,
                 resampled_data.energy if len(resampled_data) > 0 else None,
                 smc_data.energy if (smc_data is not None and len(smc_data) > 0) else None,
-                **self.hparams.energy_hist_config,
                 prefix=prefix,
             )
 
             logging.info("Plotting interatomic distances")
             plot_atom_distances(
                 log_image_fn,
-                true_data.samples[: self.hparams.num_eval_samples],
+                true_data.samples,
                 proposal_data.samples if len(proposal_data) > 0 else None,
                 resampled_data.samples if len(resampled_data) > 0 else None,
                 smc_data.samples if (smc_data is not None and len(smc_data) > 0) else None,
