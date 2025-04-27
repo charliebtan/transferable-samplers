@@ -95,6 +95,10 @@ class PermutationRandomFlip(PermutationRandom):
             return x_perm.flip(dims=[dim]), p
 
 
+FORWARD_PERM = (PermutationIdentity, PermutationRandom)
+FLIP_PERM = (PermutationFlip, PermutationRandomFlip)
+
+
 class Attention(torch.nn.Module):
     USE_SPDA: bool = True
 
@@ -272,14 +276,14 @@ class MetaBlock(torch.nn.Module):
                 f"First two dimensions of mask {mask.shape[:1]} and x {x.shape[:1]} do not match"
             )
             mask, _ = self.permutation(mask, perm=perm)
-
             attn_mask = attn_mask.unsqueeze(0)
-            if isinstance(self.permutation, PermutationIdentity) or isinstance(self.permutation, PermutationRandom):
+            if isinstance(type(self.permutation), FORWARD_PERM):
                 # mask out final rows
                 attn_mask = attn_mask * mask
             else:
                 # mask out first columns
                 attn_mask = attn_mask * mask.permute(0, 2, 1)
+
             attn_mask = attn_mask.unsqueeze(1)
 
             # First mask for consistency inside the loop below
@@ -294,11 +298,9 @@ class MetaBlock(torch.nn.Module):
 
         x = self.proj_out(x)
 
-        if isinstance(self.permutation, PermutationFlip) or isinstance(self.permutation, PermutationRandomFlip):
-            x = x * mask if mask is not None else x
+        x = x * mask if mask is not None else x
         x = torch.cat([torch.zeros_like(x[:, :1]), x[:, :-1]], dim=1)  # shift one token w/ zero pad
-        if isinstance(self.permutation, PermutationIdentity) or isinstance(self.permutation, PermutationRandom):
-            x = x * mask if mask is not None else x
+        x = x * mask if mask is not None else x
 
         if self.nvp:
             xa, xb = x.chunk(2, dim=-1)
@@ -315,7 +317,7 @@ class MetaBlock(torch.nn.Module):
             logdet = -xa.sum(dim=[1, 2]) / (mask.sum(dim=[1, 2]) * self.in_channels)
 
         # return perm for PermutationRandomFlip
-        if not isinstance(self.permutation, (PermutationRandom, PermutationRandomFlip)):
+        if not isinstance(type(self.permutation), (PermutationRandom, PermutationRandomFlip)):
             perm = None
 
         return x_out, logdet, perm
@@ -384,9 +386,7 @@ class MetaBlock(torch.nn.Module):
         x, _ = self.permutation(x, inverse=True, perm=perm)
 
         # return perm for PermutationRandomFlip
-        if not isinstance(self.permutation, PermutationRandom) or not isinstance(
-            self.permutation, PermutationRandomFlip
-        ):
+        if not isinstance(type(self.permutation), (PermutationRandom, PermutationRandomFlip)):
             perm = None
 
         return x, perm
@@ -682,7 +682,7 @@ if __name__ == "__main__":
     in_channels = 3
     patch_size = 1
     channels = 64
-    num_blocks = 4  # needs to be at least 2 to cover both permutations
+    num_blocks = 8  # needs to be at least 2 to cover both permutations
     layers_per_block = 1
 
     ### Dummy data
