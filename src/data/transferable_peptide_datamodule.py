@@ -31,6 +31,7 @@ from src.data.components.transforms.standardize import StandardizeTransform
 from src.data.components.validation_subset import ALL_VALIDATION_SUBSET, VALIDATION_SUBSET_DICT
 from src.evaluation.metrics.evaluate_peptide_data import evaluate_peptide_data
 from src.evaluation.plots.plot_atom_distances import plot_atom_distances
+from src.evaluation.plots.plot_com_norms import plot_com_norms
 from src.evaluation.plots.plot_energies import plot_energies
 from src.evaluation.plots.plot_ramachandran import plot_ramachandran
 
@@ -417,6 +418,8 @@ class TransferablePeptideDataModule(BaseDataModule):
             if len(data) == 0:
                 logging.warning(f"No {name} samples present.")
 
+            logging.info(f"Evaluating {name} data")
+
             data = data[: self.hparams.num_eval_samples * 2]  # slice out extra samples for those lost to symmetry
 
             symmetry_metrics, symmetry_change = resolve_chirality(
@@ -459,6 +462,15 @@ class TransferablePeptideDataModule(BaseDataModule):
             plot_atom_distances(
                 log_image_fn,
                 true_data.samples,
+                proposal_data.samples if len(proposal_data) > 0 else None,
+                resampled_data.samples if len(resampled_data) > 0 else None,
+                smc_data.samples if (smc_data is not None and len(smc_data) > 0) else None,
+                prefix=prefix,
+            )
+
+            logging.info("Plotting CoM norms")
+            plot_com_norms(
+                log_image_fn,
                 proposal_data.samples if len(proposal_data) > 0 else None,
                 resampled_data.samples if len(resampled_data) > 0 else None,
                 smc_data.samples if (smc_data is not None and len(smc_data) > 0) else None,

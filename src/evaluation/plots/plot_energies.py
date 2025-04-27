@@ -97,7 +97,7 @@ def plot_energies(
             histtype="step",
             linewidth=3,
             color="orange",
-            label="SBG",
+            label="SMC",
         )
 
     xticks = list(ax.get_xticks())

@@ -387,16 +387,18 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
 
         # breakpoint()
 
-        # Compute proposal center of mass std - TODO should this just be 1 / sqrt(N) ?
+        # Compute proposal center of mass std
         coms = self.datamodule.center_of_mass(proposal_samples)
         proposal_com_std = coms.std()
+        # TODO little scary relying on this class attribute! - gets used in self.proposal_energy
+        # when use_com_adjustment=True
         self.proposal_com_std = proposal_com_std
         logging.info(f"Proposal CoM std: {proposal_com_std}")
         self.log(f"{prefix}/proposal_com_std", proposal_com_std, sync_dist=True)
 
         # Apply CoM adjustment to energy, this must be done here for compatibility with CNFs
         if self.hparams.sampling_config.use_com_adjustment:
-            proposal_log_p = proposal_log_p - self.com_energy_adjustment(proposal_samples)
+            proposal_log_p = proposal_log_p + self.com_energy_adjustment(proposal_samples)
 
         # Compute resampling index
         resampling_logits = -proposal_samples_energy - proposal_log_p
@@ -413,23 +415,6 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             logging.info("Clipped logits for resampling")
 
         _, resampling_index = resample(proposal_samples, resampling_logits, return_index=True)
-
-        proposal_coms_norm = coms.norm(dim=-1)
-
-        resampled_samples = proposal_samples[resampling_index]
-        resampled_coms = self.datamodule.center_of_mass(resampled_samples)
-        resampled_coms_norm = resampled_coms.norm(dim=-1)
-
-        # Plot histogram of center of mass norms
-        plt.figure()
-        plt.hist(proposal_coms_norm.cpu().numpy(), bins=50, alpha=0.7, label="Proposal CoM Norm", density=True)
-        plt.hist(resampled_coms_norm.cpu().numpy(), bins=50, alpha=0.7, label="Resampled CoM Norm", density=True)
-        plt.xlabel("Center of Mass Norm")
-        plt.ylabel("Frequency")
-        plt.title("Histogram of Center of Mass Norms")
-        plt.legend()
-        plt.savefig(f"com_histogram_{sequence}.png")
-        plt.close()
 
         reweighted_data = SamplesData(
             self.datamodule.as_pointcloud(self.datamodule.unnormalize(proposal_samples[resampling_index])),
