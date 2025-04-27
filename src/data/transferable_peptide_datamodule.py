@@ -1,6 +1,5 @@
 import logging
 import math
-import pickle
 from typing import Any, Callable, Optional
 
 import openmm
@@ -19,7 +18,6 @@ from src.data.components.prepare_data import (
     cross_reference_files,
     load_lmdb_metadata,
     load_pdbs_and_topologies,
-    prepare_tica_models,
 )
 from src.data.components.symmetry import resolve_chirality
 from src.data.components.test_subset import ALL_TEST_SUBSET, TEST_SUBSET_DICT
@@ -141,24 +139,6 @@ class TransferablePeptideDataModule(BaseDataModule):
         train_metadata = load_lmdb_metadata(self.train_lmdb_path)
         val_metadata = load_lmdb_metadata(self.val_lmdb_path)
         test_metadata = load_lmdb_metadata(self.test_lmdb_path)
-
-        val_npz_paths = val_metadata["npz_paths"]
-        test_npz_paths = test_metadata["npz_paths"]
-
-        val_pdb_paths = val_metadata["pdb_paths"]
-        test_pdb_paths = test_metadata["pdb_paths"]
-
-        all_npz_paths = {**val_npz_paths, **test_npz_paths}
-        all_pdb_paths = {**val_pdb_paths, **test_pdb_paths}
-
-        tica_model_dict = prepare_tica_models(all_npz_paths, all_pdb_paths)
-
-        # Save the tica_model_dict to a pickle file
-
-        tica_model_dict_path = f"{self.hparams.data_dir}/tica_model_dict.pkl"
-        with open(tica_model_dict_path, "wb") as f:
-            pickle.dump(tica_model_dict, f)
-        logging.info(f"Saved tica_model_dict to {tica_model_dict_path}")
 
         train_seq_names = list(train_metadata["num_samples"].keys())
 
