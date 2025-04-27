@@ -24,7 +24,10 @@ class PaddingTransform(torch.nn.Module):
 
     def pad_encoding(self, encoding: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         for key, value in encoding.items():
-            encoding[key] = torch.cat([value, torch.zeros(self.max_num_particles - value.shape[0], dtype=torch.int64)])
+            if not key == "seq_len":  # don't pad seq_len - is single value per sample
+                encoding[key] = torch.cat(
+                    [value, torch.zeros(self.max_num_particles - value.shape[0], dtype=torch.int64)]
+                )
         return encoding
 
     def create_mask(self, x: torch.Tensor) -> torch.Tensor:
