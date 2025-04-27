@@ -4,14 +4,17 @@ import torch
 import torch.nn as nn
 
 
-class SinusodialEmbedding(nn.Module):
+class SinusoidalEmbedding(nn.Module):
     def __init__(self, embed_size, max_len=10):
         # TODO hardcoded max_len to 10 - should be fine for these experiments but better to pass in later
         super().__init__()
         self.embed_size = embed_size
         self.max_len = max_len
 
+        assert self.embed_size % 2 == 0, "embed_size must be even."
+
     def forward(self, indices):
+        # TODO fix docstring
         """Creates sine / cosine positional embeddings from a prespecified indices.
 
         Args:
@@ -23,13 +26,9 @@ class SinusodialEmbedding(nn.Module):
             positional embedding of shape [N, embed_size]
         """
         K = torch.arange(self.embed_size // 2, device=indices.device)
-        pos_embedding_sin = torch.sin(
-            indices[..., None] * math.pi / (self.max_len ** (2 * K[None] / self.embed_size))
-        ).to(indices.device)
-        pos_embedding_cos = torch.cos(
-            indices[..., None] * math.pi / (self.max_len ** (2 * K[None] / self.embed_size))
-        ).to(indices.device)
-        pos_embedding = torch.cat([pos_embedding_sin, pos_embedding_cos], axis=-1)
+        pos_embedding_sin = torch.sin(indices[..., None] * math.pi / (self.max_len ** (2 * K[None] / self.embed_size)))
+        pos_embedding_cos = torch.cos(indices[..., None] * math.pi / (self.max_len ** (2 * K[None] / self.embed_size)))
+        pos_embedding = torch.cat([pos_embedding_sin, pos_embedding_cos], dim=-1)
         return pos_embedding
 
 
@@ -46,8 +45,8 @@ class ConditionalEmbedder(nn.Module):
 
         self.atom_embed = nn.Embedding(num_embeddings=num_atom_emb, embedding_dim=channels)
         self.residue_embed = nn.Embedding(num_embeddings=num_residue_emb, embedding_dim=channels)
-        self.residue_pos_embed = SinusodialEmbedding(embed_size=channels)
-        self.seq_len_embed = SinusodialEmbedding(embed_size=channels)
+        self.residue_pos_embed = SinusoidalEmbedding(embed_size=channels)
+        self.seq_len_embed = SinusoidalEmbedding(embed_size=channels)
 
         self.mlp = nn.Sequential(nn.Linear(4 * channels, channels), nn.GELU(), nn.Linear(channels, channels))
 
