@@ -351,10 +351,8 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             torch.save(samples_dict, f"{output_dir}/{prefix}/samples.pt")
             logging.info(f"Saving {len(proposal_samples)} samples to {output_dir}/{prefix}_samples.pt")
 
-        logging.info("Computing energy")
         # Compute energy
         proposal_samples_energy = energy_fn(proposal_samples)
-        logging.info("Energy computed")
 
         # Datatype for easier metrics and plotting
         proposal_data = SamplesData(
