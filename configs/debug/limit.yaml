@@ -19,6 +19,3 @@ model:
     num_smc_samples: 10
     num_eval_samples: 100
     batch_size: 100
-
-data:
-  num_val_sequences: 2
