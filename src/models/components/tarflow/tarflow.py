@@ -435,6 +435,7 @@ def test_invertibility(model, x, encoding, mask=None, num_pad_tokens=4, num_dime
             "atom_type": encoding["atom_type"][:, :num_pad_tokens],
             "aa_type": encoding["aa_type"][:, :num_pad_tokens],
             "aa_pos": encoding["aa_pos"][:, :num_pad_tokens],
+            "seq_len": encoding["seq_len"],
         }
 
     x_recon = model.reverse(x_pred, encoding=encoding)
@@ -541,6 +542,7 @@ if __name__ == "__main__":
         "atom_type": torch.randint(high=2, size=(batch_size, img_size // in_channels)) + 1,
         "aa_type": torch.randint(high=2, size=(batch_size, img_size // in_channels)) + 1,
         "aa_pos": torch.randint(high=2, size=(batch_size, img_size // in_channels)) + 1,
+        "seq_len": torch.ones((batch_size, 1)) * 2,
     }
 
     ### Padded data with mask
@@ -559,6 +561,7 @@ if __name__ == "__main__":
         "aa_pos": torch.cat(
             [encoding["aa_pos"].clone(), torch.zeros([batch_size, pad_tokens], dtype=torch.long)], dim=1
         ),
+        "seq_len": encoding["seq_len"].clone(),
     }
     mask = torch.cat(
         [torch.ones([batch_size, img_size // in_channels], dtype=torch.float32), torch.zeros([batch_size, pad_tokens])],
