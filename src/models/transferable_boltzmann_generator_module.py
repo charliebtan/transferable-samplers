@@ -274,6 +274,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
     def evaluate_all(self, prefix):
         metrics = {}
         eval_seq_names = self.datamodule.val_seq_names if prefix.startswith("val") else self.datamodule.test_seq_names
+        # TODO: @Majdi look into just providing the seq names in eval config
         if prefix.startswith("test") and self.hparams.get("eval_seq_id") is not None:
             id_to_seq = {v: k for k, v in eval_seq_names.items()}
             if id_to_seq.get(self.hparams.eval_seq_id) is None:
