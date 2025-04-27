@@ -5,8 +5,8 @@ import torch.nn as nn
 
 
 class SinusoidalEmbedding(nn.Module):
-    def __init__(self, embed_size, max_len=10):
-        # TODO hardcoded max_len to 10 - should be fine for these experiments but better to pass in later
+    def __init__(self, embed_size, max_len=20):
+        # max_len = 20 for long-term goal of oligopeptides
         super().__init__()
         self.embed_size = embed_size
         self.max_len = max_len
