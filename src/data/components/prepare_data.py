@@ -2,7 +2,6 @@ import logging
 import math
 import os
 import pickle
-from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import lmdb
 import mdtraj as md
@@ -229,16 +228,11 @@ def _prepare_single_tica(seq_name, npz_path, pdb_path):
 def prepare_tica_models(npz_paths, pdb_paths):
     tica_model_dict = {}
 
-    futures = []
-    with ProcessPoolExecutor(max_workers=8) as executor:
-        for seq_name in npz_paths.keys():
-            npz_path = npz_paths[seq_name]
-            pdb_path = pdb_paths[seq_name]
-            futures.append(executor.submit(_prepare_single_tica, seq_name, npz_path, pdb_path))
-
-        for future in tqdm(as_completed(futures), total=len(futures)):
-            seq_name, tica_model = future.result()
-            tica_model_dict[seq_name] = tica_model
+    for seq_name in tqdm(npz_paths.keys()):
+        npz_path = npz_paths[seq_name]
+        pdb_path = pdb_paths[seq_name]
+        tica_model = _prepare_single_tica(seq_name, npz_path, pdb_path)
+        tica_model_dict[seq_name] = tica_model
 
     return tica_model_dict
 
