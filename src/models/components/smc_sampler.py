@@ -194,8 +194,8 @@ class SMCSampler(torch.nn.Module):
             N = len(logw)
             w = torch.softmax(logw, dim=-1)
             c = torch.cumsum(w, dim=0)
-            u = torch.rand(1) / N
-            indexes = torch.searchsorted(c, u + torch.arange(N) / N)
+            u = torch.rand(1, device=x.device) / N
+            indexes = torch.searchsorted(c, u + torch.arange(N, device=x.device) / N)
         else:
             # smc weights
             w = torch.softmax(logw, dim=-1)
