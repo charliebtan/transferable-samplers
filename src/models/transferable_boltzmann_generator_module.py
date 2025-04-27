@@ -362,31 +362,6 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             proposal_samples_energy,
         )
 
-        # if you don't remove all the noise you need to compute the mean to even do the reweighting I think
-        # mean = x_pred - self.datamodule.atom_aug_std ** 2 * energy_grad
-
-        # tweedy_logdet = self.tweedy_logdet_exact(x_pred[:1])
-
-        # print(tweedy_logdet_est, tweedy_logdet)
-
-        # self.datamodule.atom_noise_std = 0.1
-
-        # x_denoised = proposal_samples + (self.datamodule.atom_noise_std) ** 2 * - \
-        # self.proposal_energy_grad(proposal_samples)
-
-        # breakpoint()
-
-        # proposal_energy_x_noisy = self.proposal_energy(x_pred)
-        # proposal_energy_x_denoised = self.proposal_energy(x_denoised)
-
-        # logits = proposal_energy_x_noisy - proposal_energy_x_denoised + logdet_tweedy
-
-        # print(torch.softmax(logits))
-
-        # breakpoint()
-
-        # breakpoint()
-
         # Compute proposal center of mass std
         coms = self.datamodule.center_of_mass(proposal_samples)
         proposal_com_std = coms.std()
