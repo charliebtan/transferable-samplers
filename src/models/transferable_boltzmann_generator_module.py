@@ -274,6 +274,14 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
     def evaluate_all(self, prefix):
         metrics = {}
         eval_seq_names = self.datamodule.val_seq_names if prefix.startswith("val") else self.datamodule.test_seq_names
+        # TODO: @Majdi look into just providing the seq names in eval config
+        if prefix.startswith("test") and self.hparams.get("eval_seq_id") is not None:
+            id_to_seq = {v: k for k, v in eval_seq_names.items()}
+            if id_to_seq.get(self.hparams.eval_seq_id) is None:
+                raise ValueError(f"{self.hparams.eval_seq_id} not in set of test sequences: {eval_seq_names}")
+
+            eval_seq_names = {id_to_seq[self.hparams.eval_seq_id]: self.hparams.eval_seq_id}
+
         for seq_name in eval_seq_names:
             true_samples, encoding, energy_fn = self.datamodule.prepare_eval(seq_name)
             logging.info(f"Evaluating {seq_name} samples")
@@ -353,15 +361,18 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             proposal_samples_energy,
         )
 
-        # Compute proposal center of mass std - TODO should this just be 1 / sqrt(N) ?
-        coms = self.datamodule.center_of_mass(proposal_samples).mean(dim=1)
+        # Compute proposal center of mass std
+        coms = self.datamodule.center_of_mass(proposal_samples)
         proposal_com_std = coms.std()
+        # TODO little scary relying on this class attribute! - gets used in self.proposal_energy
+        # when use_com_adjustment=True
         self.proposal_com_std = proposal_com_std
+        logging.info(f"Proposal CoM std: {proposal_com_std}")
         self.log(f"{prefix}/proposal_com_std", proposal_com_std, sync_dist=True)
 
         # Apply CoM adjustment to energy, this must be done here for compatibility with CNFs
         if self.hparams.sampling_config.use_com_adjustment:
-            proposal_log_p = proposal_log_p - self.com_energy_adjustment(proposal_samples)
+            proposal_log_p = proposal_log_p + self.com_energy_adjustment(proposal_samples)
 
         # Compute resampling index
         resampling_logits = -proposal_samples_energy - proposal_log_p
@@ -393,8 +404,9 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             # Generate smc samples and record time
             torch.cuda.synchronize()
             start_time = time.time()
+            self.smc_sampler.target_energy = energy_fn
             smc_samples, smc_logits = self.smc_sampler.sample(
-                proposal_samples[:num_smc_samples]
+                proposal_samples[:num_smc_samples], encoding=encoding
             )  # already returned resampled
             torch.cuda.synchronize()
             time_duration = time.time() - start_time
@@ -429,6 +441,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
                 reweighted_data,
                 smc_data,
                 prefix=prefix,
+                do_plots=True if prefix.startswith("test") else False,
             )
         else:
             metrics = {}
