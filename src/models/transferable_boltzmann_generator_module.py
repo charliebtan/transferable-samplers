@@ -293,8 +293,9 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             metric_object_list = [self.add_aggregate_metrics(metrics, prefix=prefix)]
         else:
             metric_object_list = [None]  # List must have same length for broadcast
-        # Broadcast metrics to all processes - must log from all for checkpointing
-        torch.distributed.broadcast_object_list(metric_object_list, src=0)
+        if self.trainer.world_size > 1:
+            # Broadcast metrics to all processes - must log from all for checkpointing
+            torch.distributed.broadcast_object_list(metric_object_list, src=0)
         self.log_dict(metric_object_list[0])
 
     @torch.no_grad()

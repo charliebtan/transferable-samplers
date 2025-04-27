@@ -39,7 +39,7 @@ def tica_features(trajectory, use_dihedrals=True, use_distances=True, selection=
         return []
 
 
-def run_tica(trajectory, lagtime=500, dim=40):
+def run_tica(trajectory, lagtime=100, dim=2):
     ca_features = tica_features(trajectory)
     tica = dt.decomposition.TICA(dim=dim, lagtime=lagtime)
     koopman_estimator = dt.covariance.KoopmanWeightingEstimator(lagtime=lagtime)
