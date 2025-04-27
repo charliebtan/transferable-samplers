@@ -27,8 +27,8 @@ class SMCSampler(torch.nn.Module):
         systematic_resampling: bool = False,
     ):
         super().__init__()
-        self.source_energy = source_energy
-        self.target_energy = target_energy
+        self.source_energy = source_energy  # TODO pass to sample? - could be partial with encoding + com_std?
+        self.target_energy = target_energy  # TODO pass to sample?
         self.log_image_fn = log_image_fn
         self.batch_size = batch_size
         self.langevin_eps = langevin_eps
