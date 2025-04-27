@@ -14,11 +14,13 @@
 #SBATCH --signal=SIGUSR1@90
 
 RUN_NAME=$1
+module load anaconda
+conda activate tbg3
 
 srun python -u src/train.py \
 experiment=training/tarflow_2aa logger=wandb \
 trainer=ddp \
-batch_size=2048 \
+data.batch_size=2048 \
 tags=[2aa,ddp] \
 hydra.run.dir='${paths.log_dir}/${task_name}/runs/'${RUN_NAME} \
 ckpt_path='${paths.log_dir}/${task_name}/runs/'${RUN_NAME}/checkpoints/last.ckpt \
