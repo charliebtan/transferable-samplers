@@ -59,13 +59,13 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
         return com_energy
 
     def proposal_energy(self, x: torch.Tensor, encoding: dict[str, torch.Tensor]) -> torch.Tensor:
-        vector_dim = x.shape[1]  # is the product num_particles * num_dimensions
+        data_dim = x.shape[1]  # is the product num_particles * num_dimensions
 
         # TODO need to figure out x_pred / recon names - maybe use z going forwards
         x_pred, fwd_logdets = self.net(x, encoding=encoding)
 
-        fwd_logdets = fwd_logdets.view(-1) * vector_dim  # rescale from mean to sum
-        prior_energy = self.prior_energy(x_pred).view(-1) * vector_dim  # rescale from mean to sum
+        fwd_logdets = fwd_logdets.view(-1) * data_dim  # rescale from mean to sum
+        prior_energy = self.prior.energy(x_pred).view(-1) * data_dim  # rescale from mean to sum
 
         energy = prior_energy - fwd_logdets
 
