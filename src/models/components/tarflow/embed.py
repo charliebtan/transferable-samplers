@@ -5,7 +5,8 @@ import torch.nn as nn
 
 
 class SinusodialEmbedding(nn.Module):
-    def __init__(self, embed_size, max_len=512):
+    def __init__(self, embed_size, max_len=10):
+        # TODO hardcoded max_len to 10 - should be fine for these experiments but better to pass in later
         super().__init__()
         self.embed_size = embed_size
         self.max_len = max_len
