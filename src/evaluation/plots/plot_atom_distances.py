@@ -101,7 +101,7 @@ def plot_atom_distances(
             histtype="step",
             linewidth=3,
             color="orange",
-            label="SBG",
+            label="SMC",
         )
 
     if ylim is not None:
