@@ -99,8 +99,7 @@ class PermutationRandomFlip(PermutationRandom):
             return x_perm.flip(dims=[dim]), p
 
 
-FORWARD_PERM = (PermutationIdentity, PermutationRandom)
-FLIP_PERM = (PermutationFlip, PermutationRandomFlip)
+PERM_SET = (PermutationIdentity, PermutationRandom)
 
 
 class MetaBlock(torch.nn.Module):
@@ -196,7 +195,7 @@ class MetaBlock(torch.nn.Module):
             )
             mask, _ = self.permutation(mask, perm=perm)
             attn_mask = attn_mask.unsqueeze(0)
-            if isinstance(type(self.permutation), FORWARD_PERM):
+            if isinstance(type(self.permutation), PERM_SET):
                 # mask out final rows
                 attn_mask = attn_mask * mask[..., None]
             else:
