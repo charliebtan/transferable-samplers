@@ -1,9 +1,11 @@
+import pickle
+
 import matplotlib
 import matplotlib.pyplot as plt
 import mdtraj as md
 from matplotlib.colors import LogNorm
 
-from src.evaluation.metrics.tica import run_tica, tica_features
+from src.evaluation.metrics.tica import tica_features
 
 matplotlib.rcParams["mathtext.fontset"] = "stix"
 matplotlib.rcParams["font.family"] = "STIXGeneral"
@@ -20,10 +22,10 @@ def plot_tic01(ax, tics, tics_lims, cmap="viridis"):
     return ax
 
 
-def plot_tica(log_image_fn, true_samples, pred_samples, topology, lagtime, prefix=""):
-    true_traj_samples = md.Trajectory(true_samples.cpu().numpy(), topology=topology)
-    pred_traj_samples = md.Trajectory(pred_samples.cpu().numpy(), topology=topology)
-    tica_model = run_tica(true_traj_samples, lagtime=lagtime)
+def plot_tica(log_image_fn, samples, topology, tica_model_path, prefix=""):
+    with open(tica_model_path, "rb") as f:
+        tica_model = pickle.load(f)  # noqa: S301
+    pred_traj_samples = md.Trajectory(samples.cpu().numpy(), topology=topology)
     features = tica_features(pred_traj_samples)
     tics = tica_model.transform(features)
     fig, ax = plt.subplots()

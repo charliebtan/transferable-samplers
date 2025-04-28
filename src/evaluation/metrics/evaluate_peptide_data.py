@@ -6,10 +6,17 @@ from src.evaluation.metrics.distribution_distances import (
 )
 from src.evaluation.metrics.ess import sampling_efficiency
 from src.evaluation.metrics.ramachandran import ramachandran_metrics
+from src.evaluation.metrics.tica import tica_metric
 
 
 def evaluate_peptide_data(
-    true_data, pred_data, topology, num_eval_samples=None, compute_distribution_distances: bool = True, prefix: str = ""
+    true_data,
+    pred_data,
+    topology,
+    tica_model,
+    num_eval_samples=None,
+    compute_distribution_distances: bool = True,
+    prefix: str = "",
 ):
     """Computes all metrics between true and predicted data."""
 
@@ -51,5 +58,9 @@ def evaluate_peptide_data(
     # Ramachandran metrics
     metrics.update(ramachandran_metrics(true_data.samples, pred_data.samples, topology, prefix=prefix))
     logging.info("Ramachandran metrics computed")
+
+    # TICA metric
+    metrics.update(tica_metric(true_data.samples, pred_data.samples, topology, tica_model, prefix=prefix))
+    logging.info("TICA metrics computed")
 
     return metrics

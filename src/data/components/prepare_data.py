@@ -223,17 +223,20 @@ def _prepare_single_tica(seq_name, npz_path, pdb_path):
     topology = md.load_topology(pdb_path)
     traj_samples = md.Trajectory(samples["positions"], topology=topology)
     tica_model = run_tica(traj_samples, lagtime=100, dim=2)
-    return seq_name, tica_model
+    return tica_model
 
 
-def prepare_tica_models(npz_paths, pdb_paths):
+def prepare_tica_models(npz_paths, pdb_paths, dir):
     tica_model_dict = {}
 
     for seq_name in tqdm(npz_paths.keys()):
         npz_path = npz_paths[seq_name]
         pdb_path = pdb_paths[seq_name]
         tica_model = _prepare_single_tica(seq_name, npz_path, pdb_path)
-        tica_model_dict[seq_name] = tica_model
+
+        os.makedirs(dir, exist_ok=True)
+        with open(f"{dir}/{seq_name}-tica.pkl", "wb") as f:
+            pickle.dump(tica_model, f, protocol=pickle.HIGHEST_PROTOCOL)
 
     return tica_model_dict
 

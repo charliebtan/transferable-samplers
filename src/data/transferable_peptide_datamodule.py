@@ -19,6 +19,7 @@ from src.data.components.prepare_data import (
     cross_reference_files,
     load_lmdb_metadata,
     load_pdbs_and_topologies,
+    prepare_tica_models,
 )
 from src.data.components.symmetry import resolve_chirality
 from src.data.components.test_subset import ALL_TEST_SUBSET, TEST_SUBSET_DICT
@@ -34,6 +35,7 @@ from src.evaluation.plots.plot_atom_distances import plot_atom_distances
 from src.evaluation.plots.plot_com_norms import plot_com_norms
 from src.evaluation.plots.plot_energies import plot_energies
 from src.evaluation.plots.plot_ramachandran import plot_ramachandran
+from src.evaluation.plots.plot_tica import plot_tica
 
 
 class TransferablePeptideDataModule(BaseDataModule):
@@ -71,6 +73,8 @@ class TransferablePeptideDataModule(BaseDataModule):
         self.val_lmdb_prefix_path = f"{data_dir}/{val_lmdb_prefix}"
         self.test_lmdb_prefix_path = f"{data_dir}/{test_lmdb_prefix}"
 
+        self.tica_models_path = f"{data_dir}/tica_models"
+
         self.num_aa_range = list(range(num_aa_min, num_aa_max + 1))
 
     def prepare_data(self) -> None:
@@ -82,47 +86,62 @@ class TransferablePeptideDataModule(BaseDataModule):
         Do not use it to assign state (self.x = y).
         """
 
-        if (
+        if not (
             all([os.path.exists(f"{self.train_lmdb_prefix_path}_{i}.lmdb") for i in range(self.trainer.world_size)])
             and all(os.path.exists(f"{self.val_lmdb_prefix_path}_{i}.lmdb") for i in range(self.trainer.world_size))
             and all(os.path.exists(f"{self.test_lmdb_prefix_path}_{i}.lmdb") for i in range(self.trainer.world_size))
         ):
             logging.info("LMDB files already exist, skipping build.")
-            return
 
-        train_npz_paths, train_pdb_paths = check_and_get_files(self.train_data_path)
-        val_npz_paths, val_pdb_paths = check_and_get_files(self.val_data_path)
-        test_npz_paths, test_pdb_paths = check_and_get_files(self.test_data_path)
+            train_npz_paths, train_pdb_paths = check_and_get_files(self.train_data_path)
+            val_npz_paths, val_pdb_paths = check_and_get_files(self.val_data_path)
+            test_npz_paths, test_pdb_paths = check_and_get_files(self.test_data_path)
 
-        logging.info("Cross referencing train and val")
-        cross_reference_files(train_npz_paths, val_npz_paths)
-        logging.info("Cross referencing train and test")
-        cross_reference_files(train_npz_paths, test_npz_paths)
-        logging.info("Cross referencing val and test")
-        cross_reference_files(val_npz_paths, test_npz_paths)
+            logging.info("Cross referencing train and val")
+            cross_reference_files(train_npz_paths, val_npz_paths)
+            logging.info("Cross referencing train and test")
+            cross_reference_files(train_npz_paths, test_npz_paths)
+            logging.info("Cross referencing val and test")
+            cross_reference_files(val_npz_paths, test_npz_paths)
 
-        build_lmdb(
-            train_npz_paths,
-            train_pdb_paths,
-            lmdb_prefix_path=self.train_lmdb_prefix_path,
-            resume=self.hparams.resume_build_lmdb,
-        )
+            build_lmdb(
+                train_npz_paths,
+                train_pdb_paths,
+                lmdb_prefix_path=self.train_lmdb_prefix_path,
+                resume=self.hparams.resume_build_lmdb,
+            )
 
-        build_lmdb(
-            val_npz_paths,
-            val_pdb_paths,
-            subset=ALL_VALIDATION_SUBSET,  # prevents adding sequences we aren't going to use
-            lmdb_prefix_path=self.val_lmdb_prefix_path,
-            resume=self.hparams.resume_build_lmdb,
-        )
+            build_lmdb(
+                val_npz_paths,
+                val_pdb_paths,
+                subset=ALL_VALIDATION_SUBSET,  # prevents adding sequences we aren't going to use
+                lmdb_prefix_path=self.val_lmdb_prefix_path,
+                resume=self.hparams.resume_build_lmdb,
+            )
 
-        build_lmdb(
-            test_npz_paths,
-            test_pdb_paths,
-            subset=ALL_TEST_SUBSET,  # prevents adding sequences we aren't going to use
-            lmdb_prefix_path=self.test_lmdb_prefix_path,
-            resume=self.hparams.resume_build_lmdb,
-        )
+            build_lmdb(
+                test_npz_paths,
+                test_pdb_paths,
+                subset=ALL_TEST_SUBSET,  # prevents adding sequences we aren't going to use
+                lmdb_prefix_path=self.test_lmdb_prefix_path,
+                resume=self.hparams.resume_build_lmdb,
+            )
+
+        if not os.path.exists(self.tica_models_path):
+            logging.info("TICA models directory does not exist, creating it.")
+
+            val_metadata = load_lmdb_metadata(f"{self.val_lmdb_prefix_path}_{self.trainer.local_rank}.lmdb")
+            test_metadata = load_lmdb_metadata(f"{self.test_lmdb_prefix_path}_{self.trainer.local_rank}.lmdb")
+
+            val_npz_paths = val_metadata["npz_paths"]
+            test_npz_paths = test_metadata["npz_paths"]
+            all_npz_paths = {**val_npz_paths, **test_npz_paths}
+
+            val_pdb_paths = val_metadata["pdb_paths"]
+            test_pdb_paths = test_metadata["pdb_paths"]
+            all_pdb_paths = {**val_pdb_paths, **test_pdb_paths}
+
+            prepare_tica_models(all_npz_paths, all_pdb_paths, dir=self.tica_models_path)
 
     def setup(self, stage: Optional[str] = None) -> None:
         """Load data. Set variables: `self.data_train`, `self.data_val`, `self.data_test`.
@@ -221,6 +240,13 @@ class TransferablePeptideDataModule(BaseDataModule):
         train_max_num_particles = max(list(train_metadata["num_particles"].values()))
         val_max_num_particles = max(list(val_metadata["num_particles"].values()))
         test_max_num_particles = max(list(test_metadata["num_particles"].values()))
+
+        tica_model_files = os.listdir(self.tica_models_path)
+
+        self.tica_model_paths = {  # TODO horrible naming vs self.tica_models_paths
+            tica_model_file.split("-")[0]: os.path.join(self.tica_models_path, tica_model_file)
+            for tica_model_file in tica_model_files
+        }
 
         assert train_max_num_particles >= val_max_num_particles, (
             "Train largest system must be greater than or equal to val largest system for pos_embed learning."
@@ -439,6 +465,7 @@ class TransferablePeptideDataModule(BaseDataModule):
                         true_data,
                         data,
                         topology=self.topology_dict[sequence],
+                        tica_model=self.tica_model_paths[sequence],
                         num_eval_samples=self.hparams.num_eval_samples,
                         prefix=prefix + name,
                         compute_distribution_distances=False,
@@ -446,6 +473,13 @@ class TransferablePeptideDataModule(BaseDataModule):
                 )
                 if do_plots:
                     plot_ramachandran(log_image_fn, data.samples, self.topology_dict[sequence], prefix=prefix + name)
+                    plot_tica(
+                        log_image_fn,
+                        data.samples,
+                        self.topology_dict[sequence],
+                        self.tica_model_paths[sequence],
+                        prefix=prefix + name,
+                    )
 
         if do_plots:
             logging.info("Plotting energies")
