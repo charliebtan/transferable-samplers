@@ -11,6 +11,7 @@ model:
     channels: 384
     num_blocks: 8
     layers_per_block: 8
+    use_qkln: true
     cond_embed:
       _target_: src.models.components.tarflow.embed.ConditionalEmbedder
       channels: ${model.net.channels}
