@@ -1,16 +1,17 @@
 import logging
 import math
-from typing import Any, Callable, Optional
+import os
+from typing import Callable, Optional
 
 import openmm
 import openmm.app
 import torch
 import torchvision
-from bgflow import OpenMMBridge, OpenMMEnergy
 
 from src.data.base_datamodule import BaseDataModule
 from src.data.components.data_types import SamplesData
 from src.data.components.encoding import get_encoding_dict
+from src.data.components.openmm import OpenMMBridge, OpenMMEnergy
 from src.data.components.peptide_dataset import PeptideDataset
 from src.data.components.prepare_data import (
     build_lmdb,
@@ -29,6 +30,10 @@ from src.data.components.transforms.rotation import Random3DRotationTransform
 from src.data.components.transforms.standardize import StandardizeTransform
 from src.data.components.validation_subset import ALL_VALIDATION_SUBSET, VALIDATION_SUBSET_DICT
 from src.evaluation.metrics.evaluate_peptide_data import evaluate_peptide_data
+from src.evaluation.plots.plot_atom_distances import plot_atom_distances
+from src.evaluation.plots.plot_com_norms import plot_com_norms
+from src.evaluation.plots.plot_energies import plot_energies
+from src.evaluation.plots.plot_ramachandran import plot_ramachandran
 
 
 class TransferablePeptideDataModule(BaseDataModule):
@@ -51,7 +56,6 @@ class TransferablePeptideDataModule(BaseDataModule):
         pin_memory: bool = False,
         num_eval_samples: int = 10_000,
         num_val_sequences: int = 20,
-        energy_hist_config: Optional[dict[str, Any]] = None,
         resume_build_lmdb: bool = False,
     ):
         super().__init__(batch_size=batch_size, num_workers=num_workers, pin_memory=pin_memory)
@@ -77,6 +81,14 @@ class TransferablePeptideDataModule(BaseDataModule):
 
         Do not use it to assign state (self.x = y).
         """
+
+        if (
+            all([os.path.exists(f"{self.train_lmdb_prefix_path}_{i}.lmdb") for i in range(self.trainer.world_size)])
+            and all(os.path.exists(f"{self.val_lmdb_prefix_path}_{i}.lmdb") for i in range(self.trainer.world_size))
+            and all(os.path.exists(f"{self.test_lmdb_prefix_path}_{i}.lmdb") for i in range(self.trainer.world_size))
+        ):
+            logging.info("LMDB files already exist, skipping build.")
+            return
 
         train_npz_paths, train_pdb_paths = check_and_get_files(self.train_data_path)
         val_npz_paths, val_pdb_paths = check_and_get_files(self.val_data_path)
@@ -267,11 +279,16 @@ class TransferablePeptideDataModule(BaseDataModule):
                 )
             )
         if self.hparams.atom_noise_augmentation_factor:
+            self.atom_noise_std = (
+                self.hparams.atom_noise_augmentation_factor * 0.1 / self.std
+            )  # 0.1 is length in nm of N-H bond
             transform_list.append(
                 AtomNoiseTransform(
-                    self.hparams.atom_noise_augmentation_factor * 0.1 / self.std,  # 0.1 is length in nm of N-H bond
+                    self.atom_noise_std,
                 )
             )
+        else:
+            self.atom_noise_std = 0.0
         transform_list = transform_list + [
             AddEncodingTransform(self.encoding_dict),
             PaddingTransform(self.hparams.num_particles, self.hparams.num_dimensions),
@@ -312,7 +329,7 @@ class TransferablePeptideDataModule(BaseDataModule):
         logging.info(f"Validation dataset size: {len(self.data_val)}")
         logging.info(f"Test dataset size: {len(self.data_test)}")
 
-    def setup_potential(self, val_sequence: str):
+    def setup_potential(self, sequence: str):
         forcefield = openmm.app.ForceField("amber14-all.xml", "implicit/obc1.xml")
         nonbondedMethod = openmm.app.CutoffNonPeriodic
         nonbondedCutoff = 2.0 * openmm.unit.nanometer
@@ -320,7 +337,7 @@ class TransferablePeptideDataModule(BaseDataModule):
 
         # Initalize forcefield systemq
         system = forcefield.createSystem(
-            self.pdb_dict[val_sequence].topology,
+            self.pdb_dict[sequence].topology,
             nonbondedMethod=nonbondedMethod,
             nonbondedCutoff=nonbondedCutoff,
             constraints=None,
@@ -372,6 +389,7 @@ class TransferablePeptideDataModule(BaseDataModule):
         proposal_data: SamplesData,
         resampled_data: SamplesData,
         smc_data: Optional[SamplesData] = None,
+        do_plots: bool = True,
         prefix: str = "",
     ) -> None:
         """Log metrics and plots at the end of an epoch."""
@@ -381,12 +399,13 @@ class TransferablePeptideDataModule(BaseDataModule):
 
         metrics = {}
 
-        # plot_ramachandran(
-        #     log_image_fn,
-        #     true_data.samples[: self.hparams.num_eval_samples],
-        #     self.topology_dict[sequence],
-        #     prefix=prefix + "true",
-        # )
+        if do_plots:
+            plot_ramachandran(
+                log_image_fn,
+                true_data.samples[: self.hparams.num_eval_samples],
+                self.topology_dict[sequence],
+                prefix=prefix + "true",
+            )
 
         for data, name in [
             [proposal_data, "proposal"],
@@ -398,6 +417,8 @@ class TransferablePeptideDataModule(BaseDataModule):
 
             if len(data) == 0:
                 logging.warning(f"No {name} samples present.")
+
+            logging.info(f"Evaluating {name} data")
 
             data = data[: self.hparams.num_eval_samples * 2]  # slice out extra samples for those lost to symmetry
 
@@ -423,27 +444,37 @@ class TransferablePeptideDataModule(BaseDataModule):
                         compute_distribution_distances=False,
                     )
                 )
-                # plot_ramachandran(log_image_fn, data.samples, self.topology_dict[sequence], prefix=prefix + name)
+                if do_plots:
+                    plot_ramachandran(log_image_fn, data.samples, self.topology_dict[sequence], prefix=prefix + name)
 
-        # logging.info("Plotting energies")
-        # plot_energies(
-        #     log_image_fn,
-        #     true_data.energy[: self.hparams.num_eval_samples],
-        #     proposal_data.energy if len(proposal_data) > 0 else None,
-        #     resampled_data.energy if len(resampled_data) > 0 else None,
-        #     smc_data.energy if (smc_data is not None and len(smc_data) > 0) else None,
-        #     **self.hparams.energy_hist_config,
-        #     prefix=prefix,
-        # )
+        if do_plots:
+            logging.info("Plotting energies")
+            plot_energies(
+                log_image_fn,
+                true_data.energy,
+                proposal_data.energy if len(proposal_data) > 0 else None,
+                resampled_data.energy if len(resampled_data) > 0 else None,
+                smc_data.energy if (smc_data is not None and len(smc_data) > 0) else None,
+                prefix=prefix,
+            )
 
-        # logging.info("Plotting interatomic distances")
-        # plot_atom_distances(
-        #     log_image_fn,
-        #     true_data.samples[: self.hparams.num_eval_samples],
-        #     proposal_data.samples if len(proposal_data) > 0 else None,
-        #     resampled_data.samples if len(resampled_data) > 0 else None,
-        #     smc_data.samples if (smc_data is not None and len(smc_data) > 0) else None,
-        #     prefix=prefix,
-        # )
+            logging.info("Plotting interatomic distances")
+            plot_atom_distances(
+                log_image_fn,
+                true_data.samples,
+                proposal_data.samples if len(proposal_data) > 0 else None,
+                resampled_data.samples if len(resampled_data) > 0 else None,
+                smc_data.samples if (smc_data is not None and len(smc_data) > 0) else None,
+                prefix=prefix,
+            )
+
+            logging.info("Plotting CoM norms")
+            plot_com_norms(
+                log_image_fn,
+                proposal_data.samples if len(proposal_data) > 0 else None,
+                resampled_data.samples if len(resampled_data) > 0 else None,
+                smc_data.samples if (smc_data is not None and len(smc_data) > 0) else None,
+                prefix=prefix,
+            )
 
         return metrics

@@ -10,6 +10,7 @@ trainer:
   limit_train_batches: 2
   limit_val_batches: 2
   limit_test_batches: 2
+  accelerator: gpu
 
 model:
   sampling_config:

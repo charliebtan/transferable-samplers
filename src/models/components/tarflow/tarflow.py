@@ -6,8 +6,12 @@ import torch
 
 if __name__ == "__main__":
     # This is when we run the script directly to test model
+    from adaptive_blocks import AdaptiveAttnAndTransition
+    from attention import Attention, AttentionBlock
     from embed import ConditionalEmbedder
 else:
+    from src.models.components.tarflow.adaptive_blocks import AdaptiveAttnAndTransition
+    from src.models.components.tarflow.attention import Attention, AttentionBlock
     from src.models.components.tarflow.embed import ConditionalEmbedder
 
 
@@ -99,115 +103,6 @@ FORWARD_PERM = (PermutationIdentity, PermutationRandom)
 FLIP_PERM = (PermutationFlip, PermutationRandomFlip)
 
 
-class Attention(torch.nn.Module):
-    USE_SPDA: bool = True
-
-    def __init__(self, in_channels: int, head_channels: int):
-        assert in_channels % head_channels == 0
-        super().__init__()
-        self.norm = torch.nn.LayerNorm(in_channels)
-        self.qkv = torch.nn.Linear(in_channels, in_channels * 3)
-        self.proj = torch.nn.Linear(in_channels, in_channels)
-        self.num_heads = in_channels // head_channels
-        self.sqrt_scale = head_channels ** (-0.25)
-        self.sample = False
-        self.k_cache: dict[str, list[torch.Tensor]] = {"cond": [], "uncond": []}
-        self.v_cache: dict[str, list[torch.Tensor]] = {"cond": [], "uncond": []}
-
-    def forward_spda(
-        self,
-        x: torch.Tensor,
-        mask: torch.Tensor | None = None,
-        temp: float = 1.0,
-        which_cache: str = "cond",
-    ) -> torch.Tensor:
-        B, T, C = x.size()
-        x = self.norm(x.float()).type(x.dtype)
-        q, k, v = self.qkv(x).reshape(B, T, 3 * self.num_heads, -1).transpose(1, 2).chunk(3, dim=1)  # (b, h, t, d)
-
-        if self.sample:
-            self.k_cache[which_cache].append(k)
-            self.v_cache[which_cache].append(v)
-            k = torch.cat(self.k_cache[which_cache], dim=2)  # note that sequence dimension is now 2
-            v = torch.cat(self.v_cache[which_cache], dim=2)
-
-        scale = self.sqrt_scale**2 / temp
-        if mask is not None:
-            mask = mask.bool()
-        x = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=mask, scale=scale)
-        x = x.transpose(1, 2).reshape(B, T, C)
-        x = self.proj(x)
-        return x
-
-    def forward_base(
-        self,
-        x: torch.Tensor,
-        mask: torch.Tensor | None = None,
-        temp: float = 1.0,
-        which_cache: str = "cond",
-    ) -> torch.Tensor:
-        B, T, C = x.size()
-        x = self.norm(x.float()).type(x.dtype)
-        q, k, v = self.qkv(x).reshape(B, T, 3 * self.num_heads, -1).chunk(3, dim=2)
-        if self.sample:
-            self.k_cache[which_cache].append(k)
-            self.v_cache[which_cache].append(v)
-            k = torch.cat(self.k_cache[which_cache], dim=1)
-            v = torch.cat(self.v_cache[which_cache], dim=1)
-
-        attn = torch.einsum("bmhd,bnhd->bmnh", q * self.sqrt_scale, k * self.sqrt_scale) / temp
-        if mask is not None:
-            attn = attn.masked_fill(mask.unsqueeze(-1) == 0, float("-inf"))
-        attn = attn.float().softmax(dim=-2).type(attn.dtype)
-        x = torch.einsum("bmnh,bnhd->bmhd", attn, v)
-        x = x.reshape(B, T, C)
-        x = self.proj(x)
-        return x
-
-    def forward(
-        self,
-        x: torch.Tensor,
-        mask: torch.Tensor | None = None,
-        temp: float = 1.0,
-        which_cache: str = "cond",
-    ) -> torch.Tensor:
-        if self.USE_SPDA:
-            return self.forward_spda(x, mask, temp, which_cache)
-        return self.forward_base(x, mask, temp, which_cache)
-
-
-class MLP(torch.nn.Module):
-    def __init__(self, channels: int, expansion: int):
-        super().__init__()
-        self.norm = torch.nn.LayerNorm(channels)
-        self.main = torch.nn.Sequential(
-            torch.nn.Linear(channels, channels * expansion),
-            torch.nn.GELU(),
-            torch.nn.Linear(channels * expansion, channels),
-        )
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.main(self.norm(x.float()).type(x.dtype))
-
-
-class AttentionBlock(torch.nn.Module):
-    def __init__(self, channels: int, head_channels: int, expansion: int = 4):
-        super().__init__()
-        self.attention = Attention(channels, head_channels)
-        self.mlp = MLP(channels, expansion)
-
-    def forward(
-        self,
-        x: torch.Tensor,
-        attn_mask: torch.Tensor | None = None,
-        attn_temp: float = 1.0,
-        which_cache: str = "cond",
-    ) -> torch.Tensor:
-        x = x + self.attention(x, attn_mask, attn_temp, which_cache)
-        x = x + self.mlp(x)
-        return x
-
-
 class MetaBlock(torch.nn.Module):
     attn_mask: torch.Tensor
 
@@ -222,7 +117,10 @@ class MetaBlock(torch.nn.Module):
         expansion: int = 4,
         nvp: bool = True,
         conditional: bool = False,
-        num_classes: int = 0,
+        use_adapt_ln: bool = False,
+        use_attn_pair_bias: bool = False,
+        use_qkln: bool = False,
+        dropout: float = 0.0,
         debug: bool = False,
     ):
         super().__init__()
@@ -231,10 +129,26 @@ class MetaBlock(torch.nn.Module):
         if conditional:
             self.proj_cond = torch.nn.Linear(channels, channels)
 
+        if use_attn_pair_bias:
+            self.pair_proj = torch.nn.Linear(1, channels)
+
+        self.use_attn_pair_bias = use_attn_pair_bias
         self.pos_embed = torch.nn.Parameter(torch.randn(num_patches, channels) * 1e-2)
+        attn_block = AdaptiveAttnAndTransition if use_adapt_ln else AttentionBlock
         self.attn_blocks = torch.nn.ModuleList(
-            [AttentionBlock(channels, head_dim, expansion) for _ in range(num_layers)]
+            [
+                attn_block(
+                    channels=channels,
+                    head_channels=head_dim,
+                    expansion=expansion,
+                    use_qkln=use_qkln,
+                    use_attn_pair_bias=use_attn_pair_bias,
+                    dropout=dropout,
+                )
+                for _ in range(num_layers)
+            ]
         )
+
         self.nvp = nvp
         output_dim = in_channels * 2 if nvp else in_channels
         self.proj_out = torch.nn.Linear(channels, output_dim)
@@ -268,7 +182,12 @@ class MetaBlock(torch.nn.Module):
         if cond is not None:
             cond, _ = self.permutation(cond, perm=perm)
             cond_emb = self.proj_cond(cond)
-            x = x + cond_emb[:, : x.shape[1]]
+
+        pair_emb = None
+        if self.use_attn_pair_bias:
+            # pairwise distance matrix
+            dist_matrix = torch.cdist(x_in, x_in)[..., None]
+            pair_emb = self.pair_proj(dist_matrix)
 
         attn_mask = self.attn_mask
         if mask is not None:
@@ -279,28 +198,24 @@ class MetaBlock(torch.nn.Module):
             attn_mask = attn_mask.unsqueeze(0)
             if isinstance(type(self.permutation), FORWARD_PERM):
                 # mask out final rows
-                attn_mask = attn_mask * mask
+                attn_mask = attn_mask * mask[..., None]
             else:
                 # mask out first columns
-                attn_mask = attn_mask * mask.permute(0, 2, 1)
+                attn_mask = attn_mask * mask[..., None].permute(0, 2, 1)
 
             attn_mask = attn_mask.unsqueeze(1)
 
-            # First mask for consistency inside the loop below
-            x = x * mask
-
         attn_mask = attn_mask[..., : x.shape[1], : x.shape[1]]
         for block in self.attn_blocks:
-            x = block(x, attn_mask)
+            x = block(x, cond=cond_emb, pair=pair_emb, mask=mask, attn_mask=attn_mask)
             if mask is not None:
-                x = x * mask
                 assert x[torch.where(mask == 0)].sum() == 0, "Masked positions are nonzero"
 
         x = self.proj_out(x)
 
-        x = x * mask if mask is not None else x
+        x = x * mask[..., None] if mask is not None else x
         x = torch.cat([torch.zeros_like(x[:, :1]), x[:, :-1]], dim=1)  # shift one token w/ zero pad
-        x = x * mask if mask is not None else x
+        x = x * mask[..., None] if mask is not None else x
 
         if self.nvp:
             xa, xb = x.chunk(2, dim=-1)
@@ -314,7 +229,7 @@ class MetaBlock(torch.nn.Module):
         if mask is None:
             logdet = -xa.mean(dim=[1, 2])
         else:
-            logdet = -xa.sum(dim=[1, 2]) / (mask.sum(dim=[1, 2]) * self.in_channels)
+            logdet = -xa.sum(dim=[1, 2]) / (mask.sum(dim=-1) * self.in_channels)
 
         # return perm for PermutationRandomFlip
         if not isinstance(type(self.permutation), (PermutationRandom, PermutationRandomFlip)):
@@ -337,10 +252,20 @@ class MetaBlock(torch.nn.Module):
         if cond is not None:
             cond_in = cond[:, i : i + 1]
             cond_emb = self.proj_cond(cond_in)
-            x = x + cond_emb
+
+        pair_emb = None
+        if self.use_attn_pair_bias:
+            # pairwise distance row
+            dist_matrix = torch.cdist(x_in[:, : i + 1], x_in[:, : i + 1])[..., None]
+            dist_row = dist_matrix[:, i : i + 1]
+            pair_emb = self.pair_proj(dist_row)
+
+        # breakpoint()
 
         for block in self.attn_blocks:
-            x = block(x, attn_temp=attn_temp, which_cache=which_cache)  # here we use kv caching, so no attn_mask
+            x = block(
+                x, cond=cond_emb, pair=pair_emb, mask=None, attn_mask=None, attn_temp=attn_temp, which_cache=which_cache
+            )  # here we use kv caching, so no attn_mask
 
         x = self.proj_out(x)
 
@@ -404,9 +329,13 @@ class TarFlow(torch.nn.Module):
         channels: int,
         num_blocks: int,
         layers_per_block: int,
+        head_dim: int = 64,
+        use_adapt_ln: bool = False,
+        use_attn_pair_bias: bool = False,
+        use_qkln: bool = False,
+        dropout: float = 0.0,
         cond_embed: ConditionalEmbedder | None = None,
         nvp: bool = True,
-        num_classes: int = 0,
         debug: bool = False,  # stops the weight initialization from being zero so tokens are not all the same
     ):
         assert num_blocks >= 2, "num_blocks must be at least 2 to cover both permutations"
@@ -434,9 +363,13 @@ class TarFlow(torch.nn.Module):
                     self.num_patches,
                     permutations[i % 4],
                     layers_per_block,
+                    head_dim=head_dim,
                     nvp=nvp,
+                    use_adapt_ln=use_adapt_ln,
+                    use_attn_pair_bias=use_attn_pair_bias,
+                    use_qkln=use_qkln,
+                    dropout=dropout,
                     conditional=self.conditional,
-                    num_classes=num_classes,
                     debug=debug,
                 )
             )
@@ -464,14 +397,14 @@ class TarFlow(torch.nn.Module):
 
         # patchify
         x = x.reshape(batch_size, -1, self.in_channels)
-
         if mask is not None:
+            assert mask.ndim == 2, "Mask should be 2D"
             assert torch.all(x.sum(dim=-1)[mask == 0] == 0), "x is not zero where mask is zero"
             assert torch.all(encoding["atom_type"][mask == 0] == 0), "atom_type is not zero where mask is zero"
             assert torch.all(encoding["aa_type"][mask == 0] == 0), "aa_type is not zero where mask is zero"
             assert torch.all(encoding["aa_pos"][mask == 0] == 0), "aa_pos is not zero where mask is zero"
 
-            mask = mask.view(x.shape[0], -1, 1)  # needs to be this shape for embedder
+            mask = mask.view(x.shape[0], -1)  # needs to be this shape for embedder
 
         cond = None
         if encoding is not None:
@@ -482,7 +415,11 @@ class TarFlow(torch.nn.Module):
 
             # (batch_size, seq_len, channels)
             cond = self.cond_embed(
-                atom_type=encoding["atom_type"], aa_type=encoding["aa_type"], aa_pos=encoding["aa_pos"]
+                atom_type=encoding["atom_type"],
+                aa_type=encoding["aa_type"],
+                aa_pos=encoding["aa_pos"],
+                seq_len=encoding["seq_len"],
+                mask=mask,
             )
 
         logdets = torch.zeros((), device=x.device)
@@ -526,7 +463,10 @@ class TarFlow(torch.nn.Module):
                 + " Set conditional attribute to True"
             )
             cond = self.cond_embed(
-                atom_type=encoding["atom_type"], aa_type=encoding["aa_type"], aa_pos=encoding["aa_pos"]
+                atom_type=encoding["atom_type"],
+                aa_type=encoding["aa_type"],
+                aa_pos=encoding["aa_pos"],
+                seq_len=encoding["seq_len"],
             )
 
         seq = [x.reshape(batch_size, -1)]
@@ -586,6 +526,7 @@ def test_invertibility(model, x, encoding, mask=None, num_pad_tokens=2, num_dime
             "atom_type": encoding["atom_type"][:, :-num_pad_tokens],
             "aa_type": encoding["aa_type"][:, :-num_pad_tokens],
             "aa_pos": encoding["aa_pos"][:, :-num_pad_tokens],
+            "seq_len": encoding["seq_len"],
         }
 
     x_recon = model.reverse(x_pred, encoding=encoding)
@@ -677,7 +618,7 @@ if __name__ == "__main__":
     torch.set_printoptions(sci_mode=True, precision=2)
     torch.manual_seed(1)
 
-    batch_size = 128
+    batch_size = 16
     img_size = 12
     in_channels = 3
     patch_size = 1
@@ -686,12 +627,12 @@ if __name__ == "__main__":
     layers_per_block = 1
 
     ### Dummy data
-
     x = torch.randn([batch_size, img_size])
     encoding = {
         "atom_type": torch.randint(high=2, size=(batch_size, img_size // in_channels)) + 1,
         "aa_type": torch.randint(high=2, size=(batch_size, img_size // in_channels)) + 1,
         "aa_pos": torch.randint(high=2, size=(batch_size, img_size // in_channels)) + 1,
+        "seq_len": torch.ones((batch_size, 1)) * 2,
     }
 
     ### Padded data with mask
@@ -710,6 +651,7 @@ if __name__ == "__main__":
         "aa_pos": torch.cat(
             [encoding["aa_pos"].clone(), torch.zeros([batch_size, pad_tokens], dtype=torch.long)], dim=1
         ),
+        "seq_len": encoding["seq_len"].clone(),
     }
     mask = torch.cat(
         [torch.ones([batch_size, img_size // in_channels], dtype=torch.float32), torch.zeros([batch_size, pad_tokens])],
@@ -718,47 +660,63 @@ if __name__ == "__main__":
 
     cond_embed = ConditionalEmbedder(channels=channels)
 
-    model_pad = TarFlow(
-        in_channels,
-        img_size + pad_dim,
-        patch_size,
-        channels,
-        num_blocks,
-        layers_per_block,
-        cond_embed=cond_embed,
-        debug=True,
-    )
-    model = TarFlow(
-        in_channels, img_size, patch_size, channels, num_blocks, layers_per_block, cond_embed=cond_embed, debug=True
-    )
-    model = load_padded_model_weights(model_pad, model)
+    for use_adapt_ln in [False, True]:
+        for use_attn_pair_bias in [False, True]:
+            print(f"Testing with use_adapt_ln={use_adapt_ln} and use_attn_pair_bias={use_attn_pair_bias}")
+            model_pad = TarFlow(
+                in_channels,
+                img_size + pad_dim,
+                patch_size,
+                channels,
+                num_blocks,
+                layers_per_block,
+                cond_embed=cond_embed,
+                use_adapt_ln=use_adapt_ln,
+                use_attn_pair_bias=use_attn_pair_bias,
+                debug=True,
+            )
+            model = TarFlow(
+                in_channels,
+                img_size,
+                patch_size,
+                channels,
+                num_blocks,
+                layers_per_block,
+                cond_embed=cond_embed,
+                use_adapt_ln=use_adapt_ln,
+                use_attn_pair_bias=use_attn_pair_bias,
+                debug=True,
+            )
+            model = load_padded_model_weights(model_pad, model)
 
-    print("\nstandard")
-    test_invertibility(model, x, encoding)  # test invertibility of the original model
+            print("\nstandard")
+            test_invertibility(model, x, encoding)  # test invertibility of the original model
 
-    print("\npad + mask")
-    test_mask_model(model, x, encoding, model_pad, x_pad, encoding_pad, mask)  # test forward of the padded model
-    test_invertibility(model_pad, x_pad, encoding_pad, mask)  # test invertibility of the padded model
+            print("\npad + mask")
+            test_mask_model(
+                model, x, encoding, model_pad, x_pad, encoding_pad, mask
+            )  # test forward of the padded model
+            test_invertibility(model_pad, x_pad, encoding_pad, mask)  # test invertibility of the padded model
 
-    print("\npad model with non-pad data")
-    test_mask_model_no_pad(model, x, encoding, model_pad)  # test forward of the padded model
-    test_invertibility(model_pad, x, encoding)  # test invertibility of the padded model with non-padded data
+            print("\npad model with non-pad data")
+            test_mask_model_no_pad(model, x, encoding, model_pad)  # test forward of the padded model
+            test_invertibility(model_pad, x, encoding)  # test invertibility of the padded model with non-padded data
 
-    for i in range(batch_size - 1):
-        print("\nbatch item", i)
+            for i in range(batch_size - 1):
+                print("\nbatch item", i)
 
-        x_i = x[i : i + 1]
-        enc_i = {k: v[i : i + 1] for k, v in encoding.items()}
+                x_i = x[i : i + 1]
+                enc_i = {k: v[i : i + 1] for k, v in encoding.items()}
 
-        x_pad_i = x_pad[i : i + 1]
-        enc_pad_i = {k: v[i : i + 1] for k, v in encoding_pad.items()}
-        mask_i = mask[i : i + 1]
+                x_pad_i = x_pad[i : i + 1]
+                enc_pad_i = {k: v[i : i + 1] for k, v in encoding_pad.items()}
+                mask_i = mask[i : i + 1]
 
-        print("\nstandard")
-        test_logdet(model, x_i, enc_i)  # test logdet of the original model
+                print("\nstandard")
+                test_logdet(model, x_i, enc_i)  # test logdet of the original model
 
-        print("\npad + mask")
-        test_logdet_mask(model, model_pad, x_i, enc_i, enc_pad_i, mask_i)  # test logdet of the padded model
+                print("\npad + mask")
+                test_logdet_mask(model, model_pad, x_i, enc_i, enc_pad_i, mask_i)  # test logdet of the padded model
 
-        print("\npad model with non-pad data")
-        test_logdet(model_pad, x_i, enc_i)  # test logdet of the padded model with non-padded data
+                print("\npad model with non-pad data")
+                test_logdet(model_pad, x_i, enc_i)  # test logdet of the padded model with non-padded data
