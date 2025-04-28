@@ -428,16 +428,15 @@ def test_invertibility(model, x, encoding, mask=None, num_pad_tokens=4, num_dime
     # print("x_pred", x_pred[0])
 
     if mask is not None:
-        x = x[:, : num_pad_tokens * num_dimensions]
-        x_pred = x_pred[:, : num_pad_tokens * num_dimensions]
+        x = x[:, : -num_pad_tokens * num_dimensions]
+        x_pred = x_pred[:, : -num_pad_tokens * num_dimensions]
 
         encoding = {
-            "atom_type": encoding["atom_type"][:, :num_pad_tokens],
-            "aa_type": encoding["aa_type"][:, :num_pad_tokens],
-            "aa_pos": encoding["aa_pos"][:, :num_pad_tokens],
+            "atom_type": encoding["atom_type"][:, :-num_pad_tokens],
+            "aa_type": encoding["aa_type"][:, :-num_pad_tokens],
+            "aa_pos": encoding["aa_pos"][:, :-num_pad_tokens],
             "seq_len": encoding["seq_len"],
         }
-
     x_recon = model.reverse(x_pred, encoding=encoding)
 
     # print((x - x_recon).reshape(x.shape[0], -1, num_dimensions).mean(dim=0))
@@ -528,7 +527,7 @@ if __name__ == "__main__":
     torch.set_printoptions(sci_mode=True, precision=2)
     torch.manual_seed(1)
 
-    batch_size = 128
+    batch_size = 16
     img_size = 12
     in_channels = 3
     patch_size = 1
@@ -599,32 +598,42 @@ if __name__ == "__main__":
             )
             model = load_padded_model_weights(model_pad, model)
 
-    print("\nstandard")
-    test_invertibility(model, x, encoding)  # test invertibility of the original model
+            print("\nstandard")
+            test_invertibility(
+                model, x, encoding, num_pad_tokens=pad_tokens
+            )  # test invertibility of the original model
 
-    print("\npad + mask")
-    test_mask_model(model, x, encoding, model_pad, x_pad, encoding_pad, mask)  # test forward of the padded model
-    test_invertibility(model_pad, x_pad, encoding_pad, mask)  # test invertibility of the padded model
+            print("\npad + mask")
+            test_mask_model(
+                model, x, encoding, model_pad, x_pad, encoding_pad, mask
+            )  # test forward of the padded model
+            test_invertibility(
+                model_pad, x_pad, encoding_pad, mask, num_pad_tokens=pad_tokens
+            )  # test invertibility of the padded model
 
-    print("\npad model with non-pad data")
-    test_mask_model_no_pad(model, x, encoding, model_pad)  # test forward of the padded model
-    test_invertibility(model_pad, x, encoding)  # test invertibility of the padded model with non-padded data
+            print("\npad model with non-pad data")
+            test_mask_model_no_pad(model, x, encoding, model_pad)  # test forward of the padded model
+            test_invertibility(
+                model_pad, x, encoding, num_pad_tokens=pad_tokens
+            )  # test invertibility of the padded model with non-padded data
 
-    for i in range(batch_size - 1):
-        print("\nbatch item", i)
+            for i in range(batch_size - 1):
+                print("\nbatch item", i)
 
-        x_i = x[i : i + 1]
-        enc_i = {k: v[i : i + 1] for k, v in encoding.items()}
+                x_i = x[i : i + 1]
+                enc_i = {k: v[i : i + 1] for k, v in encoding.items()}
 
-        x_pad_i = x_pad[i : i + 1]
-        enc_pad_i = {k: v[i : i + 1] for k, v in encoding_pad.items()}
-        mask_i = mask[i : i + 1]
+                x_pad_i = x_pad[i : i + 1]
+                enc_pad_i = {k: v[i : i + 1] for k, v in encoding_pad.items()}
+                mask_i = mask[i : i + 1]
 
-        print("\nstandard")
-        test_logdet(model, x_i, enc_i)  # test logdet of the original model
+                print("\nstandard")
+                test_logdet(model, x_i, enc_i)  # test logdet of the original model
 
-        print("\npad + mask")
-        test_logdet_mask(model, model_pad, x_i, enc_i, enc_pad_i, mask_i)  # test logdet of the padded model
+                print("\npad + mask")
+                test_logdet_mask(
+                    model, model_pad, x_i, enc_i, enc_pad_i, mask_i, num_pad_tokens=pad_tokens
+                )  # test logdet of the padded model
 
-        print("\npad model with non-pad data")
-        test_logdet(model_pad, x_i, enc_i)  # test logdet of the padded model with non-padded data
+                print("\npad model with non-pad data")
+                test_logdet(model_pad, x_i, enc_i)  # test logdet of the padded model with non-padded data
