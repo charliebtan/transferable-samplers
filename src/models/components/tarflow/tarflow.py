@@ -332,6 +332,7 @@ class TarFlow(torch.nn.Module):
         use_attn_pair_bias: bool = False,
         use_qkln: bool = False,
         dropout: float = 0.0,
+        use_rand_perm: bool = False,
         cond_embed: ConditionalEmbedder | None = None,
         nvp: bool = True,
         debug: bool = False,  # stops the weight initialization from being zero so tokens are not all the same
@@ -341,12 +342,10 @@ class TarFlow(torch.nn.Module):
         self.img_size = img_size
         self.patch_size = patch_size
         self.num_patches = img_size // patch_size // in_channels
-        permutations = [
-            PermutationIdentity(),
-            PermutationFlip(),
-            PermutationRandom(),
-            PermutationRandomFlip(),
-        ]
+        permutations = [PermutationIdentity(), PermutationFlip()]
+
+        if use_rand_perm:
+            permutations += [PermutationRandom(), PermutationRandomFlip()]
 
         self.conditional = False if cond_embed is None else True
         self.cond_embed = cond_embed
@@ -423,10 +422,10 @@ class TarFlow(torch.nn.Module):
         logdets = torch.zeros((), device=x.device)
         perm = None
         for block in self.blocks:
-            if mask is not None:
-                perm = torch.tensor([3, 1, 2, 0, 4, 5])[None, ...].repeat(x.shape[0], 1)
-            else:
-                perm = torch.tensor([3, 1, 2, 0])[None, ...].repeat(x.shape[0], 1)
+            # if mask is not None:
+            #     perm = torch.tensor([3, 1, 2, 0, 4, 5])[None, ...].repeat(x.shape[0], 1)
+            # else:
+            #     perm = torch.tensor([3, 1, 2, 0])[None, ...].repeat(x.shape[0], 1)
 
             x, logdet, perm = block(x, cond, mask, perm=perm)
             logdets = logdets + logdet
@@ -471,7 +470,7 @@ class TarFlow(torch.nn.Module):
         x = x * self.var.sqrt()[: x.shape[1]]
         perm = None
         for block in reversed(self.blocks):
-            perm = torch.tensor([3, 1, 2, 0])[None, ...].repeat(x.shape[0], 1)
+            # perm = torch.tensor([3, 1, 2, 0])[None, ...].repeat(x.shape[0], 1)
             x, perm = block.reverse(x, cond, perm=perm)
             seq.append(x.reshape(batch_size, -1))
 
