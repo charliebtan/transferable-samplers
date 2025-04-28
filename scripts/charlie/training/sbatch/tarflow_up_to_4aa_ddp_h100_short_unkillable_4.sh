@@ -20,7 +20,7 @@ conda activate tbg3
 srun python -u src/train.py \
 experiment=training/tarflow_up_to_4aa logger=wandb \
 trainer=ddp \
-data.batch_size=1024 \
+data.batch_size=512 \
 tags=[up_to_4aa,ddp] \
 hydra.run.dir='${paths.log_dir}/${task_name}/runs/'${RUN_NAME} \
 ckpt_path='${paths.log_dir}/${task_name}/runs/'${RUN_NAME}/checkpoints/last.ckpt \

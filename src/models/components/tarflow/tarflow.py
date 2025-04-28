@@ -246,8 +246,8 @@ class MetaBlock(torch.nn.Module):
         attn_temp: float = 1.0,
         which_cache: str = "cond",
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        x_in = x[:, i : i + 1]  # get i-th patch but keep the sequence dimension
-        x = self.proj_in(x_in) + pos_embed[:, i : i + 1]
+        x_in = x.clone()
+        x = self.proj_in(x_in[:, i : i + 1]) + pos_embed[:, i : i + 1]
 
         if cond is not None:
             cond_in = cond[:, i : i + 1]
@@ -259,8 +259,6 @@ class MetaBlock(torch.nn.Module):
             dist_matrix = torch.cdist(x_in[:, : i + 1], x_in[:, : i + 1])[..., None]
             dist_row = dist_matrix[:, i : i + 1]
             pair_emb = self.pair_proj(dist_row)
-
-        # breakpoint()
 
         for block in self.attn_blocks:
             x = block(
@@ -528,7 +526,6 @@ def test_invertibility(model, x, encoding, mask=None, num_pad_tokens=2, num_dime
             "aa_pos": encoding["aa_pos"][:, :-num_pad_tokens],
             "seq_len": encoding["seq_len"],
         }
-
     x_recon = model.reverse(x_pred, encoding=encoding)
 
     # print((x - x_recon).reshape(x.shape[0], -1, num_dimensions).mean(dim=0))
@@ -690,17 +687,23 @@ if __name__ == "__main__":
             model = load_padded_model_weights(model_pad, model)
 
             print("\nstandard")
-            test_invertibility(model, x, encoding)  # test invertibility of the original model
+            test_invertibility(
+                model, x, encoding, num_pad_tokens=pad_tokens
+            )  # test invertibility of the original model
 
             print("\npad + mask")
             test_mask_model(
                 model, x, encoding, model_pad, x_pad, encoding_pad, mask
             )  # test forward of the padded model
-            test_invertibility(model_pad, x_pad, encoding_pad, mask)  # test invertibility of the padded model
+            test_invertibility(
+                model_pad, x_pad, encoding_pad, mask, num_pad_tokens=pad_tokens
+            )  # test invertibility of the padded model
 
             print("\npad model with non-pad data")
             test_mask_model_no_pad(model, x, encoding, model_pad)  # test forward of the padded model
-            test_invertibility(model_pad, x, encoding)  # test invertibility of the padded model with non-padded data
+            test_invertibility(
+                model_pad, x, encoding, num_pad_tokens=pad_tokens
+            )  # test invertibility of the padded model with non-padded data
 
             for i in range(batch_size - 1):
                 print("\nbatch item", i)
@@ -716,7 +719,9 @@ if __name__ == "__main__":
                 test_logdet(model, x_i, enc_i)  # test logdet of the original model
 
                 print("\npad + mask")
-                test_logdet_mask(model, model_pad, x_i, enc_i, enc_pad_i, mask_i)  # test logdet of the padded model
+                test_logdet_mask(
+                    model, model_pad, x_i, enc_i, enc_pad_i, mask_i, num_pad_tokens=pad_tokens
+                )  # test logdet of the padded model
 
                 print("\npad model with non-pad data")
                 test_logdet(model_pad, x_i, enc_i)  # test logdet of the padded model with non-padded data
