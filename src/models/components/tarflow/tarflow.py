@@ -51,6 +51,7 @@ class MetaBlock(torch.nn.Module):
         conditional: bool = False,
         use_adapt_ln: bool = False,
         use_attn_pair_bias: bool = False,
+        pair_bias_hidden_dim: int = 16,
         use_qkln: bool = False,
         dropout: float = 0.0,
         debug: bool = False,
@@ -62,7 +63,16 @@ class MetaBlock(torch.nn.Module):
             self.proj_cond = torch.nn.Linear(channels, channels)
 
         if use_attn_pair_bias:
-            self.pair_proj = torch.nn.Linear(1, channels)
+            num_heads = channels // head_dim
+            # only a single projection for each block - we don't update cdists within the block
+            # so i think this makes sense to just project once - you could learn a different projection for each layer
+            # but i don't think this will be worthwhile
+            self.pair_proj = torch.nn.Sequential(
+                torch.nn.Linear(1, pair_bias_hidden_dim),
+                torch.nn.GELU(),
+                torch.nn.LayerNorm(pair_bias_hidden_dim),
+                torch.nn.Linear(pair_bias_hidden_dim, num_heads, bias=False),  # softmax is invariant to bias
+            )
 
         self.use_attn_pair_bias = use_attn_pair_bias
         self.pos_embed = torch.nn.Parameter(torch.randn(num_patches, channels) * 1e-2)
@@ -113,8 +123,9 @@ class MetaBlock(torch.nn.Module):
 
         pair_emb = None
         if self.use_attn_pair_bias:
-            # pairwise distance matrix
-            dist_matrix = torch.cdist(x_in, x_in)[..., None]
+            with torch.no_grad():  # don't want to backprop through this
+                # pairwise distance matrix
+                dist_matrix = torch.cdist(x_in, x_in)[..., None]
             pair_emb = self.pair_proj(dist_matrix)
 
         attn_mask = self.attn_mask
@@ -183,8 +194,9 @@ class MetaBlock(torch.nn.Module):
         pair_emb = None
         if self.use_attn_pair_bias:
             # pairwise distance row
-            dist_matrix = torch.cdist(x_in[:, : i + 1], x_in[:, : i + 1])[..., None]
-            dist_row = dist_matrix[:, i : i + 1]
+            with torch.no_grad():  # don't want to backprop through this
+                dist_matrix = torch.cdist(x_in[:, : i + 1], x_in[:, : i + 1])[..., None]
+                dist_row = dist_matrix[:, i : i + 1]
             pair_emb = self.pair_proj(dist_row)
 
         for block in self.attn_blocks:
@@ -251,6 +263,7 @@ class TarFlow(torch.nn.Module):
         head_dim: int = 64,
         use_adapt_ln: bool = False,
         use_attn_pair_bias: bool = False,
+        pair_bias_hidden_dim: int = 16,
         use_qkln: bool = False,
         dropout: float = 0.0,
         cond_embed: ConditionalEmbedder | None = None,
@@ -284,6 +297,7 @@ class TarFlow(torch.nn.Module):
                     nvp=nvp,
                     use_adapt_ln=use_adapt_ln,
                     use_attn_pair_bias=use_attn_pair_bias,
+                    pair_bias_hidden_dim=pair_bias_hidden_dim,
                     use_qkln=use_qkln,
                     dropout=dropout,
                     conditional=self.conditional,
