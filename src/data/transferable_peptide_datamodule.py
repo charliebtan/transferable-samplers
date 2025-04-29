@@ -9,10 +9,11 @@ import torch
 import torchvision
 
 from src.data.base_datamodule import BaseDataModule
+from src.data.components.buffer import ReplayBuffer
 from src.data.components.data_types import SamplesData
 from src.data.components.encoding import get_encoding_dict
 from src.data.components.openmm import OpenMMBridge, OpenMMEnergy
-from src.data.components.peptide_dataset import PeptideDataset
+from src.data.components.peptide_dataset import PeptideDataset, PeptideDatasetFromBuffer
 from src.data.components.prepare_data import (
     build_lmdb,
     check_and_get_files,
@@ -47,11 +48,12 @@ class TransferablePeptideDataModule(BaseDataModule):
         test_lmdb_prefix: str,
         num_aa_max: int,
         num_aa_min: int,
-        num_dimensions: int,
         num_particles: int,
+        num_dimensions: int,
         dim: int,  # dim of largest system
         com_augmentation: bool = False,
         atom_noise_augmentation_factor: float = 0.0,
+        buffer: ReplayBuffer = None,
         # TODO maybe make this all just *args?
         batch_size: int = 64,
         num_workers: int = 0,
@@ -77,6 +79,7 @@ class TransferablePeptideDataModule(BaseDataModule):
         self.tica_models_path = f"{data_dir}/tica_models"
 
         self.num_aa_range = list(range(num_aa_min, num_aa_max + 1))
+        self.buffer = buffer
 
     def prepare_data(self) -> None:
         """Download data if needed. Lightning ensures that `self.prepare_data()` is called only
@@ -329,6 +332,11 @@ class TransferablePeptideDataModule(BaseDataModule):
             num_dimensions=self.hparams.num_dimensions,
             transform=transforms,
         )
+
+        if self.buffer is not None:
+            self.data_buffer = PeptideDatasetFromBuffer(
+                self.buffer, num_dimensions=self.hparams.num_dimensions, transform=transforms
+            )
 
         self.data_val = PeptideDataset(
             self.val_lmdb_path,

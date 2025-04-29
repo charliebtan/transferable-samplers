@@ -73,3 +73,37 @@ class PeptideDataset(torch.utils.data.Dataset):
                 x = self._load_lmdb_entry(txn, idx)["x"]
                 xs.append(torch.tensor(x))
         return torch.stack(xs)
+
+
+class PeptideDatasetFromBuffer(torch.utils.data.Dataset):
+    def __init__(self, buffer, num_dimensions: int, transform=None):
+        self.buffer = buffer
+        self.transform = transform
+        self.num_dimensions = num_dimensions
+
+    def __len__(self):
+        return len(self.buffer)
+
+    def __getitem__(self, idx):
+        # Sample the length of the idx
+        # since the input idx will not correspond to
+        # the internal idx
+        batch_size = 1
+        if not isinstance(idx, int):
+            batch_size = len(idx)
+
+        x, _ = self.buffer.sample(batch_size)
+        sample = {"x": x}
+        if self.transform is not None:
+            x = x.view(-1, self.num_dimensions)
+            sample = self.transform(
+                {
+                    **sample,
+                    "x": x,
+                }
+            )
+            sample["x"] = sample["x"].view(-1)
+        return sample
+
+    def add(self, x):
+        self.buffer.add(x)
