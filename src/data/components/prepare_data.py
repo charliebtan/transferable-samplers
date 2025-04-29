@@ -10,6 +10,7 @@ import openmm.app
 import torch
 from tqdm import tqdm
 
+from src.evaluation.metrics.tica import run_tica
 from src.evaluation.plots.plot_atom_distances import interatomic_dist  # TODO move this
 
 
@@ -214,6 +215,25 @@ def build_lmdb(
         txns[i].put(b"__meta__", pickle.dumps(metadata))  # store metadata
         txns[i].put(b"__len__", pickle.dumps(global_idx))  # store number of samples
         txns[i].commit()
+
+
+def _prepare_single_tica(seq_name, npz_path, pdb_path):
+    logging.info(f"Loading {seq_name} for TICA")
+    samples = np.load(npz_path, allow_pickle=False)
+    topology = md.load_topology(pdb_path)
+    traj_samples = md.Trajectory(samples["positions"], topology=topology)
+    tica_model = run_tica(traj_samples, lagtime=100, dim=2)
+    return tica_model
+
+
+def prepare_tica_models(npz_paths, pdb_paths, dir):
+    for seq_name in tqdm(npz_paths.keys()):
+        npz_path = npz_paths[seq_name]
+        pdb_path = pdb_paths[seq_name]
+        tica_model = _prepare_single_tica(seq_name, npz_path, pdb_path)
+        os.makedirs(dir, exist_ok=True)
+        with open(f"{dir}/{seq_name}-tica.pkl", "wb") as f:
+            pickle.dump(tica_model, f, protocol=pickle.HIGHEST_PROTOCOL)
 
 
 def load_lmdb_metadata(lmdb_path: str, key: bytes = b"__meta__") -> dict:

@@ -1,3 +1,5 @@
+import pickle
+
 import deeptime as dt
 import mdtraj as md
 import numpy as np
@@ -48,9 +50,10 @@ def run_tica(trajectory, lagtime=100, dim=2):
     return tica_model
 
 
-def tica_metric(true_samples, pred_samples, topology, lagtime, prefix=""):
+def tica_metric(true_samples, pred_samples, topology, tica_model_path, prefix=""):
+    with open(tica_model_path, "rb") as f:
+        tica_model = pickle.load(f)  # noqa: S301
     true_traj_samples = md.Trajectory(true_samples.cpu().numpy(), topology=topology)
-    tica_model = run_tica(true_traj_samples, lagtime=lagtime)
     pred_traj_samples = md.Trajectory(pred_samples.cpu().numpy(), topology=topology)
     features_test = tica_features(true_traj_samples)
     features = tica_features(pred_traj_samples)
