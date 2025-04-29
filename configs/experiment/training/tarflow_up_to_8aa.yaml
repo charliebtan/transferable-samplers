@@ -11,6 +11,9 @@ model:
     channels: 512
     num_blocks: 8
     layers_per_block: 8
+    use_rand_perm: false
+    use_rand_only: false
+    use_backbone_perm: false
     cond_embed:
       _target_: src.models.components.tarflow.embed.ConditionalEmbedder
       channels: ${model.net.channels}
