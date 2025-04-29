@@ -59,6 +59,7 @@ class TransferablePeptideDataModule(BaseDataModule):
         num_eval_samples: int = 10_000,
         num_val_sequences: int = 20,
         resume_build_lmdb: bool = False,
+        do_plots: bool = True,
     ):
         super().__init__(batch_size=batch_size, num_workers=num_workers, pin_memory=pin_memory)
 
@@ -415,7 +416,6 @@ class TransferablePeptideDataModule(BaseDataModule):
         proposal_data: SamplesData,
         resampled_data: SamplesData,
         smc_data: Optional[SamplesData] = None,
-        do_plots: bool = True,
         prefix: str = "",
     ) -> None:
         """Log metrics and plots at the end of an epoch."""
@@ -425,7 +425,7 @@ class TransferablePeptideDataModule(BaseDataModule):
 
         metrics = {}
 
-        if do_plots:
+        if self.hparams.do_plots:
             plot_ramachandran(
                 log_image_fn,
                 true_data.samples,
@@ -478,7 +478,7 @@ class TransferablePeptideDataModule(BaseDataModule):
                         compute_distribution_distances=False,
                     )
                 )
-                if do_plots:
+                if self.hparams.do_plots:
                     plot_ramachandran(log_image_fn, data.samples, self.topology_dict[sequence], prefix=prefix + name)
                     plot_tica(
                         log_image_fn,
@@ -488,7 +488,7 @@ class TransferablePeptideDataModule(BaseDataModule):
                         prefix=prefix + name,
                     )
 
-        if do_plots:
+        if self.hparams.do_plots:
             plot_energies(
                 log_image_fn,
                 true_data.energy,
