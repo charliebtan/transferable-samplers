@@ -1,3 +1,4 @@
+import logging
 import pickle
 
 import matplotlib
@@ -23,6 +24,7 @@ def plot_tic01(ax, tics, tics_lims, cmap="viridis"):
 
 
 def plot_tica(log_image_fn, samples, topology, tica_model_path, prefix=""):
+    logging.info(f"Plotting TICA for {prefix}")
     with open(tica_model_path, "rb") as f:
         tica_model = pickle.load(f)  # noqa: S301
     pred_traj_samples = md.Trajectory(samples.cpu().numpy(), topology=topology)
@@ -31,4 +33,4 @@ def plot_tica(log_image_fn, samples, topology, tica_model_path, prefix=""):
     fig, ax = plt.subplots()
     ax = plot_tic01(ax, tics, tics_lims=tics)
     log_image_fn(fig, f"{prefix}/tica/plot")
-    return fig
+    plt.close()

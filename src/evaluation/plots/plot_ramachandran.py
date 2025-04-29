@@ -1,3 +1,5 @@
+import logging
+
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
@@ -10,12 +12,12 @@ matplotlib.rcParams["font.family"] = "STIXGeneral"
 
 
 def plot_ramachandran(log_image_fn, samples, topology, prefix: str = ""):
+    logging.info(f"Plotting Ramachandran for {prefix}")
     prefix += "/rama"
 
     phis, psis = get_phi_psi_vectors(samples, topology)
 
     for i in range(phis.shape[1]):
-        print(f"Plotting Ramachandran {i} out of {phis.shape[1]}")
         phi_tmp = phis[:, i]
         psi_tmp = psis[:, i]
         fig, ax = plt.subplots()
@@ -71,3 +73,4 @@ def plot_ramachandran(log_image_fn, samples, topology, prefix: str = ""):
         im.set_clim(vmax=samples.shape[0] // 20)
         cbar.ax.set_ylabel(f"Count, max = {int(h.max())}", fontsize=18)
         log_image_fn(fig, f"{prefix}/ramachandran_simple/{i}")
+        plt.close()

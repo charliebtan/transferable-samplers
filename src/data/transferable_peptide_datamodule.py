@@ -428,8 +428,15 @@ class TransferablePeptideDataModule(BaseDataModule):
         if do_plots:
             plot_ramachandran(
                 log_image_fn,
-                true_data.samples[: self.hparams.num_eval_samples],
+                true_data.samples,
                 self.topology_dict[sequence],
+                prefix=prefix + "true",
+            )
+            plot_tica(
+                log_image_fn,
+                true_data.samples,
+                self.topology_dict[sequence],
+                self.tica_model_paths[sequence],
                 prefix=prefix + "true",
             )
 
@@ -444,7 +451,7 @@ class TransferablePeptideDataModule(BaseDataModule):
             if len(data) == 0:
                 logging.warning(f"No {name} samples present.")
 
-            logging.info(f"Evaluating {name} data")
+            logging.info(f"Evaluating {prefix + name} samples")
 
             data = data[: self.hparams.num_eval_samples * 2]  # slice out extra samples for those lost to symmetry
 
@@ -482,7 +489,6 @@ class TransferablePeptideDataModule(BaseDataModule):
                     )
 
         if do_plots:
-            logging.info("Plotting energies")
             plot_energies(
                 log_image_fn,
                 true_data.energy,
@@ -491,8 +497,6 @@ class TransferablePeptideDataModule(BaseDataModule):
                 smc_data.energy if (smc_data is not None and len(smc_data) > 0) else None,
                 prefix=prefix,
             )
-
-            logging.info("Plotting interatomic distances")
             plot_atom_distances(
                 log_image_fn,
                 true_data.samples,
@@ -501,8 +505,6 @@ class TransferablePeptideDataModule(BaseDataModule):
                 smc_data.samples if (smc_data is not None and len(smc_data) > 0) else None,
                 prefix=prefix,
             )
-
-            logging.info("Plotting CoM norms")
             plot_com_norms(
                 log_image_fn,
                 proposal_data.samples if len(proposal_data) > 0 else None,

@@ -122,3 +122,4 @@ def plot_energies(
     fig.canvas.draw()
 
     log_image_fn(fig, f"{prefix}energies")
+    plt.close()

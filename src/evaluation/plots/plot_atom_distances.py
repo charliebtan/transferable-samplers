@@ -1,3 +1,5 @@
+import logging
+
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
@@ -37,6 +39,7 @@ def plot_atom_distances(
     prefix="",
     wandb_logger: WandbLogger = None,
 ):
+    logging.info(f"Plotting interatomic distances for {prefix}")
     true_samples_dist = interatomic_dist(true_samples).cpu()
     min_dist = true_samples_dist.min()
     max_dist = true_samples_dist.max()
@@ -114,3 +117,4 @@ def plot_atom_distances(
     fig.canvas.draw()
 
     log_image_fn(fig, f"{prefix}/interatomic_distances")
+    plt.close()
