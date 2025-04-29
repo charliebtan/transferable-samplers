@@ -295,13 +295,13 @@ class TarFlow(torch.nn.Module):
         self.num_patches = img_size // patch_size // in_channels
         permutations = [PermutationIdentity(), PermutationFlip()]
 
+        if use_backbone_perm:
+            permutations = [PermutationBackBone(), PermutationIdentity(), PermutationFlip(), PermutationBackBoneFlip()]
+
         if use_rand_perm:
             permutations += [PermutationRandom(), PermutationRandomFlip()]
             if use_rand_only:
                 permutations = [PermutationRandom(), PermutationRandomFlip()]
-
-        if use_backbone_perm:
-            permutations += [PermutationBackBone(), PermutationBackBoneFlip()]
 
         self.conditional = False if cond_embed is None else True
         self.cond_embed = cond_embed
