@@ -9,6 +9,8 @@ matplotlib.rcParams["font.family"] = "STIXGeneral"
 
 
 def interatomic_dist(x, flatten=True):
+    assert len(x.shape) == 3, f"Expected 3D array, got {x.shape}"
+
     num_particles = x.shape[1]
 
     # Compute the pairwise interatomic distances
@@ -99,7 +101,7 @@ def plot_atom_distances(
             histtype="step",
             linewidth=3,
             color="orange",
-            label="SBG",
+            label="SMC",
         )
 
     if ylim is not None:

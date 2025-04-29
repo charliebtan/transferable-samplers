@@ -106,7 +106,7 @@ AA_CODE_CONVERSION = {
 }
 
 
-def get_atom_encoding(topology):
+def get_encoding(topology):
     aa_pos_encoding = []
     aa_type_encoding = []
     atom_type_encoding = []
@@ -116,11 +116,13 @@ def get_atom_encoding(topology):
             aa_pos_encoding.append(i + 1)  # shifted to account for pad tokens
             aa_type_encoding.append(AA_TYPE_ENCODING_DICT[aa.name])
 
+            atom_name = atom.name
+
             # TODO double check this with Leon
             # Standarize side-chain H atom encoding
-            if atom.name[0] == "H" and atom.name[-1] in ("1", "2", "3"):
+            if atom_name[0] == "H" and atom_name[-1] in ("1", "2", "3"):
                 # For these AA the H-X-N atoms are not interchangable
-                if aa.name in ("HIS", "PHE", "TRP", "TYR") and atom.name[:2] in (
+                if aa.name in ("HIS", "PHE", "TRP", "TYR") and atom_name[:2] in (
                     "HE",
                     "HD",
                     "HZ",
@@ -128,23 +130,30 @@ def get_atom_encoding(topology):
                 ):
                     pass
                 else:
-                    atom.name = atom.name[:-1]
+                    atom_name = atom_name[:-1]
 
             # Standarize side-chain O atom encoding
-            if atom.name[:2] == "OE" or atom.name[:2] == "OD":
-                atom.name = atom.name[:-1]
+            if atom_name[:2] == "OE" or atom_name[:2] == "OD":
+                atom_name = atom_name[:-1]
 
-            atom_type_encoding.append(ATOM_TYPE_ENCODING_DICT[atom.name])
+            atom_type_encoding.append(ATOM_TYPE_ENCODING_DICT[atom_name])
 
     atom_type_encoding = torch.tensor(atom_type_encoding, dtype=torch.int64)
     aa_pos_encoding = torch.tensor(aa_pos_encoding, dtype=torch.int64)
     aa_type_encoding = torch.tensor(aa_type_encoding, dtype=torch.int64)
 
-    encodings = {
+    encoding = {
         "atom_type": atom_type_encoding,
         "aa_pos": aa_pos_encoding,
         "aa_type": aa_type_encoding,
         "seq_len": torch.tensor([topology.n_residues], dtype=torch.int64),
     }
 
-    return encodings
+    return encoding
+
+
+def get_encoding_dict(topology_dict):
+    encoding_dict = {}
+    for seq_name, topology in topology_dict.items():
+        encoding_dict[seq_name] = get_encoding(topology)
+    return encoding_dict

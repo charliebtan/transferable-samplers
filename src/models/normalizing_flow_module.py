@@ -32,18 +32,14 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
         batch: torch.Tensor,
     ) -> torch.Tensor:
         x1 = batch["x"]
-        encodings = batch["encoding"]
+        encoding = batch["encoding"]
         mask = batch.get("mask", None)
 
-        x0, dlogp = self.net(x1, encodings=encodings, mask=mask)
+        x0, dlogp = self.net(x1, encoding=encoding, mask=mask)
         loss = self.prior.energy(x0, mask=mask).mean() - dlogp.mean()
 
         if self.hparams.energy_kl_weight:
             raise NotImplementedError()
-            samples, log_p, _ = self.generate_samples(x1.shape[0])
-            energy_loss = self.energy_kl(samples, log_p).mean()
-            loss = loss + self.hparams.energy_kl_weight * energy_loss
-            self.log("Energy Loss", energy_loss.item(), prog_bar=True, sync_dist=True)
 
         return loss
 
@@ -63,10 +59,15 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
         return com_energy
 
     def proposal_energy(self, x: torch.Tensor, encoding: dict[str, torch.Tensor]) -> torch.Tensor:
-        x_pred, fwd_logdets = self.net(x, encoding=encoding)
-        fwd_logdets = fwd_logdets * self.datamodule.hparams.dim  # rescale from mean to sum
+        data_dim = x.shape[1]  # is the product num_particles * num_dimensions
 
-        energy = -(-self.prior.energy(x_pred).view(-1) + fwd_logdets.view(-1))
+        # TODO need to figure out x_pred / recon names - maybe use z going forwards
+        x_pred, fwd_logdets = self.net(x, encoding=encoding)
+
+        fwd_logdets = fwd_logdets.view(-1) * data_dim  # rescale from mean to sum
+        prior_energy = self.prior.energy(x_pred).view(-1) * data_dim  # rescale from mean to sum
+
+        energy = prior_energy - fwd_logdets
 
         if self.hparams.sampling_config.use_com_adjustment:
             com_energy = self.com_energy_adjustment(x)
@@ -74,17 +75,10 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
 
         return energy
 
-    def energy_kl(self, x: torch.Tensor, model_log_p: torch.Tensor) -> torch.Tensor:
-        sample_target_energy = self.datamodule.energy(x)
-
-        # Energy is -1* log_p
-        energy_kl = sample_target_energy + model_log_p
-        return energy_kl
-
     def generate_samples(
         self,
         batch_size: int,
-        encodings: Optional[dict[str, torch.Tensor]] = None,
+        encoding: Optional[dict[str, torch.Tensor]] = None,
         n_timesteps: int = None,
         dummy_ll=False,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -97,22 +91,24 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
             probability.
         """
 
-        num_particles = encodings["atom_type"].size(0)
+        num_particles = encoding["atom_type"].size(0)
+        data_dim = num_particles * self.datamodule.hparams.num_dimensions
 
         local_batch_size = batch_size // self.trainer.world_size
         prior_samples = self.prior.sample(local_batch_size, num_particles).to(self.device)
-        # for MF this is actually not log_p as missing - log(Z) - doesn't matter for bias
-        prior_log_p = -self.prior.energy(prior_samples)
-        if encodings is not None:
-            encodings = {
-                key: tensor.unsqueeze(0).repeat(local_batch_size, 1).to(self.device)
-                for key, tensor in encodings.items()
+
+        # need to rescale to the "sum" of the log p (the prior returns the position-wise mean)
+        prior_log_p = -self.prior.energy(prior_samples) * data_dim
+
+        if encoding is not None:
+            encoding = {
+                key: tensor.unsqueeze(0).repeat(local_batch_size, 1).to(self.device) for key, tensor in encoding.items()
             }
 
         with torch.no_grad():
-            x_pred = self.net.reverse(prior_samples, encodings=encodings)
-            x_recon, fwd_logdets = self.net(x_pred, encodings=encodings)
-            fwd_logdets = fwd_logdets * self.datamodule.hparams.dim  # rescale from mean to sum
+            x_pred = self.net.reverse(prior_samples, encoding=encoding)
+            x_recon, fwd_logdets = self.net(x_pred, encoding=encoding)
+            fwd_logdets = fwd_logdets * data_dim  # rescale from mean to sum
 
             # TODO refector these all into a metrics
             self.log("invert/mse", torch.mean((prior_samples - x_recon) ** 2), sync_dist=True)

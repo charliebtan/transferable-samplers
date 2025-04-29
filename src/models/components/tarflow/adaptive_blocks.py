@@ -2,8 +2,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-# from src.models.components.tarflow.attention import AttentionBlock
-from attention import AttentionBlock
+try:
+    from src.models.components.tarflow.attention import AttentionBlock
+except ImportError:
+    from attention import AttentionBlock
+
 
 # Code adapted from Lucidrain's implementation of AF3
 # https://github.com/lucidrains/alphafold3-pytorch
@@ -132,7 +135,7 @@ class MultiHeadAttentionADALN(nn.Module):
         channels: int = 128,
         head_channels: int = 64,
         use_qkln: bool = True,
-        use_pair_bias: bool = True,
+        use_attn_pair_bias: bool = True,
         dropout: float = 0.0,
         expansion: int = 4,
     ):
@@ -145,7 +148,7 @@ class MultiHeadAttentionADALN(nn.Module):
             head_channels=head_channels,
             expansion=expansion,
             use_qkln=use_qkln,
-            use_pair_bias=use_pair_bias,
+            use_attn_pair_bias=use_attn_pair_bias,
             dropout=dropout,
         )
         self.scale_output = AdaptiveLayerNormOutputScale(channels=channels, channels_cond=channels)
@@ -164,6 +167,8 @@ class MultiHeadAttentionADALN(nn.Module):
         # Following exact scheme of proteina. Not adding conditioning to x
         # If cond were not None, then x = x + cond inside mha
         # Which we don't want as conditoning is applied through adaln and scale_output
+        # TODO I think in long run we should factor out the condiioning from the mhd
+        # could just have an "AdditiveConditioningAttentionBlock" module that adds the conditioning
         x = self.mha(
             x, cond=None, pair=pair, mask=mask, attn_mask=attn_mask, attn_temp=attn_temp, which_cache=which_cache
         )
@@ -220,8 +225,8 @@ class AdaptiveAttnAndTransition(torch.nn.Module):
         head_channels: int = 64,
         residual_mha: bool = True,
         residual_transition: bool = True,
-        use_qkln: bool = True,
-        use_pair_bias: bool = True,
+        use_qkln: bool = False,  # false for consistency with tarflow.py
+        use_attn_pair_bias: bool = False,  # false for consistency with tarflow.py
         dropout=0.0,
         expansion=4,
     ):
@@ -235,7 +240,7 @@ class AdaptiveAttnAndTransition(torch.nn.Module):
             channels=channels,
             head_channels=head_channels,
             use_qkln=use_qkln,
-            use_pair_bias=use_pair_bias,
+            use_attn_pair_bias=use_attn_pair_bias,
             dropout=dropout,
             expansion=expansion,
         )

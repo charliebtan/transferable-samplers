@@ -6,7 +6,6 @@ defaults:
   - override /trainer: gpu
 
 model:
-  transferable: true
   net:
     in_channels: 3
     channels: 384
@@ -26,10 +25,12 @@ model:
 data:
   batch_size: 512
   com_augmentation: True
-  num_samples_per_seq: 20_000
+  num_eval_samples: 5_000
 
 trainer:
   check_val_every_n_epoch: 50
-  limit_train_batches: 0.5
+  limit_train_batches: 1000
+  limit_val_batches: 0.5 # it's quite slow otherwise - only affects val/loss
+  limit_test_batches: null
   max_epochs: 500
   num_sanity_val_steps: 1

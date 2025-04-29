@@ -2,18 +2,19 @@
 
 defaults:
   - override /model: normalizing_flow
-  - override /data: 2aa
+  - override /data: up_to_4aa
   - override /trainer: gpu
 
 model:
   net:
     in_channels: 3
     channels: 384
-    num_blocks: 6
-    layers_per_block: 6
-    use_adapt_ln: true
-    use_attn_pair_bias: true
+    num_blocks: 8
+    layers_per_block: 8
     use_qkln: true
+    use_rand_perm: false
+    use_rand_only: false
+    use_backbone_perm: false
     cond_embed:
       _target_: src.models.components.tarflow.embed.ConditionalEmbedder
       channels: ${model.net.channels}

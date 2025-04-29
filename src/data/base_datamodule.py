@@ -72,7 +72,7 @@ class BaseDataModule(LightningDataModule):
             batch_size=self.batch_size_per_device,
             num_workers=self.hparams.num_workers,
             pin_memory=self.hparams.pin_memory,
-            shuffle=False,
+            shuffle=True,  # i shuffle in case of trainer.limit_val_batches
             persistent_workers=True if self.hparams.num_workers > 0 else False,
         )
 
@@ -86,33 +86,9 @@ class BaseDataModule(LightningDataModule):
             batch_size=self.batch_size_per_device,
             num_workers=self.hparams.num_workers,
             pin_memory=self.hparams.pin_memory,
-            shuffle=False,
+            shuffle=True,  # shuffle in case of trainer.limit_test_batches
             persistent_workers=True if self.hparams.num_workers > 0 else False,
         )
-
-    def teardown(self, stage: Optional[str] = None) -> None:
-        """Lightning hook for cleaning up after `trainer.fit()`, `trainer.validate()`,
-        `trainer.test()`, and `trainer.predict()`.
-
-        :param stage: The stage being torn down. Either `"fit"`, `"validate"`, `"test"`, or `"predict"`.
-            Defaults to ``None``.
-        """
-        pass
-
-    def state_dict(self) -> dict[Any, Any]:
-        """Called when saving a checkpoint. Implement to generate and save the datamodule state.
-
-        :return: A dictionary containing the datamodule state that you want to save.
-        """
-        return {}
-
-    def load_state_dict(self, state_dict: dict[str, Any]) -> None:
-        """Called when loading a checkpoint. Implement to reload datamodule state given datamodule
-        `state_dict()`.
-
-        :param state_dict: The datamodule state returned by `self.state_dict()`.
-        """
-        pass
 
     def zero_center_of_mass(self, x):
         num_samples = x.shape[0]
@@ -122,6 +98,7 @@ class BaseDataModule(LightningDataModule):
         return x
 
     def center_of_mass(self, x: torch.Tensor) -> torch.Tensor:
+        assert len(x.shape) == 2, "Input should be 2D tensor"
         num_samples = x.shape[0]
         x = x.view(num_samples, -1, self.hparams.num_dimensions)
         com = x.mean(axis=1)
@@ -130,6 +107,7 @@ class BaseDataModule(LightningDataModule):
     def normalize(self, x):
         assert self.std is not None, "Standard deviation should be computed first"
         assert self.std.numel() == 1, "Standard deviation should be scalar"
+        assert len(x.shape) == 2, "Input should be 2D tensor"
         num_samples = x.shape[0]
         x = x.view(num_samples, -1, self.hparams.num_dimensions)
         x = x - x.mean(axis=1, keepdims=True)
@@ -140,6 +118,7 @@ class BaseDataModule(LightningDataModule):
     def unnormalize(self, x):
         assert self.std is not None, "Standard deviation should be computed first"
         assert self.std.numel() == 1, "Standard deviation should be scalar"
+        assert len(x.shape) == 2, "Input should be 2D tensor"
         x = x * self.std.to(x)
         return x
 
