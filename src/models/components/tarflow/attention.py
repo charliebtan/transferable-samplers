@@ -36,9 +36,6 @@ class Attention(torch.nn.Module):
         self.sqrt_scale = head_channels ** (-0.25)
         self.sample = False
 
-        if use_attn_pair_bias:
-            self.pair_norm = torch.nn.LayerNorm(in_channels)
-            self.bias_proj = torch.nn.Linear(in_channels, self.num_heads, bias=False)
         self.use_attn_pair_bias = use_attn_pair_bias
 
         self.q_layer_norm = torch.nn.LayerNorm(in_channels) if use_qkln else torch.nn.Identity()
@@ -62,7 +59,6 @@ class Attention(torch.nn.Module):
 
         B, T, C = x.size()
         x = self.norm(x.float()).type(x.dtype)
-        pair = self.pair_norm(pair) if exists(pair) else None
         q, k, v = self.qkv(x).chunk(3, dim=-1)
         q = self.q_layer_norm(q)
         k = self.k_layer_norm(k)
@@ -70,9 +66,7 @@ class Attention(torch.nn.Module):
         # if provided, project pair from (B, seq_len, seq_len, C) to (B, seq_len, seq_len, num_heads)
         # and then rearrange to (B, num_heads, seq_len, seq_len).
         # if not provided, set bias to 0.0
-        bias = (
-            rearrange(self.bias_proj(pair), "b ... h -> b h ...") if (exists(pair) and self.use_attn_pair_bias) else 0.0
-        )
+        bias = rearrange(pair, "b ... h -> b h ...") if (exists(pair) and self.use_attn_pair_bias) else 0.0
         q, k, v = map(lambda t: rearrange(t, "b ... (h d) -> b h ... d", h=self.num_heads), (q, k, v))
 
         if self.sample:
@@ -116,14 +110,11 @@ class Attention(torch.nn.Module):
             raise ValueError("pair must be provided if use_attn_pair_bias is True")
 
         x = self.norm(x.float()).type(x.dtype)
-        pair = self.pair_norm(pair) if exists(pair) else None
         q, k, v = self.qkv(x).chunk(3, dim=-1)
         q = self.q_layer_norm(q)
         k = self.k_layer_norm(k)
 
-        bias = (
-            rearrange(self.bias_proj(pair), "b ... h -> b h ...") if (exists(pair) and self.use_attn_pair_bias) else 0.0
-        )
+        bias = rearrange(pair, "b ... h -> b h ...") if (exists(pair) and self.use_attn_pair_bias) else 0.0
 
         q, k, v = map(lambda t: rearrange(t, "b ... (h d) -> b h ... d", h=self.num_heads), (q, k, v))
         if self.sample:
