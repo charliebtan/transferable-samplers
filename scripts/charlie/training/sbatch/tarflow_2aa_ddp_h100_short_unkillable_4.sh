@@ -14,8 +14,6 @@
 #SBATCH --signal=SIGUSR1@90
 
 RUN_NAME=$1
-module load anaconda
-conda activate tbg3
 
 srun python -u src/train.py \
 experiment=training/tarflow_2aa logger=wandb \

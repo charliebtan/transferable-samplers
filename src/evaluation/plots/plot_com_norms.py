@@ -1,3 +1,5 @@
+import logging
+
 import matplotlib
 import matplotlib.pyplot as plt
 from lightning.pytorch.loggers import WandbLogger
@@ -15,6 +17,7 @@ def plot_com_norms(
     prefix="",
     wandb_logger: WandbLogger = None,
 ):
+    logging.info(f"Plotting com norms for {prefix}")
     if proposal_samples is not None:
         proposal_samples_com_norm = proposal_samples.mean(dim=1).norm(dim=-1).cpu()
 
@@ -68,3 +71,4 @@ def plot_com_norms(
     fig.canvas.draw()
 
     log_image_fn(fig, f"{prefix}/com_norms")
+    plt.close()

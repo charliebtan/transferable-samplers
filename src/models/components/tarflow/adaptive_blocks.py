@@ -134,8 +134,8 @@ class MultiHeadAttentionADALN(nn.Module):
         self,
         channels: int = 128,
         head_channels: int = 64,
-        use_qkln: bool = True,
-        use_attn_pair_bias: bool = True,
+        use_qkln: bool = False,
+        use_attn_pair_bias: bool = False,
         dropout: float = 0.0,
         expansion: int = 4,
     ):

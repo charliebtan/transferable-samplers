@@ -441,7 +441,6 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
                 reweighted_data,
                 smc_data,
                 prefix=prefix,
-                do_plots=True if prefix.startswith("test") else False,
             )
         else:
             metrics = {}
