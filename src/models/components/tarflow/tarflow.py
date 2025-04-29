@@ -71,6 +71,7 @@ class MetaBlock(torch.nn.Module):
                 torch.nn.Linear(1, pair_bias_hidden_dim),
                 torch.nn.GELU(),
                 torch.nn.LayerNorm(pair_bias_hidden_dim),
+                # needs projecting to num_heads as each head has its own attn_mask
                 torch.nn.Linear(pair_bias_hidden_dim, num_heads, bias=False),  # softmax is invariant to bias
             )
 
