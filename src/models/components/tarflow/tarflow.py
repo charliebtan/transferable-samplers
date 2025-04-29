@@ -154,9 +154,8 @@ class MetaBlock(torch.nn.Module):
 
         x = self.proj_out(x)
 
-        x = (
-            x * mask[..., None] if mask is not None else x
-        )  # hit with mask for the flip perms (no need for if statements)
+        # hit with mask for the flip perms (no need for if statements)
+        x = x * mask[..., None] if mask is not None else x
         x = torch.cat([torch.zeros_like(x[:, :1]), x[:, :-1]], dim=1)  # shift one token w/ zero pad
         x = x * mask[..., None] if mask is not None else x  # hit with mask for the non-flip perms
 
