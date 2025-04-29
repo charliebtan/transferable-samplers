@@ -7,11 +7,11 @@ import openmm
 import openmm.app
 import torch
 import torchvision
-from bgflow import OpenMMBridge, OpenMMEnergy
 
 from src.data.base_datamodule import BaseDataModule
 from src.data.components.data_types import SamplesData
 from src.data.components.encoding import get_encoding_dict
+from src.data.components.openmm import OpenMMBridge, OpenMMEnergy
 from src.data.components.peptide_dataset import PeptideDataset
 from src.data.components.prepare_data import (
     build_lmdb,

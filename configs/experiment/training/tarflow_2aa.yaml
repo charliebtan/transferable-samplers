@@ -14,7 +14,6 @@ model:
     cond_embed:
       _target_: src.models.components.tarflow.embed.ConditionalEmbedder
       channels: ${model.net.channels}
-      num_residue_pos: ${data.num_aa_max}
 
   optimizer:
     lr: 1e-4
