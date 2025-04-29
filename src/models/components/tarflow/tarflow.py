@@ -101,12 +101,14 @@ class MetaBlock(torch.nn.Module):
         atom_type: torch.Tensor,
         aa_type: torch.Tensor,
         mask: torch.Tensor | None = None,
-        perm: torch.Tensor | None = None,
+        perm: torch.Tensor | None = None,  # only used for random perm
     ) -> tuple[torch.Tensor, torch.Tensor]:
         perm_in = perm
         x_in, perm = self.permutation(
             x, atom_type=atom_type, aa_type=aa_type, perm=perm, mask=mask
         )  # store permuted input for later
+
+        # use passed in perm from previous random block
         if perm_in is not None:
             perm = perm_in
 
@@ -152,9 +154,11 @@ class MetaBlock(torch.nn.Module):
 
         x = self.proj_out(x)
 
-        x = x * mask[..., None] if mask is not None else x
+        x = (
+            x * mask[..., None] if mask is not None else x
+        )  # hit with mask for the flip perms (no need for if statements)
         x = torch.cat([torch.zeros_like(x[:, :1]), x[:, :-1]], dim=1)  # shift one token w/ zero pad
-        x = x * mask[..., None] if mask is not None else x
+        x = x * mask[..., None] if mask is not None else x  # hit with mask for the non-flip perms
 
         if self.nvp:
             xa, xb = x.chunk(2, dim=-1)
@@ -170,7 +174,10 @@ class MetaBlock(torch.nn.Module):
         else:
             logdet = -xa.sum(dim=[1, 2]) / (mask.sum(dim=-1) * self.in_channels)
 
-        # return perm for PermutationRandomFlip
+        # return perm as None if not Random or RandomFlip
+        # otherwise, need the perm for the immediate next block which should be Random or RandomFlip
+        # If perm_in is passed in and current block is a RandomPerm, then we set to None so next
+        # random block generates its own perm.
         if type(self.permutation) not in (PermutationRandom, PermutationRandomFlip) or (
             type(self.permutation) in (PermutationRandom, PermutationRandomFlip) and perm_in is not None
         ):
@@ -255,7 +262,10 @@ class MetaBlock(torch.nn.Module):
         self.set_sample_mode(False)
         x, _ = self.permutation(x, atom_type=atom_type, aa_type=aa_type, perm=perm, inverse=True)
 
-        # return perm for PermutationRandomFlip
+        # return perm as None if not Random or RandomFlip
+        # otherwise, need the perm for the immediate next block which should be Random or RandomFlip
+        # If perm_in is passed in and current block is a RandomPerm, then we set to None so next
+        # random block generates its own perm.
         if type(self.permutation) not in (PermutationRandom, PermutationRandomFlip) or (
             type(self.permutation) in (PermutationRandom, PermutationRandomFlip) and perm_in is not None
         ):
@@ -390,6 +400,8 @@ class TarFlow(torch.nn.Module):
 
                 perm = perm.long()
 
+            # Pass in the perm if prev block is random block
+            # perm from prev block is only applied to the next random block and then set to None
             x, logdet, perm = block(
                 x, cond=cond, mask=mask, atom_type=encoding["atom_type"], aa_type=encoding["aa_type"], perm=perm
             )
@@ -782,25 +794,6 @@ if __name__ == "__main__":
     channels = 64
     num_blocks = 6  # needs to be at least 2 to cover both permutations
     layers_per_block = 1
-
-    # batch_size = 16
-    # img_size = 12
-    # in_channels = 3
-    # patch_size = 1
-    # channels = 64
-    # num_blocks = 8  # needs to be at least 2 to cover both permutations
-    # layers_per_block = 1
-
-    # ### Dummy data
-    # x = torch.randn([batch_size, img_size])
-    # encoding = {
-    #     "atom_type": torch.randint(high=2, size=(batch_size, img_size // in_channels)) + 1,
-    #     "aa_type": torch.randint(high=2, size=(batch_size, img_size // in_channels)) + 1,
-    #     "aa_pos": torch.randint(high=2, size=(batch_size, img_size // in_channels)) + 1,
-    #     "seq_len": torch.ones((batch_size, 1)) * 2,
-    # }
-
-    ### Padded data with mask
 
     pad_tokens = 2
     pad_dim = pad_tokens * in_channels

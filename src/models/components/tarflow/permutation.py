@@ -83,6 +83,7 @@ class PermutationBackBone(Permutation):
         # 1) build a tuple‐key for each batch row
         keys = [tuple(row.tolist()) for row in aa_type]
         unique_keys = set(keys)
+
         # map each unique key → first index where it appears
         key2idx = {key: keys.index(key) for key in unique_keys}
 
@@ -107,7 +108,7 @@ class PermutationBackBone(Permutation):
                 heavy_names = BACKBONE_ORDER + SIDECHAIN_MAP.get(aa_name, [])
                 heavy_codes = [ATOM_TYPE_ENCODING_DICT[n] for n in heavy_names]
 
-                # collect **all** matches for each heavy code
+                # collect all matches for each heavy code
                 for code in heavy_codes:
                     for j in segment:
                         if types_row[j].item() == code:
@@ -191,7 +192,7 @@ class PermutationRandom(Permutation):
                 # shuffle all positions
                 perm = torch.randperm(L, device=device).unsqueeze(0).repeat(B, 1)
             else:
-                # shuffle _only_ the real tokens, then append the pad indices
+                # shuffle only the real atoms, then append the pad indices
                 perm = []
                 for b in range(B):
                     real = torch.where(mask[b] == 1)[0]
