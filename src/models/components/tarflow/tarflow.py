@@ -309,7 +309,6 @@ class TarFlow(torch.nn.Module):
         nvp: bool = True,
         debug: bool = False,  # stops the weight initialization from being zero so tokens are not all the same
     ):
-        assert num_blocks >= 2, "num_blocks must be at least 2 to cover both permutations"
         super().__init__()
         self.img_size = img_size
         self.patch_size = patch_size
@@ -321,6 +320,9 @@ class TarFlow(torch.nn.Module):
             permutations = [PermutationBackBone(), PermutationFlip(), PermutationBackBoneFlip(), PermutationIdentity()]
         elif perm_type == "random":
             permutations = [PermutationRandom(), PermutationRandomFlip()]
+
+        assert num_blocks > len(permutations), "num_blocks must be greater than number of permutations"
+        assert num_blocks % len(permutations) == 0, "num_blocks must be divisible by number of permutations"
 
         self.conditional = False if cond_embed is None else True
         self.cond_embed = cond_embed
@@ -609,7 +611,7 @@ if __name__ == "__main__":
 
     ### Dummy data
     # alanine atoms
-    alanine_atoms = torch.tensor(
+    alanine_atom_types = torch.tensor(
         [
             37,
             18,
@@ -624,6 +626,12 @@ if __name__ == "__main__":
             1,
             46,
             52,
+        ]
+    )
+
+    # lysine atoms
+    lysine_atom_types = torch.tensor(
+        [
             37,
             18,
             18,
@@ -652,143 +660,23 @@ if __name__ == "__main__":
         ]
     )
 
-    # lysine atoms
-    lysine_atoms = torch.tensor(
-        [
-            37,
-            18,
-            18,
-            18,
-            2,
-            19,
-            3,
-            20,
-            20,
-            11,
-            30,
-            28,
-            4,
-            23,
-            21,
-            7,
-            26,
-            27,
-            45,
-            34,
-            35,
-            36,
-            1,
-            46,
-            52,
-            37,
-            18,
-            18,
-            18,
-            2,
-            19,
-            3,
-            20,
-            20,
-            20,
-            1,
-            46,
-            52,
-        ]
-    )
-
-    DEBUG_PERM = torch.tensor(
-        [
-            24,
-            54,
-            56,
-            17,
-            26,
-            35,
-            11,
-            15,
-            6,
-            67,
-            14,
-            30,
-            0,
-            75,
-            50,
-            23,
-            28,
-            13,
-            18,
-            64,
-            48,
-            46,
-            42,
-            16,
-            72,
-            41,
-            59,
-            33,
-            3,
-            25,
-            37,
-            73,
-            57,
-            74,
-            39,
-            58,
-            2,
-            70,
-            55,
-            60,
-            8,
-            53,
-            61,
-            19,
-            66,
-            65,
-            51,
-            10,
-            21,
-            7,
-            9,
-            31,
-            47,
-            12,
-            69,
-            5,
-            71,
-            32,
-            27,
-            40,
-            22,
-            68,
-            45,
-            4,
-            62,
-            1,
-            52,
-            49,
-            38,
-            29,
-            36,
-            43,
-            20,
-            44,
-            34,
-            63,
-        ]
-    )
-    atom_type1 = torch.concat([alanine_atoms, lysine_atoms], dim=0)
-    atom_type2 = torch.concat([lysine_atoms, alanine_atoms], dim=0)
+    # build atom type embedding for AL and LA (approx)
+    atom_type1 = torch.concat([alanine_atom_types, lysine_atom_types], dim=0)
+    atom_type2 = torch.concat([lysine_atom_types, alanine_atom_types], dim=0)
     atom_type = torch.concat([atom_type1[None, ...], atom_type2[None, ...]], dim=0)
     atom_type = atom_type.reshape(2, -1)
 
-    seq_type1 = [1 for _ in range(len(alanine_atoms))] + [12 for _ in range(len(lysine_atoms))]
+    # build sequence type embedding for AL and LA (approx)
+    seq_type1 = [1 for _ in range(len(alanine_atom_types))] + [12 for _ in range(len(lysine_atom_types))]
     seq_type2 = seq_type1[::-1]
     aa_type = torch.tensor([[seq_type1, seq_type2]])
     aa_type = aa_type.reshape(2, -1)
 
+    # build aa position embedding for AL and LA (approx)
     aa_pos = torch.arange(aa_type.shape[-1])[None, ...].repeat(2, 1) + 1
     x = torch.randn((2, aa_type.shape[-1] * 3))
 
+    # build encoding
     encoding = {
         "atom_type": atom_type,
         "aa_type": aa_type,
@@ -801,7 +689,7 @@ if __name__ == "__main__":
     in_channels = 3
     patch_size = 1
     channels = 64
-    num_blocks = 6  # needs to be at least 2 to cover both permutations
+    num_blocks = 4
     layers_per_block = 1
 
     pad_tokens = 2
@@ -832,7 +720,7 @@ if __name__ == "__main__":
             for perm_type in ["standard", "globloc", "random"]:
                 print(
                     f"Testing with use_adapt_ln={use_adapt_ln} and use_attn_pair_bias={use_attn_pair_bias} "
-                    "and perm_type={perm_type}"
+                    f"and perm_type={perm_type}"
                 )
                 model_pad = TarFlow(
                     in_channels,
