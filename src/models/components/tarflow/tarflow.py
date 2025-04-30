@@ -305,9 +305,6 @@ class TarFlow(torch.nn.Module):
         use_qkln: bool = False,
         dropout: float = 0.0,
         perm_type: str = "standard",  # standard, globloc, random
-        use_rand_perm: bool = False,
-        use_rand_only: bool = False,
-        use_backbone_perm: bool = False,
         cond_embed: ConditionalEmbedder | None = None,
         nvp: bool = True,
         debug: bool = False,  # stops the weight initialization from being zero so tokens are not all the same
