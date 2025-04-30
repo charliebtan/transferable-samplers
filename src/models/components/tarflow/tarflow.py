@@ -2,6 +2,7 @@
 # For licensing see accompanying LICENSE file.
 # Copyright (C) 2024 Apple Inc. All Rights Reserved.
 #
+import numpy as np
 import torch
 
 if __name__ == "__main__":
@@ -320,9 +321,9 @@ class TarFlow(torch.nn.Module):
             permutations = [PermutationBackBone(), PermutationFlip(), PermutationBackBoneFlip(), PermutationIdentity()]
         elif perm_type == "random":
             permutations = [PermutationRandom(), PermutationRandomFlip()]
-
-        assert num_blocks > len(permutations), "num_blocks must be greater than number of permutations"
+        assert num_blocks >= len(permutations), "num_blocks must be greater than number of permutations"
         assert num_blocks % len(permutations) == 0, "num_blocks must be divisible by number of permutations"
+        self.perm_type = perm_type
 
         self.conditional = False if cond_embed is None else True
         self.cond_embed = cond_embed
@@ -400,16 +401,18 @@ class TarFlow(torch.nn.Module):
         logdets = torch.zeros((), device=x.device)
         perm = None
         for block in self.blocks:
-            if self.debug:
-                perm = DEBUG_PERM
-                perm = perm[None, ...].repeat(x.shape[0], 1)
-                if mask is not None:
+            if self.debug and self.perm_type == "random":
+                assert x.shape[0] == 1, "Debug mode only works for batch size 1"
+                np.random.seed(0)
+                if mask is None:
+                    perm = torch.tensor(np.random.permutation(x.shape[1]))[None, ...]
+                else:
+                    perm = torch.tensor(np.random.permutation(mask.sum().int().item()))[None, ...]
                     num_pad = (~mask.bool()).sum(dim=-1)
                     pad = torch.zeros(list(num_pad)) + torch.arange(perm.shape[1], perm.shape[1] + num_pad[0].item())
                     if pad.ndim < 2:
                         pad = pad.unsqueeze(0)
                     perm = torch.concat([perm, pad], dim=-1)
-
                 perm = perm.long()
 
             # Pass in the perm if prev block is random block
@@ -459,8 +462,9 @@ class TarFlow(torch.nn.Module):
         x = x * self.var.sqrt()[: x.shape[1]]
         perm = None
         for block in reversed(self.blocks):
-            if self.debug:
-                perm = DEBUG_PERM
+            if self.debug and self.perm_type == "random":
+                np.random.seed(0)
+                perm = torch.tensor(np.random.permutation(x.shape[1]))
                 perm = perm[None, ...].repeat(x.shape[0], 1).long()
 
             x, perm = block.reverse(
@@ -533,10 +537,10 @@ def test_invertibility(model, x, encoding, mask=None, num_pad_tokens=2, num_dime
     # print()
     # print(x[0, 0:8])
     # print(x_recon[0, 0:8])
-    print("mae:", torch.abs(x - x_recon).mean())
-    print("mse:", torch.mean((x - x_recon) ** 2))
-    print("max abs:", torch.max(abs(x - x_recon)))
-    print("position wise MAE", torch.abs(x - x_recon).mean(dim=0))
+    # print("mae:", torch.abs(x - x_recon).mean())
+    # print("mse:", torch.mean((x - x_recon) ** 2))
+    # print("max abs:", torch.max(abs(x - x_recon)))
+    # print("position wise MAE", torch.abs(x - x_recon).mean(dim=0))
 
     assert torch.allclose(x, x_recon, atol=1e-5), "Invertibility test failed"
     print("Invertibility test passed")
@@ -610,6 +614,7 @@ if __name__ == "__main__":
     torch.manual_seed(1)
 
     ### Dummy data
+
     # alanine atoms
     alanine_atom_types = torch.tensor(
         [
@@ -660,21 +665,12 @@ if __name__ == "__main__":
         ]
     )
 
-    # build atom type embedding for AL and LA (approx)
-    atom_type1 = torch.concat([alanine_atom_types, lysine_atom_types], dim=0)
-    atom_type2 = torch.concat([lysine_atom_types, alanine_atom_types], dim=0)
-    atom_type = torch.concat([atom_type1[None, ...], atom_type2[None, ...]], dim=0)
-    atom_type = atom_type.reshape(2, -1)
-
-    # build sequence type embedding for AL and LA (approx)
-    seq_type1 = [1 for _ in range(len(alanine_atom_types))] + [12 for _ in range(len(lysine_atom_types))]
-    seq_type2 = seq_type1[::-1]
-    aa_type = torch.tensor([[seq_type1, seq_type2]])
-    aa_type = aa_type.reshape(2, -1)
-
-    # build aa position embedding for AL and LA (approx)
-    aa_pos = torch.arange(aa_type.shape[-1])[None, ...].repeat(2, 1) + 1
-    x = torch.randn((2, aa_type.shape[-1] * 3))
+    atom_type = torch.concat([alanine_atom_types, lysine_atom_types], dim=0)
+    atom_type = atom_type.reshape(1, -1)
+    aa_type = torch.tensor([1 for _ in range(len(alanine_atom_types))] + [12 for _ in range(len(lysine_atom_types))])
+    aa_type = aa_type.reshape(1, -1)
+    aa_pos = torch.arange(aa_type.shape[-1])[None, ...] + 1
+    x = torch.randn((1, aa_type.shape[-1] * 3))
 
     # build encoding
     encoding = {
@@ -769,7 +765,7 @@ if __name__ == "__main__":
                     model_pad, x, encoding, num_pad_tokens=pad_tokens
                 )  # test invertibility of the padded model with non-padded data
 
-                for i in range(batch_size - 1):
+                for i in range(batch_size):
                     print("\nbatch item", i)
 
                     x_i = x[i : i + 1]
