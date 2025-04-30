@@ -43,12 +43,12 @@ class Permutation(torch.nn.Module):
 
 class PermutationIdentity(Permutation):
     def forward(self, x: torch.Tensor, dim: int = 1, inverse: bool = False, **kwargs) -> torch.Tensor:
-        return x, None
+        return x
 
 
 class PermutationFlip(Permutation):
     def forward(self, x: torch.Tensor, dim: int = 1, inverse: bool = False, **kwargs) -> torch.Tensor:
-        return x.flip(dims=[dim]), None
+        return x.flip(dims=[dim])
 
 
 class PermutationBackBone(Permutation):
@@ -69,7 +69,7 @@ class PermutationBackBone(Permutation):
         **kwargs,
     ):
         x = self.permute(x, atom_type, aa_type, dim, inverse)
-        return x, None
+        return x
 
     def permute(
         self,
@@ -132,7 +132,7 @@ class PermutationBackBone(Permutation):
         # assemble the full (B, L) perm index
         perm_idx = torch.zeros((B, L), dtype=torch.long, device=device)
         for i, key in enumerate(keys):
-            perm_idx[i] = torch.tensor(self._cache[key], device=device)
+            perm_idx[i] = self._cache[key].clone().detach().to(device)
 
         # optionally invert
         if inverse:
@@ -166,7 +166,7 @@ class PermutationBackBoneFlip(PermutationBackBone):
         if not inverse:
             x = x.flip(dims=[dim])
 
-        return x, None
+        return x
 
 
 class PermutationRandom(Permutation):
@@ -215,23 +215,27 @@ class PermutationRandom(Permutation):
         return x_perm, perm
 
 
-class PermutationRandomFlip(PermutationRandom):
-    def forward(
-        self,
-        x: torch.Tensor,
-        mask: torch.Tensor | None = None,
-        dim: int = 1,
-        inverse: bool = False,
-        perm: torch.Tensor | None = None,
-        **kwargs,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        if inverse:
-            # 1) undo the flip
-            x_unflipped = x.flip(dims=[dim])
-            # 2) undo the permutation
-            return super().forward(x_unflipped, mask=mask, dim=dim, inverse=True, perm=perm)
-        else:
-            # 1) shuffle (pads to end)
-            x_perm, p = super().forward(x, mask=mask, dim=dim, inverse=False, perm=perm)
-            # 2) apply flip
-            return x_perm.flip(dims=[dim]), p
+def shift_pos(x: torch.Tensor, mask: torch.Tensor):
+    B, L, *rest = x.shape
+    device = x.device
+
+    # make a position matrix for each batch
+    pos = torch.arange(L, device=device).unsqueeze(0).expand(B, L)  # (B, L)
+
+    # we expect mask to be the original mask and not flipped.
+    # build a key that keeps original order for True (pos),
+    # but pushes False to the beginning.
+    key = pos.masked_fill(~mask.bool(), -1)  # (B, L)
+
+    # argsort so that all True positions come first, then False
+    order = key.argsort(dim=1)  # (B, L)
+
+    # expand order to index into the last dims of x
+    if rest:
+        idx = order.unsqueeze(-1).repeat(1, 1, *x.shape[2:])
+    else:
+        idx = order
+
+    # we expect mask to be the original and not flipped
+    flipped_mask = mask[..., None].flip(dims=[1])
+    return x.gather(1, idx) * flipped_mask
