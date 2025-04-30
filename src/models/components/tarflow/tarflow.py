@@ -304,6 +304,7 @@ class TarFlow(torch.nn.Module):
         pair_bias_hidden_dim: int = 16,
         use_qkln: bool = False,
         dropout: float = 0.0,
+        perm_type: str = "standard",  # standard, globloc, random
         use_rand_perm: bool = False,
         use_rand_only: bool = False,
         use_backbone_perm: bool = False,
@@ -316,15 +317,13 @@ class TarFlow(torch.nn.Module):
         self.img_size = img_size
         self.patch_size = patch_size
         self.num_patches = img_size // patch_size // in_channels
-        permutations = [PermutationIdentity(), PermutationFlip()]
 
-        if use_backbone_perm:
-            permutations = [PermutationBackBone(), PermutationIdentity(), PermutationFlip(), PermutationBackBoneFlip()]
-
-        if use_rand_perm:
-            permutations += [PermutationRandom(), PermutationRandomFlip()]
-            if use_rand_only:
-                permutations = [PermutationRandom(), PermutationRandomFlip()]
+        if perm_type == "standard":
+            permutations = [PermutationIdentity(), PermutationFlip()]
+        elif perm_type == "globloc":  # this way the side chains go forwards and backwards alternating
+            permutations = [PermutationBackBone(), PermutationFlip(), PermutationBackBoneFlip(), PermutationIdentity()]
+        elif perm_type == "random":
+            permutations = [PermutationRandom(), PermutationRandomFlip()]
 
         self.conditional = False if cond_embed is None else True
         self.cond_embed = cond_embed
@@ -468,7 +467,6 @@ class TarFlow(torch.nn.Module):
             x, perm = block.reverse(
                 x, cond=cond, atom_type=encoding["atom_type"], aa_type=encoding["aa_type"], perm=perm
             )
-            # perm = torch.tensor([3, 1, 2, 0])[None, ...].repeat(x.shape[0], 1)
             seq.append(x.reshape(batch_size, -1))
 
         # un-patch
