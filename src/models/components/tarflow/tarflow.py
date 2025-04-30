@@ -416,8 +416,6 @@ class TarFlow(torch.nn.Module):
                 else:
                     perm = torch.tensor(np.random.permutation(perm_len))
                 perm = perm[None, ...].repeat(x.shape[0], 1).long()
-                if mask is not None:
-                    perm
                 perms.append(perm)
 
         for i, block in enumerate(self.blocks):
