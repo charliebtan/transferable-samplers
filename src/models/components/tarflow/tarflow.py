@@ -17,7 +17,7 @@ if __name__ == "__main__":
         PermutationFlip,
         PermutationIdentity,
         PermutationRandom,
-        PermutationRandomFlip,
+        shift_pos,
     )
 
 
@@ -32,39 +32,13 @@ else:
         PermutationFlip,
         PermutationIdentity,
         PermutationRandom,
-        PermutationRandomFlip,
+        shift_pos,
     )
 
 PERM_SET = (PermutationIdentity, PermutationRandom, PermutationBackBone)
-PERM_FLIP_SET = (PermutationFlip, PermutationRandomFlip, PermutationBackBoneFlip)
+PERM_FLIP_SET = (PermutationFlip, PermutationBackBoneFlip)
 
 MAX_SEQ_LEN = 512
-
-
-def shift_pos(x: torch.Tensor, mask: torch.Tensor):
-    B, L, *rest = x.shape
-    device = x.device
-
-    # make a position matrix for each batch
-    pos = torch.arange(L, device=device).unsqueeze(0).expand(B, L)  # (B, L)
-
-    # we expect mask to be the original mask and not flipped.
-    # build a key that keeps original order for True (pos),
-    # but pushes False to the beginning.
-    key = pos.masked_fill(~mask.bool(), -1)  # (B, L)
-
-    # argsort so that all True positions come first, then False
-    order = key.argsort(dim=1)  # (B, L)
-
-    # expand order to index into the last dims of x
-    if rest:
-        idx = order.unsqueeze(-1).repeat(1, 1, *x.shape[2:])
-    else:
-        idx = order
-
-    # we expect mask to be the original and not flipped
-    flipped_mask = mask[..., None].flip(dims=[1])
-    return x.gather(1, idx) * flipped_mask
 
 
 class MetaBlock(torch.nn.Module):
@@ -157,19 +131,11 @@ class MetaBlock(torch.nn.Module):
         atom_type: torch.Tensor,
         aa_type: torch.Tensor,
         mask: torch.Tensor | None = None,
-        perm: torch.Tensor | None = None,  # only used for random perm
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        perm_in = perm
-        x_in, perm = self.permutation(
-            x, atom_type=atom_type, aa_type=aa_type, perm=perm, mask=mask
-        )  # store permuted input for later
-
-        # use passed in perm from previous random block
-        if perm_in is not None:
-            perm = perm_in
+        x_in = self.permutation(x, atom_type=atom_type, aa_type=aa_type, mask=mask)  # store permuted input for later
 
         x = self.proj_in(x)
-        x, _ = self.permutation(x, atom_type=atom_type, aa_type=aa_type, perm=perm)
+        x = self.permutation(x, atom_type=atom_type, aa_type=aa_type)
 
         # no permutation on pos_embed - it encodes sequence position AFTER permutation
         pos_embed = self.pos_embed[: x.shape[1]]
@@ -182,20 +148,10 @@ class MetaBlock(torch.nn.Module):
         if mask is not None and type(self.permutation) in PERM_FLIP_SET:
             pos_embed = shift_pos(pos_embed[None, ...], mask)
 
-            # pos_embed_batch = torch.zeros_like(x)  # pos_emb for each batch item
-            # num_samples, num_tokens = x.shape[:2]
-            # num_padding_tokens = num_tokens - mask.sum(dim=-1).int()
-            # for b in range(num_samples):
-            #     shift = num_padding_tokens[b]  # how much to shift by
-            #     valid_len = num_tokens - shift  # valid length of the sequence
-            #     if valid_len > 0:
-            #         pos_embed_batch[b, shift:] = pos_embed[:valid_len]
-            # pos_embed = pos_embed_batch
-
         x = x + pos_embed
 
         if cond is not None:
-            cond, _ = self.permutation(cond, atom_type=atom_type, aa_type=aa_type, perm=perm)
+            cond = self.permutation(cond, atom_type=atom_type, aa_type=aa_type)
             cond_emb = self.proj_cond(cond)
 
         pair_emb = None
@@ -211,7 +167,7 @@ class MetaBlock(torch.nn.Module):
                 f"First two dimensions of mask {mask.shape[:1]} and x {x.shape[:1]} do not match"
             )
 
-            mask, _ = self.permutation(mask, atom_type=atom_type, aa_type=aa_type, perm=perm)
+            mask = self.permutation(mask, atom_type=atom_type, aa_type=aa_type)
             attn_mask = attn_mask.unsqueeze(0)
             if type(self.permutation) in PERM_SET:
                 # mask out final rows
@@ -242,21 +198,12 @@ class MetaBlock(torch.nn.Module):
             xa = torch.zeros_like(x)
 
         scale = (-xa.float()).exp().type(xa.dtype)
-        x_out, _ = self.permutation((x_in - xb) * scale, atom_type=atom_type, aa_type=aa_type, perm=perm, inverse=True)
+        x_out = self.permutation((x_in - xb) * scale, atom_type=atom_type, aa_type=aa_type, inverse=True)
 
         if mask is None:
             logdet = -xa.mean(dim=[1, 2])
         else:
             logdet = -xa.sum(dim=[1, 2]) / (mask.sum(dim=-1) * self.in_channels)
-
-        # return perm as None if not Random or RandomFlip
-        # otherwise, need the perm for the immediate next block which should be Random or RandomFlip
-        # If perm_in is passed in and current block is a RandomPerm, then we set to None so next
-        # random block generates its own perm.
-        if type(self.permutation) not in (PermutationRandom, PermutationRandomFlip) or (
-            type(self.permutation) in (PermutationRandom, PermutationRandomFlip) and perm_in is not None
-        ):
-            perm = None
 
         return x_out, logdet
 
@@ -312,13 +259,8 @@ class MetaBlock(torch.nn.Module):
         cond: torch.Tensor | None = None,
         atom_type: torch.Tensor | None = None,
         aa_type: torch.Tensor | None = None,
-        perm: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        perm_in = perm
-        if perm_in is not None:
-            perm = perm_in
-
-        x, perm = self.permutation(x, atom_type=atom_type, aa_type=aa_type, perm=perm)
+        x = self.permutation(x, atom_type=atom_type, aa_type=aa_type)
 
         # no permutation on pos_embed - it encodes sequence position AFTER permutation
         pos_embed = self.pos_embed[: x.shape[1]][None, ...]
@@ -326,7 +268,7 @@ class MetaBlock(torch.nn.Module):
             pos_embed = pos_embed * self.pos_embed_scale  # learnable scale for sinusoid
 
         if cond is not None:
-            cond, _ = self.permutation(cond, atom_type=atom_type, aa_type=aa_type, perm=perm)
+            cond = self.permutation(cond, atom_type=atom_type, aa_type=aa_type)
 
         self.set_sample_mode(True)
         xs = [x[:, i] for i in range(x.size(1))]
@@ -337,16 +279,7 @@ class MetaBlock(torch.nn.Module):
             x = torch.stack(xs, dim=1)
 
         self.set_sample_mode(False)
-        x, _ = self.permutation(x, atom_type=atom_type, aa_type=aa_type, inverse=True)
-
-        # return perm as None if not Random or RandomFlip
-        # otherwise, need the perm for the immediate next block which should be Random or RandomFlip
-        # If perm_in is passed in and current block is a RandomPerm, then we set to None so next
-        # random block generates its own perm.
-        if type(self.permutation) not in (PermutationRandom, PermutationRandomFlip) or (
-            type(self.permutation) in (PermutationRandom, PermutationRandomFlip) and perm_in is not None
-        ):
-            perm = None
+        x = self.permutation(x, atom_type=atom_type, aa_type=aa_type, inverse=True)
 
         return x
 
