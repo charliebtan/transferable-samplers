@@ -396,6 +396,10 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             logits=resampling_logits,
         )
 
+        if self.datamodule.buffer is not None:
+            # Add the generated IS samples to the buffer for training
+            self.datamodule.data_train.add(reweighted_data.samples)
+
         if self.smc_sampler is not None and self.smc_sampler.enabled:
             logging.info("SMC sampling enabled")
 
