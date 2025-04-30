@@ -13,7 +13,7 @@ from src.data.components.buffer import ReplayBuffer
 from src.data.components.data_types import SamplesData
 from src.data.components.encoding import get_encoding_dict
 from src.data.components.openmm import OpenMMBridge, OpenMMEnergy
-from src.data.components.peptide_dataset import PeptideDataset, PeptideDatasetFromBuffer
+from src.data.components.peptide_dataset import PeptideDataset
 from src.data.components.prepare_data import (
     build_lmdb,
     check_and_get_files,
@@ -326,17 +326,14 @@ class TransferablePeptideDataModule(BaseDataModule):
 
         transforms = torchvision.transforms.Compose(transform_list)
 
+        # TODO: implement sample ratio between data and generated samples
         self.data_train = PeptideDataset(
             self.train_lmdb_path,
             seq_names=self.train_seq_names,
             num_dimensions=self.hparams.num_dimensions,
             transform=transforms,
+            buffer=self.buffer,
         )
-
-        if self.buffer is not None:
-            self.data_buffer = PeptideDatasetFromBuffer(
-                self.buffer, num_dimensions=self.hparams.num_dimensions, transform=transforms
-            )
 
         self.data_val = PeptideDataset(
             self.val_lmdb_path,
