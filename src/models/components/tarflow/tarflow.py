@@ -36,6 +36,7 @@ else:
     )
 
 PERM_SET = (PermutationIdentity, PermutationRandom, PermutationBackBone)
+PERM_FLIP_SET = (PermutationFlip, PermutationRandomFlip, PermutationBackBoneFlip)
 
 
 class MetaBlock(torch.nn.Module):
@@ -79,7 +80,11 @@ class MetaBlock(torch.nn.Module):
             )
 
         self.use_attn_pair_bias = use_attn_pair_bias
-        self.pos_embed = torch.nn.Parameter(torch.randn(num_patches, channels) * 1e-2)
+        if debug:
+            # if debug use a larger value for the position embedding to make it easier to see borkage
+            self.pos_embed = torch.nn.Parameter(torch.randn(num_patches, channels))
+        else:
+            self.pos_embed = torch.nn.Parameter(torch.zeros(num_patches, channels) * 1e-2)
         attn_block = AdaptiveAttnAndTransition if use_adapt_ln else AttentionBlock
         self.attn_blocks = torch.nn.ModuleList(
             [
@@ -124,12 +129,26 @@ class MetaBlock(torch.nn.Module):
         if perm_in is not None:
             perm = perm_in
 
-        # by permuting after projection + pos_embed sum, we can have the same
-        # output with / without padding tokens for PermutationFlip
-        # without this, the pos_embed is flipped but then the "first" token
-        # pos_embed is applied to a pad token
-        x = self.proj_in(x) + self.pos_embed[: x.shape[1]]
+        x = self.proj_in(x)
         x, _ = self.permutation(x, atom_type=atom_type, aa_type=aa_type, perm=perm)
+
+        # no permutation on pos_embed - it encodes sequence position AFTER permutation
+        pos_embed = self.pos_embed[: x.shape[1]]
+
+        # if it is a flip permutation the padding tokens are at the start of the sequence
+        # for perfect invertiblity we need to shift the position embeddings such that
+        # pos_emb[0] is on the first real token
+        if mask is not None and type(self.permutation) in PERM_FLIP_SET:
+            pos_embed_batch = torch.zeros_like(x)  # pos_emb for each batch item
+            num_samples, num_tokens = x.shape[:2]
+            num_padding_tokens = num_tokens - mask.sum(dim=-1).int()
+            for b in range(num_samples):
+                shift = num_padding_tokens[b]  # how much to shift by
+                valid_len = num_tokens - shift  # valid length of the sequence
+                if valid_len > 0:
+                    pos_embed_batch[b, shift:] = pos_embed[:valid_len]
+            pos_embed = pos_embed_batch
+        x = x + pos_embed
 
         if cond is not None:
             cond, _ = self.permutation(cond, atom_type=atom_type, aa_type=aa_type, perm=perm)
@@ -257,9 +276,8 @@ class MetaBlock(torch.nn.Module):
 
         x, perm = self.permutation(x, atom_type=atom_type, aa_type=aa_type, perm=perm)
 
-        pos_embed = self.pos_embed[: x.shape[1]]  # slice pos_embed before permutation
-        pos_embed = pos_embed[None, ...].repeat(x.shape[0], 1, 1)
-        pos_embed, _ = self.permutation(pos_embed, atom_type=atom_type, aa_type=aa_type, perm=perm)
+        # no permutation on pos_embed - it encodes sequence position AFTER permutation
+        pos_embed = self.pos_embed[: x.shape[1]][None, ...]  # slice pos_embed before permutation
 
         if cond is not None:
             cond, _ = self.permutation(cond, atom_type=atom_type, aa_type=aa_type, perm=perm)
@@ -401,20 +419,6 @@ class TarFlow(torch.nn.Module):
         logdets = torch.zeros((), device=x.device)
         perm = None
         for block in self.blocks:
-            if self.debug and self.perm_type == "random":
-                assert x.shape[0] == 1, "Debug mode only works for batch size 1"
-                np.random.seed(0)
-                if mask is None:
-                    perm = torch.tensor(np.random.permutation(x.shape[1]))[None, ...]
-                else:
-                    perm = torch.tensor(np.random.permutation(mask.sum().int().item()))[None, ...]
-                    num_pad = (~mask.bool()).sum(dim=-1)
-                    pad = torch.zeros(list(num_pad)) + torch.arange(perm.shape[1], perm.shape[1] + num_pad[0].item())
-                    if pad.ndim < 2:
-                        pad = pad.unsqueeze(0)
-                    perm = torch.concat([perm, pad], dim=-1)
-                perm = perm.long()
-
             # Pass in the perm if prev block is random block
             # perm from prev block is only applied to the next random block and then set to None
             x, logdet, perm = block(
@@ -713,11 +717,12 @@ if __name__ == "__main__":
 
     for use_adapt_ln in [False, True]:
         for use_attn_pair_bias in [False, True]:
-            for perm_type in ["standard", "globloc", "random"]:
+            for perm_type in ["standard", "globloc"]:
                 print(
-                    f"Testing with use_adapt_ln={use_adapt_ln} and use_attn_pair_bias={use_attn_pair_bias} "
-                    f"and perm_type={perm_type}"
+                    f"\nTesting with use_adapt_ln={use_adapt_ln} and use_attn_pair_bias={use_attn_pair_bias} "
+                    f"and perm_type={perm_type} \n"
                 )
+
                 model_pad = TarFlow(
                     in_channels,
                     img_size + pad_dim,

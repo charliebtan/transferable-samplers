@@ -3,7 +3,10 @@ import torch
 from src.data.components.encoding import AA_TYPE_ENCODING_DICT, ATOM_TYPE_ENCODING_DICT
 
 # common backbone order
-BACKBONE_ORDER = ["N", "CA", "C", "O"]
+BACKBONE_ORDER = ["N", "CA", "C"]  # O technically not part of backbone
+
+# Get backbone atom codes expected for this residue
+BACKBONE_CODES_SET = set(ATOM_TYPE_ENCODING_DICT[n] for n in BACKBONE_ORDER)
 
 # side-chain heavy-atom names per amino acid
 SIDECHAIN_MAP = {
@@ -80,53 +83,58 @@ class PermutationBackBone(Permutation):
         device = x.device
         N_code = ATOM_TYPE_ENCODING_DICT["N"]
 
-        # 1) build a tuple‐key for each batch row
-        keys = [tuple(row.tolist()) for row in aa_type]
-        unique_keys = set(keys)
+        # this unique describes a sequence including N-terminal and C-terminal AA variants
+        # (due to varying length) but without any padding tokens
+        maybe_padded_keys = [row for row in aa_type]
+        keys = [k[k != 0] for k in maybe_padded_keys]
 
-        # map each unique key → first index where it appears
-        key2idx = {key: keys.index(key) for key in unique_keys}
-
-        # 2) compute & cache any missing permutations
-        for key, idx in key2idx.items():
+        # compute & cache any missing permutations
+        for idx, key in enumerate(keys):
+            # if in cache already skip
             if key in self._cache:
                 continue
 
-            types_row = atom_type[idx]  # shape (L,)
-            aas_row = aa_type[idx]  # shape (L,)
+            # get the atom type tensor for this sequence
+            atom_type_row = atom_type[idx]  # shape (L,)
 
             # find residue boundaries by locating every "N"
-            starts = (types_row == N_code).nonzero(as_tuple=True)[0].tolist()
-            starts.append(L)
+            segment_boundaries = (atom_type_row == N_code).nonzero(as_tuple=True)[0].tolist()
 
-            perm_list: list[int] = []
-            for s, e in zip(starts[:-1], starts[1:]):
-                segment = list(range(s, e))
-                aa_name = self.rev_aa[aas_row[s].item()]
+            # add a "start" at the end of the sequence so segments can be computed
+            segment_boundaries.append(L)
 
-                # heavy atom codes for this residue
-                heavy_names = BACKBONE_ORDER + SIDECHAIN_MAP.get(aa_name, [])
-                heavy_codes = [ATOM_TYPE_ENCODING_DICT[n] for n in heavy_names]
+            perm_backbone_list = []  # list for backbone atoms
+            perm_other_list = []  # list for sidechain atoms
+            for s, e in zip(segment_boundaries[:-1], segment_boundaries[1:]):
+                # indexes corresopnding to this amino acid
+                segment = torch.arange(s, e)
 
-                # collect all matches for each heavy code
-                for code in heavy_codes:
-                    for j in segment:
-                        if types_row[j].item() == code:
-                            perm_list.append(j)
+                # Get atom types for this segment
+                segment_atom_types = atom_type_row[s:e]
 
-                # then any leftovers in original order
-                for j in segment:
-                    if j not in perm_list:
-                        perm_list.append(j)
+                # Mask of atoms matching backbone codes
+                backbone_mask = torch.tensor(
+                    [code in BACKBONE_CODES_SET for code in segment_atom_types.tolist()],
+                    device=segment_atom_types.device,
+                )
 
-            self._cache[key] = perm_list
+                # Add matched heavy atoms in order
+                perm_backbone_list.append(segment[backbone_mask])
 
-        # 3) assemble the full (B, L) perm index
+                # Add unmatched atoms in order
+                perm_other_list.append(segment[~backbone_mask])
+
+            # concatenate all the backbones first, followed by all other atoms
+            perm = torch.cat([*perm_backbone_list, *perm_other_list])
+
+            self._cache[key] = perm
+
+        # assemble the full (B, L) perm index
         perm_idx = torch.zeros((B, L), dtype=torch.long, device=device)
         for i, key in enumerate(keys):
             perm_idx[i] = torch.tensor(self._cache[key], device=device)
 
-        # 4) optionally invert
+        # optionally invert
         if inverse:
             inv = torch.zeros_like(perm_idx)
             for b in range(B):
@@ -134,7 +142,7 @@ class PermutationBackBone(Permutation):
                 inv[b, p] = torch.arange(L, device=device)
             perm_idx = inv
 
-        # 5) apply via advanced indexing
+        # apply via advanced indexing
         batch_idx = torch.arange(B, device=device).unsqueeze(1).expand(B, L)
         x_out = x[batch_idx, perm_idx]
 
