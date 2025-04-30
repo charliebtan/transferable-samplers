@@ -146,7 +146,8 @@ class MetaBlock(torch.nn.Module):
         # for perfect invertiblity we need to shift the position embeddings such that
         # pos_emb[0] is on the first real token
         if mask is not None and type(self.permutation) in PERM_FLIP_SET:
-            pos_embed = shift_pos(pos_embed[None, ...], mask)
+            pos_embed = pos_embed[None, ...].repeat(x.shape[0], 1, 1)
+            pos_embed = shift_pos(pos_embed, mask)
 
         x = x + pos_embed
 
@@ -578,10 +579,21 @@ def test_invertibility(model, x, encoding, mask=None, num_pad_tokens=2, num_dime
 def test_mask_model(model, x, encoding, model_pad, x_pad, encoding_pad, mask):
     x_fwd, _ = model(x, encoding=encoding)
     x_fwd_pad, _ = model_pad(x_pad, encoding=encoding_pad, mask=mask)
+    # breakpoint()
+    # x_fwd2, _ = model(x=x[:, :-3], encoding={
+    #     "atom_type": encoding["atom_type"][:, :-1],
+    #     "aa_type": encoding["aa_type"][:, :-1],
+    #     "aa_pos": encoding["aa_pos"][:, :-1],
+    #     "seq_len": encoding["seq_len"]
+    # })
 
-    # print("x_fwd max error:", torch.max(abs(x_fwd - x_fwd_pad[:, : x_fwd.shape[1]])))
-    # print("x_fwd mae:", torch.mean(abs(x_fwd - x_fwd_pad[:, : x_fwd.shape[1]])))
-    assert torch.allclose(x_fwd, x_fwd_pad[:, : x_fwd.shape[1]], atol=1e-6), "Models do not generate the same x_fwd"
+    # print("x_fwd max error:", torch.max(abs(x_fwd - x_fwd_pad[0, : x_fwd.shape[1]])))
+    # print("x_fwd mae:", torch.mean(abs(x_fwd - x_fwd_pad[0, : x_fwd.shape[1]])))
+    # print("x_fwd max error:", torch.max(abs(x_fwd2 - x_fwd_pad[1, : x_fwd2.shape[1]])))
+    # print("x_fwd mae:", torch.mean(abs(x_fwd2 - x_fwd_pad[1, : x_fwd2.shape[1]])))
+    assert torch.allclose(x_fwd, x_fwd_pad[0, : x_fwd.shape[1]], atol=1e-6), "Models do not generate the same x_fwd"
+    # assert torch.allclose(x_fwd2, x_fwd_pad[1, : x_fwd2.shape[1]], atol=1e-6), "Models do not generate the same x_fwd"
+
     print("Masked model fwd test passed")
 
 
@@ -738,6 +750,40 @@ if __name__ == "__main__":
         dim=1,
     )
 
+    # x_pad2 = torch.cat([x, torch.zeros([batch_size, pad_dim])], dim=1)
+    # encoding_pad2 = {
+    #     "atom_type": torch.cat(
+    #         [encoding["atom_type"].clone(), torch.zeros([batch_size, pad_tokens], dtype=torch.long)], dim=1
+    #     ),
+    #     "aa_type": torch.cat(
+    #         [encoding["aa_type"].clone(), torch.zeros([batch_size, pad_tokens], dtype=torch.long)], dim=1
+    #     ),
+    #     "aa_pos": torch.cat(
+    #         [encoding["aa_pos"].clone(), torch.zeros([batch_size, pad_tokens], dtype=torch.long)], dim=1
+    #     ),
+    #     "seq_len": encoding["seq_len"].clone(),
+    # }
+    # mask2 = torch.cat(
+    #     [torch.ones(
+    #   [batch_size, img_size // in_channels], dtype=torch.float32), torch.zeros([batch_size, pad_tokens])
+    # ],
+    #     dim=1,
+    # )
+
+    # x_pad2[0, -9:-6] = 0
+    # encoding_pad2["atom_type"][0, -3] = 0
+    # encoding_pad2["aa_type"][0, -3] = 0
+    # encoding_pad2["aa_pos"][0, -3] = 0
+    # encoding_pad2["seq_len"][0] = encoding_pad["seq_len"][0] - 1
+    # mask2[0, -3] = 0
+
+    # x_pad = torch.concat([x_pad, x_pad2], dim=0)
+    # encoding_pad["atom_type"] = torch.concat([encoding_pad["atom_type"], encoding_pad2["atom_type"]], dim=0)
+    # encoding_pad["aa_type"] = torch.concat([encoding_pad["aa_type"], encoding_pad2["aa_type"]], dim=0)
+    # encoding_pad["aa_pos"] = torch.concat([encoding_pad["aa_pos"], encoding_pad2["aa_pos"]], dim=0)
+    # encoding_pad["seq_len"] = torch.concat([encoding_pad["seq_len"], encoding_pad2["seq_len"]], dim=0)
+    # mask = torch.concat([mask, mask2], dim=0)
+
     cond_embed = ConditionalEmbedder(channels=channels)
 
     for use_adapt_ln in [False, True]:
@@ -788,6 +834,7 @@ if __name__ == "__main__":
                     test_mask_model(
                         model, x, encoding, model_pad, x_pad, encoding_pad, mask
                     )  # test forward of the padded model
+
                     test_invertibility(
                         model_pad, x_pad, encoding_pad, mask, num_pad_tokens=pad_tokens
                     )  # test invertibility of the padded model
