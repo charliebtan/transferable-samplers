@@ -24,11 +24,11 @@ RUN_NAME=tarflow_up_to_4aa_rand_v2
 
 srun python -u src/train.py \
 experiment=training/tarflow_up_to_4aa logger=wandb \
-tags=[up_to_4aa,ddp,rand] \
+trainer=ddp \
 data.data_dir='/project/aip-necludov/shared/self-consume-bg/data/new' \
 data.batch_size=512 \
+tags=[up_to_4aa,ddp,rand] \
 model.net.perm_type='random' \
 hydra.run.dir='${paths.log_dir}/${task_name}/runs/'${RUN_NAME} \
 ckpt_path='${paths.log_dir}/${task_name}/runs/'${RUN_NAME}/checkpoints/last.ckpt \
-logger.wandb.id=${RUN_NAME} \
-$2
+logger.wandb.id=${RUN_NAME} 
