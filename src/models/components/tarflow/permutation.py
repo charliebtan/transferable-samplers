@@ -107,7 +107,7 @@ class PermutationBackBone(Permutation):
             perm_other_list = []  # list for sidechain atoms
             for s, e in zip(segment_boundaries[:-1], segment_boundaries[1:]):
                 # indexes corresopnding to this amino acid
-                segment = torch.arange(s, e)
+                segment = torch.arange(s, e).to(device)
 
                 # Get atom types for this segment
                 segment_atom_types = atom_type_row[s:e]
