@@ -305,7 +305,7 @@ class TarFlow(torch.nn.Module):
         dropout: float = 0.0,
         perm_type: str = "standard",  # standard, globloc, random
         cond_embed: ConditionalEmbedder | None = None,
-        pos_embed_type: str = "standard",  # learned, sinusoidal
+        pos_embed_type: str = "learned",  # learned, sinusoidal
         nvp: bool = True,
         debug: bool = False,  # stops the weight initialization from being zero so tokens are not all the same
     ):
