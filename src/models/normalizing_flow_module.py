@@ -26,6 +26,7 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
         :param scheduler: The learning rate scheduler to use for training.
         """
         super().__init__(*args, **kwargs)
+        assert not self.hparams.mean_free_prior, "Mean free prior is not supported for normalizing flows"
 
     def model_step(
         self,
@@ -156,7 +157,7 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
 
         log_p = prior_log_p.flatten() + fwd_logdets.flatten()
 
-        return x_pred, log_p, torch.empty(0)
+        return x_pred, log_p, prior_samples
 
 
 if __name__ == "__main__":

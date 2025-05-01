@@ -27,7 +27,6 @@ class TorchdynWrapper(torch.nn.Module):
     ):
         super().__init__()
         self.model = model
-        self.d_base = d_base
         self.nfe = 0
         self.div_estimator = div_estimator
         self.logp_tol_scale = logp_tol_scale
@@ -71,10 +70,9 @@ class TorchdynWrapper(torch.nn.Module):
         def vecfield(y):
             y = y.view(1, -1)  # batch dims required by EGNN architecture
             if self.d_base is not None:
-                d_base_vec = torch.ones(y.shape[0], device=y.device) * self.d_base
-                return self.model(t, y, d_base=d_base_vec).flatten()
+                return self.model(t, y).flatten()
             else:
-                return self.model(t, y, d_base=self.d_base).flatten()
+                return self.model(t, y).flatten()
 
         J = torch.func.jacrev(vecfield)
 
@@ -92,14 +90,10 @@ class TorchdynWrapper(torch.nn.Module):
         if self.div_estimator == "exact_no_functional":
             with torch.enable_grad():
                 x = x.requires_grad_(True)
-                dx = self.model(t, x, d_base=self.d_base)
+                dx = self.model(t, x)
                 dlog_p = -self.div_fn(dx, x)
         else:
-            if self.d_base is not None:
-                d_base_vec = torch.ones(x.shape[0], device=x.device) * self.d_base
-                dx = self.model(t, x, d_base=d_base_vec)
-            else:
-                dx = self.model(t, x, d_base=self.d_base)
+            dx = self.model(t, x)
             dlog_p = -torch.vmap(self.div_fn, in_dims=(None, 0), randomness="different")(
                 torch.tensor([t], device=x.device), x
             )

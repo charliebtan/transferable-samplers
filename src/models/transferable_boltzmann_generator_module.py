@@ -72,10 +72,9 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         self.val_metrics = self.train_metrics.clone(prefix="val/")
         self.test_metrics = self.train_metrics.clone(prefix="test/")
 
-        assert not self.hparams.mean_free_prior, "mean free prior is not supported yet"
-
         self.prior = NormalDistribution(
-            self.datamodule.hparams.num_dimensions  # for transferable this will be the dim of the largest peptide
+            self.datamodule.hparams.num_dimensions,  # for transferable this will be the dim of the largest peptide
+            mean_free=self.hparams.mean_free_prior,
         )
 
     def log_image(self, img: torch.Tensor, title: str = None) -> None:

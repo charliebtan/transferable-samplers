@@ -23,7 +23,7 @@ model:
     num_blocks: 6
     layers_per_block: 6
     cond_embed:
-      _target_: src.models.components.tarflow.embed.ConditionalEmbedder
+      _target_: src.models.components.embedConditionalEmbedder
       channels: ${model.net.channels}
       num_residue_pos: ${data.num_aa_max}
   smc_sampler:

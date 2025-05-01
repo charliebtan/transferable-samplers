@@ -1,22 +1,19 @@
 # @package _global_
 
 defaults:
-  - override /model: normalizing_flow
-  - override /data: up_to_8aa
+  - override /model: flow_matching
+  - override /data: up_to_4aa
   - override /trainer: gpu
 
 model:
   net:
-    in_channels: 3
-    channels: 512
-    num_blocks: 8
-    layers_per_block: 8
-    cond_embed:
-      _target_: src.models.components.tarflow.ConditionalEmbedder
-      channels: ${model.net.channels}
+    channels: 256
+    num_layers: 8
+    encoding_dim: 4
 
   sampling_config:
-    num_proposal_samples: 5_000
+    batch_size: 256
+    num_proposal_samples: 1_000
 
 data:
   batch_size: 512

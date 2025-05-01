@@ -15,10 +15,6 @@ model:
       _target_: src.models.components.tarflow.embed.ConditionalEmbedder
       channels: ${model.net.channels}
 
-  optimizer:
-    lr: 1e-4
-    weight_decay: 4e-4
-
   sampling_config:
     num_proposal_samples: 5_000
 
