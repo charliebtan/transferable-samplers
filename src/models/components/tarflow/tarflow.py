@@ -81,8 +81,9 @@ class MetaBlock(torch.nn.Module):
                 torch.nn.Linear(pair_bias_hidden_dim, num_heads, bias=False),  # softmax is invariant to bias
             )
 
-        # Scale the weights of the last linear layer
+        # Scale the weights of the MLP layers - to slow down "switching on of learned mask"
         with torch.no_grad():
+            self.pair_proj[0].weight.mul_(1e-3)
             self.pair_proj[-1].weight.mul_(1e-9)
 
         self.use_attn_pair_bias = use_attn_pair_bias
