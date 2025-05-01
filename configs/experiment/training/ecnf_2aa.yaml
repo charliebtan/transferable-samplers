@@ -2,12 +2,12 @@
 
 defaults:
   - override /model: flow_matching
-  - override /data: up_to_4aa
+  - override /data: 2aa
   - override /trainer: gpu
 
 model:
   net:
-    channels: 256
+    channels: 128
     num_layers: 9
     encoding_dim: 4
 
