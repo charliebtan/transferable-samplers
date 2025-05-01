@@ -498,7 +498,7 @@ class TarFlow(torch.nn.Module):
 
             # inverse the rand perm -- pass in perm
             if (i % 2) and self.perm_type == "random":
-                x, perm = self.rand_permutation(x, mask=mask, perm=perm, inverse=True)
+                x, perm = self.rand_permutation(x, mask=None, perm=perm, inverse=True)
 
             seq.append(x.reshape(batch_size, -1))
 
