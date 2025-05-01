@@ -77,10 +77,13 @@ class MetaBlock(torch.nn.Module):
             self.pair_proj = torch.nn.Sequential(
                 torch.nn.Linear(1, pair_bias_hidden_dim),
                 torch.nn.GELU(),
-                torch.nn.LayerNorm(pair_bias_hidden_dim),
                 # needs projecting to num_heads as each head has its own attn_mask
                 torch.nn.Linear(pair_bias_hidden_dim, num_heads, bias=False),  # softmax is invariant to bias
             )
+
+        # Scale the weights of the last linear layer
+        with torch.no_grad():
+            self.pair_proj[-1].weight.mul_(1e-9)
 
         self.use_attn_pair_bias = use_attn_pair_bias
 
