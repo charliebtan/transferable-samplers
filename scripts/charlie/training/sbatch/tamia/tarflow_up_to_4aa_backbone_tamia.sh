@@ -20,7 +20,7 @@ source $HOME/envs/$env/bin/activate
 
 wandb offline 
 
-RUN_NAME="tarflow_up_to_4aa_pair_bias_small"
+RUN_NAME="tarflow_up_to_4aa_backbone_v2"
 
 srun python -u src/train.py \
 experiment=training/tarflow_up_to_4aa logger=wandb \
