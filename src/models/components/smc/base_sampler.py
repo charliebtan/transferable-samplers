@@ -1,5 +1,4 @@
 import logging
-import math
 from typing import Callable
 
 import matplotlib.pyplot as plt
@@ -14,30 +13,71 @@ from src.evaluation.metrics.ess import sampling_efficiency
 class SMCSampler(torch.nn.Module):
     def __init__(
         self,
-        source_energy: Callable,
-        target_energy: Callable,
         log_image_fn: Callable,
         batch_size: int = 128,
         langevin_eps: float = 1e-7,
         num_timesteps: int = 100,
         ess_threshold: float = -1.0,
+        warmup: float = 0.1,
         enabled: bool = False,
         do_energy_plots: bool = False,
         input_energy_cutoff: float = None,
         systematic_resampling: bool = False,
     ):
         super().__init__()
-        self.source_energy = source_energy  # TODO pass to sample? - could be partial with encoding + com_std?
-        self.target_energy = target_energy  # TODO pass to sample?
+
         self.log_image_fn = log_image_fn
         self.batch_size = batch_size
         self.langevin_eps = langevin_eps
         self.num_timesteps = num_timesteps
         self.ess_threshold = ess_threshold
+        self.warmup = warmup
         self.enabled = enabled
         self.do_energy_plots = do_energy_plots
         self.input_energy_cutoff = input_energy_cutoff
         self.systematic_resampling = systematic_resampling
+
+    def mcmc_kernel(self, source_energy, target_energy, t, x, logw, dt):
+        raise NotImplementedError
+
+    def langevin_eps_fn(self, t):
+        if t < self.warmup:
+            return (self.langevin_eps * t) / self.warmup
+        else:
+            return self.langevin_eps
+
+    def linear_energy_interpolation(self, source_energy, target_energy, t, x):
+        E_source = source_energy(x)
+        E_target = target_energy(x)
+        E_target = E_target.reshape(-1)
+        assert E_source.shape == (x.shape[0],), f"Source energy should be a flat vector not {E_source.shape}"
+        assert E_target.shape == (x.shape[0],), f"Target energy should be a flat vector, not {E_target.shape}"
+        energy = (1 - t) * E_source + t * E_target
+        return energy
+
+    def linear_energy_interpolation_gradients(self, source_energy, target_energy, t, x):
+        t = t.repeat(x.shape[0]).to(x)
+
+        with torch.set_grad_enabled(True):
+            x.requires_grad = True
+            t.requires_grad = True
+
+            et = self.linear_energy_interpolation(source_energy, target_energy, x, t)
+
+            assert et.requires_grad, "et should require grad - check the energy function for no_grad"
+
+            # this is a bit hacky but is fine as long as
+            # the energy function is defined properly and
+            # doesn't mix batch items
+            x_grad, t_grad = torch.autograd.grad(et.sum(), (x, t))
+
+            assert x_grad.shape == x.shape, "x_grad should have the same shape as x"
+            assert t_grad.shape == t.shape, "t_grad should have the same shape as t"
+
+        assert x_grad is not None, "x_grad should not be None"
+        assert t_grad is not None, "t_grad should not be None"
+
+        return x_grad, t_grad
 
     def plot_stepwise_energy(self, target_energy_list, interpolation_energy_list, t_list):
         stepwise_target_energy_np = np.stack(target_energy_list)
@@ -153,40 +193,6 @@ class SMCSampler(torch.nn.Module):
         self.log_image_fn(fig, "langevin/eps")
         plt.close()
 
-    def linear_energy_interpolation(self, x, t, encoding):
-        source_energy = self.source_energy(x, encoding=encoding)
-        target_energy = self.target_energy(x)
-        target_energy = target_energy.reshape(-1)
-        assert source_energy.shape == (x.shape[0],), f"Source energy should be a flat vector not {source_energy.shape}"
-        assert target_energy.shape == (x.shape[0],), f"Target energy should be a flat vector, not {target_energy.shape}"
-        energy = (1 - t) * source_energy + t * target_energy
-        return energy
-
-    def linear_energy_interpolation_gradients(self, x, t, encoding):
-        t = t.repeat(x.shape[0]).to(x)
-
-        with torch.set_grad_enabled(True):
-            x.requires_grad = True
-            t.requires_grad = True
-
-            et = self.linear_energy_interpolation(x, t, encoding=encoding)
-
-            assert et.requires_grad, "et should require grad - check the energy function for no_grad"
-
-            # this is a bit hacky but is fine as long as
-            # the energy function is defined properly and
-            # doesn't mix batch items
-
-            x_grad, t_grad = torch.autograd.grad(et.sum(), (x, t))
-
-            assert x_grad.shape == x.shape, "x_grad should have the same shape as x"
-            assert t_grad.shape == t.shape, "t_grad should have the same shape as t"
-
-        assert x_grad is not None, "x_grad should not be None"
-        assert t_grad is not None, "t_grad should not be None"
-
-        return x_grad, t_grad
-
     @torch.no_grad()
     def resample(self, x, logw):
         if self.systematic_resampling:
@@ -205,14 +211,9 @@ class SMCSampler(torch.nn.Module):
         return x[indexes]
 
     @torch.no_grad()
-    def sample(self, proposal_samples, encoding):
+    def sample(self, proposal_samples, source_energy, target_energy):
         if not self.enabled:
             return None, None
-
-        encoding = {
-            key: tensor.unsqueeze(0).repeat(proposal_samples.shape[0], 1).to(proposal_samples.device)
-            for key, tensor in encoding.items()
-        }
 
         # Filter samples based on target energy cutoff
         if self.input_energy_cutoff is not None:
@@ -236,21 +237,17 @@ class SMCSampler(torch.nn.Module):
         ESS_list = [1.0]
         t_list = [timesteps[0]]
         eps_list = [eps_fn(0.0)]
-        dX_t_norm_list = [torch.zeros(X.shape[0])]
+        # dX_t_norm_list = [torch.zeros(X.shape[0])]
 
         if self.do_energy_plots:
             # slice into list of batches (tensors)
             X_batches = [X[i : i + self.batch_size] for i in range(0, X.shape[0], self.batch_size)]
-            encoding_batches = [
-                {k: v[i : i + self.batch_size] for k, v in encoding.items()}
-                for i in range(0, X.shape[0], self.batch_size)
-            ]
 
             target_energy_list = [np.concatenate([self.target_energy(X_batch).cpu() for X_batch in X_batches])]
             interpolation_energy_list = [
                 np.concatenate(
                     [
-                        self.linear_energy_interpolation(X_batches[i], timesteps[0], encoding=encoding_batches[i]).cpu()
+                        self.linear_energy_interpolation(source_energy, target_energy, timesteps[0], X_batches[i]).cpu()
                         for i in range(len(X_batches))
                     ]
                 )
@@ -264,43 +261,27 @@ class SMCSampler(torch.nn.Module):
             # slice into list of batches (tensors)
             X_batches = [X[i : i + self.batch_size] for i in range(0, X.shape[0], self.batch_size)]
             A_batches = [A[i : i + self.batch_size] for i in range(0, A.shape[0], self.batch_size)]
-            encoding_batches = [
-                {k: v[i : i + self.batch_size] for k, v in encoding.items()}
-                for i in range(0, X.shape[0], self.batch_size)
-            ]
 
-            dX_t_norm_batches = []
+            # dX_t_norm_batches = []
             target_energy_batches = []
             interpolation_energy_batches = []
 
             dt = t - t_previous
-            for batch_idx, (X_batch, A_batch, encoding_batch) in enumerate(zip(X_batches, A_batches, encoding_batches)):
-                eps = eps_fn(t)
-
-                # get the energy gradients
-                energy_grad_x, energy_grad_t = self.linear_energy_interpolation_gradients(
-                    X_batch, t, encoding=encoding_batch
+            for batch_idx, (X_batch, A_batch) in enumerate(zip(X_batches, A_batches)):
+                # Update coordinates and weights according to mcmc kernel
+                X_batch, A_batch = self.mcmc_kernel(
+                    source_energy=source_energy, target_energy=target_energy, t=t, x=X_batches, logw=A_batch, dt=dt
                 )
 
-                # assert torch.allclose(energy_grad_t, - self.source_energy(X_batch) + self.target_energy(X_batch))
-
-                # compute the updates
-                dX_t = -eps * energy_grad_x + math.sqrt(2 * eps) * torch.randn_like(X_batch)
-
-                dA_t = -energy_grad_t * dt
-
-                assert dX_t.shape == X_batch.shape, "dX_t should have the same shape as X_batch"
-                assert dA_t.shape == A_batch.shape, "dA_t should have the same shape as A_batch"
-
                 # apply the updates to the batch in the list
-                X_batches[batch_idx] = X_batch + dX_t
-                A_batches[batch_idx] = A_batch + dA_t
-                dX_t_norm_batches.append(dX_t.norm(dim=-1).cpu())
+                X_batches[batch_idx] = X_batch
+                A_batches[batch_idx] = A_batch
+                # dX_t_norm_batches.append(dX_t.norm(dim=-1).cpu())
 
                 if self.do_energy_plots:
                     target_energy_batches.append(self.target_energy(X_batch).cpu())
                     interpolation_energy_batches.append(
-                        self.linear_energy_interpolation(X_batch, t, encoding=encoding_batch).cpu()
+                        self.linear_energy_interpolation(source_energy, target_energy, t, X_batch).cpu()
                     )
 
             # cat the batches to compute global statistics
@@ -314,7 +295,7 @@ class SMCSampler(torch.nn.Module):
                     self.plot_stepwise_energy(target_energy_list, interpolation_energy_list, t_list)
                     self.plot_stepwise_energy_hist(target_energy_list, interpolation_energy_list, t_list)
 
-                self.plot_dX_t_norm(dX_t_norm_list, t_list)
+                # self.plot_dX_t_norm(dX_t_norm_list, t_list)
                 self.plot_weights(A_list, ESS_list, t_list)
                 self.plot_eps(eps_list, t_list)
 
@@ -326,9 +307,11 @@ class SMCSampler(torch.nn.Module):
             A_list.append(A)
             ESS = sampling_efficiency(A)
             ESS_list.append(ESS.cpu())
-            dX_t_norm_list.append(np.concatenate(dX_t_norm_batches))
+            # dX_t_norm_list.append(np.concatenate(dX_t_norm_batches))
 
             t_list.append(t)
+            # log epsilon step size from langevin
+            eps = self.langevin_eps(t)
             eps_list.append(eps)
 
             if self.do_energy_plots:
@@ -343,13 +326,16 @@ class SMCSampler(torch.nn.Module):
                 A = torch.zeros_like(A)
                 logging.info(f"resampling @ step {j}")
 
+                # TODO: I do not like this. Maybe reconsider the MCMC class
+                eps = self.mcmc_kernel.langevin_eps_fn(t)
+
                 A_list.append(A)
                 ESS = sampling_efficiency(A)
                 ESS_list.append(ESS.cpu())
 
                 t_list.append(t + 1e-9)
                 eps_list.append(eps)
-                dX_t_norm_list.append(np.concatenate(dX_t_norm_batches))
+                # dX_t_norm_list.append(np.concatenate(dX_t_norm_batches))
 
                 # slice into list of batches (tensors)
                 X_batches = [X[i : i + self.batch_size] for i in range(0, X.shape[0], self.batch_size)]
@@ -360,7 +346,10 @@ class SMCSampler(torch.nn.Module):
                     )
                     interpolation_energy_list.append(
                         np.concatenate(
-                            [self.linear_energy_interpolation(X_batch, t + 1e-9).cpu() for X_batch in X_batches]
+                            [
+                                self.linear_energy_interpolation(source_energy, target_energy, t + 1e-9, X_batch).cpu()
+                                for X_batch in X_batches
+                            ]
                         )
                     )
 

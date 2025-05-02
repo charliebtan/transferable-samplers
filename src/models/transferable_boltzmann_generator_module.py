@@ -396,10 +396,6 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             logits=resampling_logits,
         )
 
-        if self.datamodule.buffer is not None:
-            # Add the generated IS samples to the buffer for training
-            self.datamodule.data_train.add(reweighted_data.samples)
-
         if self.smc_sampler is not None and self.smc_sampler.enabled:
             logging.info("SMC sampling enabled")
 
@@ -408,9 +404,11 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             # Generate smc samples and record time
             torch.cuda.synchronize()
             start_time = time.time()
-            self.smc_sampler.target_energy = energy_fn
+
+            # TODO: Make conditional proposal energy
+            cond_proposal_energy = lambda _x: self.proposal_energy(_x, encoding=encoding)
             smc_samples, smc_logits = self.smc_sampler.sample(
-                proposal_samples[:num_smc_samples], encoding=encoding
+                proposal_samples[:num_smc_samples], cond_proposal_energy, energy_fn
             )  # already returned resampled
             torch.cuda.synchronize()
             time_duration = time.time() - start_time
@@ -434,6 +432,15 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             )
         else:
             smc_data = None
+
+        if self.datamodule.buffer is not None:
+            breakpoint()
+            if smc_data is not None:
+                # add data from smc if doing smc
+                self.datamodule.data_train.add(smc_data.samples)
+            else:
+                # Add the generated IS samples to the buffer for training
+                self.datamodule.data_train.add(reweighted_data.samples)
 
         if self.local_rank == 0:
             # log dataset metrics
