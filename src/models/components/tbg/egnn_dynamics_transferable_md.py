@@ -70,9 +70,6 @@ class EGNNDynamicsTransferableMD(nn.Module):
         else:
             node_mask = node_mask.float()
 
-        print("eval", self.eval_encoding)
-        print("enc", encoding)
-
         assert (self.eval_encoding is None) ^ (encoding is None), (
             "Exactly one of eval_encoding or encoding should be None"
         )

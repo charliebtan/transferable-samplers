@@ -16,17 +16,20 @@ env=tbg3
 module purge
 module load python/3.11 cuda/12.2
 module load openmm/8.2.0
+module load httpproxy/1.0
 source $HOME/envs/$env/bin/activate
-
-wandb offline 
 
 RUN_NAME="encf_up_to_4aa_v1"
 
+# ddp_find_unused_parameters_true needed because some of modules in final layer don't affect loss
+
 srun python -u src/train.py \
 experiment=training/ecnf_up_to_4aa logger=wandb \
-trainer=ddp \
+trainer=ddp_find_unused_parameters_true \ 
 data.data_dir='/project/aip-necludov/shared/self-consume-bg/data/new' \
-data.batch_size=512 \
+data.batch_size=256 \
+trainer.limit_train_batches=2000 \
+trainer.accumulate_grad_batches=2 \
 data.train_lmdb_prefix='train_medium_up_to_4aa' \
 tags=[up_to_4aa,ddp,cfm] \
 trainer.check_val_every_n_epoch=10000 \
