@@ -17,7 +17,7 @@ from tqdm import tqdm
 from src.data.components.data_types import SamplesData
 from src.models.components.ema import EMA
 from src.models.components.priors import NormalDistribution
-from src.models.components.smc_sampler import SMCSampler
+from src.models.components.smc.base_sampler import SMCSampler
 from src.models.components.utils import resample
 
 logger = logging.getLogger(__name__)
