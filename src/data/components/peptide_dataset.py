@@ -40,7 +40,7 @@ class PeptideDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, idx):
         # Call from buffer if idx exceeds data length
-        if idx >= len(self.data_length):
+        if idx >= self.data_length:
             return self.sample_buffer()
 
         lmdb_idx = self.valid_indices[idx]  # transform the index to the global index
