@@ -145,7 +145,8 @@ class PermutationBackBone(Permutation):
         # assemble the full (B, L) perm index
         perm_idx = torch.zeros((B, L), dtype=torch.long, device=device)
         for i, key in enumerate(keys):
-            perm_idx[i] = self._cache[key].clone().detach().to(device)
+            perm = self._cache[key].clone().detach().to(device)
+            perm_idx[i, :perm.shape[-1]] = perm[:L]
 
         # optionally invert
         if inverse:
