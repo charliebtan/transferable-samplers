@@ -186,6 +186,7 @@ class AttentionBlock(torch.nn.Module):
         use_qkln: bool = False,
         use_attn_pair_bias: bool = True,
         dropout: float = 0.0,
+        **kwargs
     ):
         super().__init__()
         self.attention = Attention(
