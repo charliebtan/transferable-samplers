@@ -71,6 +71,15 @@ class PermutationBackBone(Permutation):
         x = self.permute(x, atom_type, aa_type, dim, inverse)
         return x
 
+    def make_key(self, aa_type):
+        # this unique describes a sequence including N-terminal and C-terminal AA variants
+        # (due to varying length) but without any padding tokens
+        maybe_padded_keys = [row for row in aa_type]
+
+        stringify = lambda _x: "".join(list(map(str, _x.tolist())))
+        keys = [stringify(k[k != 0]) for k in maybe_padded_keys]
+        return keys
+
     def permute(
         self,
         x: torch.Tensor,  # (B, L, ...)
@@ -83,10 +92,7 @@ class PermutationBackBone(Permutation):
         device = x.device
         N_code = ATOM_TYPE_ENCODING_DICT["N"]
 
-        # this unique describes a sequence including N-terminal and C-terminal AA variants
-        # (due to varying length) but without any padding tokens
-        maybe_padded_keys = [row for row in aa_type]
-        keys = [k[k != 0] for k in maybe_padded_keys]
+        keys = self.make_key(aa_type)
 
         # compute & cache any missing permutations
         for idx, key in enumerate(keys):
