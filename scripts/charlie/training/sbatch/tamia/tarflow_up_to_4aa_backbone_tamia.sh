@@ -16,11 +16,11 @@ env=tbg3
 module purge
 module load python/3.11 cuda/12.2
 module load openmm/8.2.0
-source $HOME/envs/$env/bin/activate
+module load httpproxy/1.0
+source $HOME/envs/$env/bin/activate 
+wandb online 
 
-wandb offline 
-
-RUN_NAME="tarflow_up_to_4aa_backbone_v2"
+RUN_NAME="tarflow_up_to_4aa_backbone_v4"
 
 srun python -u src/train.py \
 experiment=training/tarflow_up_to_4aa logger=wandb \

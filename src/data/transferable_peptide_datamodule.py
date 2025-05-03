@@ -456,7 +456,8 @@ class TransferablePeptideDataModule(BaseDataModule):
 
             if len(data) == 0:
                 logging.warning(f"No {name} samples present.")
-
+                continue
+            
             logging.info(f"Evaluating {prefix + name} samples")
 
             data = data[: self.hparams.num_eval_samples * 2]  # slice out extra samples for those lost to symmetry
