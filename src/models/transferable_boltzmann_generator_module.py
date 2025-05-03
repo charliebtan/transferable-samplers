@@ -331,10 +331,12 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             num_proposal_samples = self.hparams.sampling_config.num_proposal_samples
 
         # Generate samples and record time
-        torch.cuda.synchronize()
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
         start_time = time.time()
         proposal_samples, proposal_log_p, prior_samples = proposal_generator(num_proposal_samples, encoding)
-        torch.cuda.synchronize()
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
         time_duration = time.time() - start_time
         self.log(f"{prefix}/samples_walltime", time_duration, sync_dist=True)
         self.log(f"{prefix}/samples_per_second", len(proposal_samples) / time_duration, sync_dist=True)
@@ -398,7 +400,9 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
 
         if self.datamodule.buffer is not None:
             # Add the generated IS samples to the buffer for training
-            self.datamodule.data_train.add(reweighted_data.samples)
+            batch_size = reweighted_data.samples.shape[0]
+            self.datamodule.data_train.add(reweighted_data.samples.view(batch_size, -1))
+            breakpoint()
 
         if self.smc_sampler is not None and self.smc_sampler.enabled:
             logging.info("SMC sampling enabled")

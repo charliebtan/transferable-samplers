@@ -10,6 +10,7 @@ class ReplayData(NamedTuple):
     """Samples generated from model or sampling alg."""
 
     x: torch.Tensor
+    dim: int
 
 
 def sample_without_replacement(logits: torch.Tensor, n: int) -> torch.Tensor:
@@ -57,6 +58,9 @@ class ReplayBuffer:
         self.min_sample_length = min_sample_length
         self.buffer = ReplayData(
             x=torch.zeros(self.max_length, dim).to(device),
+            dim=torch.zeros(
+                self.max_length,
+            ).to(device),
         )
         self.possible_indices = torch.arange(self.max_length).to(device)
         self.device = device
@@ -85,7 +89,8 @@ class ReplayBuffer:
         batch_size = x.shape[0]
         x = x.to(self.device)
         indices = (torch.arange(batch_size) + self.current_index).to(self.device) % self.max_length
-        self.buffer.x[indices] = x
+        self.buffer.x[indices, : x.shape[-1]] = x
+        self.buffer.dim[indices] = x.shape[-1]
         new_index = self.current_index + batch_size
         if not self.is_full:
             self.is_full = new_index >= self.max_length
@@ -123,8 +128,9 @@ class ReplayBuffer:
         else:
             indices = torch.randperm(max_index)[:batch_size].to(self.device)
 
+        dim = self.buffer.dim[indices]
         x, indices = (
-            self.buffer.x[indices],
+            self.buffer.x[indices, :dim],
             indices,
         )
         return x, indices
