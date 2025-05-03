@@ -127,7 +127,7 @@ class PermutationBackBone(Permutation):
             # concatenate all the backbones first, followed by all other atoms
             perm = torch.cat([*perm_backbone_list, *perm_other_list])
 
-            self._cache[key] = perm
+            self._cache[key] = perm.detach().cpu()
 
         # assemble the full (B, L) perm index
         perm_idx = torch.zeros((B, L), dtype=torch.long, device=device)
