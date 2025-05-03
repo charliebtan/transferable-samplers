@@ -58,7 +58,7 @@ class MetaBlock(torch.nn.Module):
         use_adapt_ln: bool = False,
         use_attn_pair_bias: bool = False,
         pair_bias_hidden_dim: int = 16,
-        use_transition: bool= True,
+        use_transition: bool= False,
         use_qkln: bool = False,
         dropout: float = 0.0,
         pos_embed_type: str = "learned",  # learned, sinusoidal
@@ -303,7 +303,7 @@ class TarFlow(torch.nn.Module):
         use_adapt_ln: bool = False,
         use_attn_pair_bias: bool = False,
         pair_bias_hidden_dim: int = 16,
-        use_transition: bool = True,
+        use_transition: bool = False,
         use_qkln: bool = False,
         dropout: float = 0.0,
         perm_type: str = "standard",  # standard, globloc, random
