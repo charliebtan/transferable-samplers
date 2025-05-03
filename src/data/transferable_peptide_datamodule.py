@@ -383,7 +383,8 @@ class TransferablePeptideDataModule(BaseDataModule):
         )
 
         # Initialize potential
-        potential = OpenMMEnergy(bridge=OpenMMBridge(system, integrator, platform_name="CUDA"))
+        platform_name = "CUDA" if torch.cuda.is_available() else "CPU"
+        potential = OpenMMEnergy(bridge=OpenMMBridge(system, integrator, platform_name=platform_name))
 
         return potential
 
