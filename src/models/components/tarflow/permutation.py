@@ -1,6 +1,6 @@
 import torch
 
-from src.data.components.encoding import AA_TYPE_ENCODING_DICT, ATOM_TYPE_ENCODING_DICT
+from src.data.components.encoding import AA_CODE_CONVERSION, AA_TYPE_ENCODING_DICT, ATOM_TYPE_ENCODING_DICT
 
 # common backbone order
 BACKBONE_ORDER = ["N", "CA", "C"]  # O technically not part of backbone
@@ -71,13 +71,20 @@ class PermutationBackBone(Permutation):
         x = self.permute(x, atom_type, aa_type, dim, inverse)
         return x
 
-    def make_key(self, aa_type):
+    def convert_aa(self, aa_type):
+        convert_to_aa = lambda _x: AA_CODE_CONVERSION[self.rev_aa[_x]]
+
+        return "".join(list(map(convert_to_aa, aa_type.tolist())))
+
+    def make_key(self, aa_type, atom_type):
+        # use N code to find the unique aa type in expanded sequence
+        N_code = ATOM_TYPE_ENCODING_DICT["N"]
+
         # this unique describes a sequence including N-terminal and C-terminal AA variants
         # (due to varying length) but without any padding tokens
-        maybe_padded_keys = [row for row in aa_type]
+        maybe_padded_keys = [aa_type[i, atom_type[i] == N_code].detach().cpu() for i in range(len(aa_type))]
 
-        stringify = lambda _x: "".join(list(map(str, _x.tolist())))
-        keys = [stringify(k[k != 0]) for k in maybe_padded_keys]
+        keys = [self.convert_aa(k[k != 0]) for k in maybe_padded_keys]
         return keys
 
     def permute(
@@ -92,7 +99,7 @@ class PermutationBackBone(Permutation):
         device = x.device
         N_code = ATOM_TYPE_ENCODING_DICT["N"]
 
-        keys = self.make_key(aa_type)
+        keys = self.make_key(aa_type, atom_type)
 
         # compute & cache any missing permutations
         for idx, key in enumerate(keys):
