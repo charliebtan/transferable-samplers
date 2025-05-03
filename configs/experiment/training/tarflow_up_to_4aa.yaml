@@ -37,4 +37,4 @@ trainer:
   limit_val_batches: 0.5 # it's quite slow otherwise - only affects val/loss
   limit_test_batches: null
   max_epochs: 500
-  num_sanity_val_steps: 1
+  num_sanity_val_steps: 0
