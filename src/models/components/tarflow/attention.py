@@ -90,6 +90,8 @@ class Attention(torch.nn.Module):
             else:
                 mask = bias
 
+        print(self.dropout, self.training)
+
         x = torch.nn.functional.scaled_dot_product_attention(
             q, k, v, attn_mask=mask, scale=scale, dropout_p=self.dropout if self.training else 0.0
         )
