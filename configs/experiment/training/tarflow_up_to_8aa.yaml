@@ -8,7 +8,7 @@ defaults:
 model:
   net:
     in_channels: 3
-    channels: 512
+    channels: 384
     num_blocks: 8
     layers_per_block: 8
     perm_type: "standard"

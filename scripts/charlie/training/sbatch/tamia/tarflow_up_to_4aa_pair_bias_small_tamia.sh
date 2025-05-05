@@ -27,13 +27,8 @@ experiment=training/tarflow_up_to_4aa logger=wandb \
 trainer=ddp \
 data.data_dir='/project/aip-necludov/shared/self-consume-bg/data/new' \
 data.batch_size=512 \
-data.train_lmdb_prefix='train_medium_up_to_4aa' \
-data.val_lmdb_prefix='new_val' \
-data.test_lmdb_prefix='new_test' \
 tags=[up_to_4aa,ddp,pair_bias_small] \
 model.net.use_attn_pair_bias=true \
-trainer.check_val_every_n_epoch=20 \
-trainer.num_sanity_val_steps=0 \
 hydra.run.dir='${paths.log_dir}/${task_name}/runs/'${RUN_NAME} \
 ckpt_path='${paths.log_dir}/${task_name}/runs/'${RUN_NAME}/checkpoints/last.ckpt \
 logger.wandb.id=${RUN_NAME}

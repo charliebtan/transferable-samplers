@@ -27,7 +27,6 @@ experiment=training/tarflow_up_to_4aa logger=wandb \
 trainer=ddp \
 data.data_dir='/project/aip-necludov/shared/self-consume-bg/data/new' \
 data.batch_size=512 \
-data.train_lmdb_prefix='train_medium_up_to_4aa' \
 model.net.use_adapt_ln=True \
 model.net.use_transition=False \
 tags=[up_to_4aa,ddp] \
