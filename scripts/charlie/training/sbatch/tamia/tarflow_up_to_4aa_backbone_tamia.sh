@@ -27,8 +27,6 @@ experiment=training/tarflow_up_to_4aa logger=wandb \
 trainer=ddp \
 data.data_dir='/project/aip-necludov/shared/self-consume-bg/data/new' \
 data.batch_size=512 \
-data.train_lmdb_prefix='train_medium_up_to_4aa' \
-trainer.num_sanity_val_steps=0 \
 tags=[up_to_4aa,ddp,backbone] \
 model.net.perm_type='globloc' \
 hydra.run.dir='${paths.log_dir}/${task_name}/runs/'${RUN_NAME} \
