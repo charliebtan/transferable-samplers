@@ -14,7 +14,7 @@ model:
     perm_type: "standard"
     use_adapt_ln: False
     use_transition: False
-    pos_embed_type: "learned"
+    pos_embed_type: "sinusoidal"
     cond_embed:
       _target_: src.models.components.tarflow.embed.ConditionalEmbedder
       channels: ${model.net.channels}
