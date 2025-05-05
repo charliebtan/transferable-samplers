@@ -1,9 +1,9 @@
 #!/bin/bash
-#SBATCH -J train_nf_rand                 # Job name
+#SBATCH -J train_nf                 # Job name
 #SBATCH -o watch_folder/%x_%j.out     # output file (%j expands to jobID)
 #SBATCH -N 1                          # Total number of nodes requested
 #SBATCH --mem=256G                     # server memory requested (per node)
-#SBATCH -t 12:00:00                  # Time limit (hh:mm:ss)
+#SBATCH -t 3:00:00                  # Time limit (hh:mm:ss)
 #SBATCH --account=aip-necludov               
 #SBATCH --ntasks-per-node=4
 #SBATCH --gres=gpu:h100:4                  # Type/number of GPUs needed
@@ -20,7 +20,7 @@ module load httpproxy/1.0
 source $HOME/envs/$env/bin/activate
 wandb online 
 
-RUN_NAME=tarflow_up_to_4aa_rand_v2
+RUN_NAME="tarflow_up_to_4aa_pair_bias_small_dropout"
 
 srun python -u src/train.py \
 experiment=training/tarflow_up_to_4aa logger=wandb \
@@ -28,8 +28,11 @@ trainer=ddp \
 data.data_dir='/project/aip-necludov/shared/self-consume-bg/data/new' \
 data.batch_size=512 \
 data.train_lmdb_prefix='train_medium_up_to_4aa' \
-tags=[up_to_4aa,ddp,rand] \
-model.net.perm_type='random' \
+tags=[up_to_4aa,ddp,pair_bias_small] \
+model.net.use_attn_pair_bias=true \
+trainer.check_val_every_n_epoch=20 \
++model.net.dropout=0.1 \
+trainer.num_sanity_val_steps=0 \
 hydra.run.dir='${paths.log_dir}/${task_name}/runs/'${RUN_NAME} \
 ckpt_path='${paths.log_dir}/${task_name}/runs/'${RUN_NAME}/checkpoints/last.ckpt \
-logger.wandb.id=${RUN_NAME} 
+logger.wandb.id=${RUN_NAME}
