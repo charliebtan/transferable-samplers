@@ -20,7 +20,7 @@ module load httpproxy/1.0
 source $HOME/envs/$env/bin/activate
 wandb online 
 
-RUN_NAME="tarflow_up_to_4aa_pair_bias_small_v2"
+RUN_NAME="tarflow_up_to_4aa_pair_bias_small_v3"
 
 srun python -u src/train.py \
 experiment=training/tarflow_up_to_4aa logger=wandb \
@@ -28,6 +28,8 @@ trainer=ddp \
 data.data_dir='/project/aip-necludov/shared/self-consume-bg/data/new' \
 data.batch_size=512 \
 data.train_lmdb_prefix='train_medium_up_to_4aa' \
+data.val_lmdb_prefix='new_val' \
+data.test_lmdb_prefix='new_test' \
 tags=[up_to_4aa,ddp,pair_bias_small] \
 model.net.use_attn_pair_bias=true \
 trainer.check_val_every_n_epoch=20 \
