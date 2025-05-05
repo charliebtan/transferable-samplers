@@ -48,17 +48,6 @@ class BaseDataModule(LightningDataModule):
         """
         raise NotImplementedError
 
-    def buffer_dataloader(self) -> DataLoader[Any]:
-        """Create and return the dataloader for the buffer"""
-        return DataLoader(
-            dataset=self.data_buffer,
-            batch_size=self.batch_size_per_device,
-            num_workers=self.hparams.num_works,
-            pin_memory=self.hparams.pin_memory,
-            shuffle=True,
-            persistent_workers=True if self.hparams.num_workers > 0 else False,
-        )
-
     def train_dataloader(self) -> DataLoader[Any]:
         """Create and return the train dataloader.
 
@@ -70,7 +59,10 @@ class BaseDataModule(LightningDataModule):
             num_workers=self.hparams.num_workers,
             pin_memory=self.hparams.pin_memory,
             shuffle=True,
-            persistent_workers=True if self.hparams.num_workers > 0 else False,
+            # persistent_workers=False
+            persistent_workers=True
+            if (self.hparams.num_workers > 0 and isinstance(self.data_train.buffer, list))
+            else False,
         )
 
     def val_dataloader(self) -> DataLoader[Any]:
