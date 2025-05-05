@@ -95,7 +95,7 @@ class PermutationBackBone(Permutation):
         dim: int = 1,
         inverse: bool = False,
     ) -> tuple[torch.Tensor, None]:
-        B, L = x.shape[0], x.shape[dim]
+        B, L = aa_type.shape[0], aa_type.shape[1]
         device = x.device
         N_code = ATOM_TYPE_ENCODING_DICT["N"]
 
@@ -148,7 +148,7 @@ class PermutationBackBone(Permutation):
             perm = self._cache[key].clone().detach().to(device)
             # cached perm is padded. If aa_type is unpadded, truncate
             # to the same length
-            perm_idx[i] = perm[:L]
+            perm_idx[i, :L] = perm[:L]
 
         # optionally invert
         if inverse:
