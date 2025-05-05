@@ -55,11 +55,50 @@ TEST_SUBSET_4 = {
     "QDED": 45,
 }
 
-ALL_TEST_SUBSET = {**TEST_SUBSET_2, **TEST_SUBSET_4}
+TEST_SUBSET_8 = {
+    "PGESTAES": 46,
+    "NKEKFFQH": 47,
+    "MYGRNCYM": 48,
+    "IDHRQLKW": 49,
+    "HWHSLICK": 50,
+    "NPCLCYML": 51,
+    "MRDPVLFA": 52,
+    "DDRDTEQT": 53,
+    "YFPHAGYT": 54,
+    "ISKCKNGE": 55,
+    "KRRGFFLE": 56,
+    "CLCCGQWN": 57,
+    "GNDLVTVI": 58,
+    "EKYYWMQT": 59,
+    "FWRVDHDM": 60,
+    "DGVAHALS": 61,
+    "PLFHVMYV": 62,
+    "SQQKVAFE": 63,
+    "IFGWVYTG": 64,
+    "CGSWHKQR": 65,
+    "WTYAFAHS": 66,
+    "MWNSTEMI": 67,
+    "PYIRNCVE": 68,
+    "ANKSMIEA": 69,
+    "MAPQTIAT": 70,
+    "SPHKMRLC": 71,
+    "VWIPVIDT": 72,
+    "NHQYGSDP": 73,
+    "PPWRECNN": 74,
+    "WDLIQFRQ": 75,
+}
+
+SCALING_SUBSET = {
+    "YQNPDGSQA": 76,
+    "GYDPETGTWG": 77,
+}
+
+ALL_TEST_SUBSET = {**TEST_SUBSET_2, **TEST_SUBSET_4, **TEST_SUBSET_8, **SCALING_SUBSET}
 
 TEST_SUBSET_DICT = {
     "2": TEST_SUBSET_2,
     "4": TEST_SUBSET_4,
+    "8": TEST_SUBSET_8,
 }
 
 if __name__ == "__main__":
