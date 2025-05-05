@@ -54,6 +54,7 @@ class TransferablePeptideDataModule(BaseDataModule):
         com_augmentation: bool = False,
         atom_noise_augmentation_factor: float = 0.0,
         buffer: ReplayBuffer = None,
+        buffer_ratio: float = 0.5,
         # TODO maybe make this all just *args?
         batch_size: int = 64,
         num_workers: int = 0,
@@ -80,6 +81,7 @@ class TransferablePeptideDataModule(BaseDataModule):
 
         self.num_aa_range = list(range(num_aa_min, num_aa_max + 1))
         self.buffer = buffer
+        self.buffer_ratio = buffer_ratio
 
     def prepare_data(self) -> None:
         """Download data if needed. Lightning ensures that `self.prepare_data()` is called only
@@ -333,6 +335,7 @@ class TransferablePeptideDataModule(BaseDataModule):
             num_dimensions=self.hparams.num_dimensions,
             transform=transforms,
             buffer=self.buffer,
+            buffer_ratio=self.buffer_ratio,
         )
 
         self.data_val = PeptideDataset(
@@ -457,7 +460,7 @@ class TransferablePeptideDataModule(BaseDataModule):
             if len(data) == 0:
                 logging.warning(f"No {name} samples present.")
                 continue
-            
+
             logging.info(f"Evaluating {prefix + name} samples")
 
             data = data[: self.hparams.num_eval_samples * 2]  # slice out extra samples for those lost to symmetry
