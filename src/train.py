@@ -95,6 +95,11 @@ def train(cfg: DictConfig) -> tuple[dict[str, Any], dict[str, Any]]:
             else:
                 log.warning(f"Checkpoint path {ckpt_path} not found! Ignoring...")
                 ckpt_path = None
+        if cfg.get("self_consume", False):
+            log.info("Running validation to populate buffer with samples initially")
+            # run validate to populate buffer with samples initially
+            trainer.validate(model=model, datamodule=datamodule, ckpt_path=ckpt_path)
+
         trainer.fit(model=model, datamodule=datamodule, ckpt_path=ckpt_path)
 
     train_metrics = trainer.callback_metrics
