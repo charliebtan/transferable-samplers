@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH -J train_nf                 # Job name
+#SBATCH -J train_nf_8aa_full                 # Job name
 #SBATCH -o watch_folder/%x_%j.out     # output file (%j expands to jobID)
-#SBATCH -N 1                          # Total number of nodes requested
+#SBATCH -N 4                          # Total number of nodes requested
 #SBATCH --mem=256G                     # server memory requested (per node)
 #SBATCH -t 3:00:00                  # Time limit (hh:mm:ss)
 #SBATCH --account=aip-necludov               
@@ -18,21 +18,22 @@ module load python/3.11 cuda/12.2
 module load openmm/8.2.0
 module load httpproxy/1.0
 source $HOME/envs/$env/bin/activate
-wandb online 
+wandb online
 
-RUN_NAME="tarflow_up_to_4aa_pair_bias_small_dropout"
+echo $SLURM_NNODES
+RUN_NAME="tarflow_up_to_8aa_full_v2"
 
 srun python -u src/train.py \
-experiment=training/tarflow_up_to_4aa logger=wandb \
+experiment=training/tarflow_up_to_8aa logger=wandb \
 trainer=ddp \
 data.data_dir='/project/aip-necludov/shared/self-consume-bg/data/new' \
 data.batch_size=512 \
-data.train_lmdb_prefix='train_medium_up_to_4aa' \
-tags=[up_to_4aa,ddp,pair_bias_small] \
-model.net.use_attn_pair_bias=true \
-trainer.check_val_every_n_epoch=20 \
-+model.net.dropout=0.1 \
-trainer.num_sanity_val_steps=0 \
+model.net.use_adapt_ln=True \
+model.net.use_transition=True \
+model.net.use_attn_pair_bias=True \
+model.net.perm_type=globloc \
+trainer.num_nodes=$SLURM_NNODES \
+tags=[up_to_8aa,ddp,full] \
 hydra.run.dir='${paths.log_dir}/${task_name}/runs/'${RUN_NAME} \
 ckpt_path='${paths.log_dir}/${task_name}/runs/'${RUN_NAME}/checkpoints/last.ckpt \
 logger.wandb.id=${RUN_NAME}

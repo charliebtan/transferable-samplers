@@ -20,15 +20,13 @@ module load httpproxy/1.0
 source $HOME/envs/$env/bin/activate
 wandb online
 
-RUN_NAME="tarflow_up_to_8aa"
+RUN_NAME="tarflow_up_to_8aa_v3"
 
 srun python -u src/train.py \
 experiment=training/tarflow_up_to_8aa logger=wandb \
 trainer=ddp \
 data.data_dir='/project/aip-necludov/shared/self-consume-bg/data/new' \
-data.batch_size=256 \
-data.train_lmdb_prefix='train_medium' \
-trainer.num_sanity_val_steps=0 \
+data.batch_size=512 \
 tags=[up_to_8aa,ddp] \
 hydra.run.dir='${paths.log_dir}/${task_name}/runs/'${RUN_NAME} \
 ckpt_path='${paths.log_dir}/${task_name}/runs/'${RUN_NAME}/checkpoints/last.ckpt \
