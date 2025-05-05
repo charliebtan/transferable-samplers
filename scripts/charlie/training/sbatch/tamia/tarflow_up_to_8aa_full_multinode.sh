@@ -28,14 +28,10 @@ experiment=training/tarflow_up_to_8aa logger=wandb \
 trainer=ddp \
 data.data_dir='/project/aip-necludov/shared/self-consume-bg/data/new' \
 data.batch_size=512 \
-data.train_lmdb_prefix='train_medium' \
-data.val_lmdb_prefix='new_val' \
-data.test_lmdb_prefix='new_test' \
 model.net.use_adapt_ln=True \
 model.net.use_transition=True \
 model.net.use_attn_pair_bias=True \
 model.net.perm_type=globloc \
-trainer.num_sanity_val_steps=0 \
 trainer.num_nodes=$SLURM_NNODES \
 tags=[up_to_8aa,ddp,full] \
 hydra.run.dir='${paths.log_dir}/${task_name}/runs/'${RUN_NAME} \
