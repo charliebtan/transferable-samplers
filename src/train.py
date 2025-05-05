@@ -18,7 +18,7 @@ from src.utils.logging_utils import log_hyperparameters
 from src.utils.pylogger import RankedLogger
 from src.utils.utils import extras, get_metric_value, task_wrapper
 
-torch.set_float32_matmul_precision("high")  # high at minimum!
+torch.set_float32_matmul_precision("highest")  # high at minimum!
 torch.backends.cuda.matmul.allow_tf32 = False
 torch.backends.cudnn.allow_tf32 = False
 
