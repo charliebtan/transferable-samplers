@@ -82,10 +82,10 @@ class MetaBlock(torch.nn.Module):
                 torch.nn.Linear(pair_bias_hidden_dim, num_heads, bias=False),  # softmax is invariant to bias
             )
 
-        # Scale the weights of the MLP layers - to slow down "switching on of learned mask"
-        with torch.no_grad():
-            self.pair_proj[0].weight.mul_(1e-3)
-            self.pair_proj[-1].weight.mul_(1e-9)
+            # Scale the weights of the MLP layers - to slow down "switching on of learned mask"
+            with torch.no_grad():
+                self.pair_proj[0].weight.mul_(1e-3)
+                self.pair_proj[-1].weight.mul_(1e-9)
 
         self.use_attn_pair_bias = use_attn_pair_bias
 
@@ -146,7 +146,7 @@ class MetaBlock(torch.nn.Module):
         # no permutation on pos_embed - it encodes sequence position AFTER permutation
         pos_embed = self.pos_embed[: x.shape[1]]
         if self.pos_embed_type == "sinusoidal":
-            pos_embed = pos_embed * self.pos_embed_scale  # learnable scale for sinusoid
+            pos_embed = pos_embed.to(x.device) * self.pos_embed_scale.to(x.device)  # learnable scale for sinusoid
 
         # if it is a flip permutation the padding tokens are at the start of the sequence
         # for perfect invertiblity we need to shift the position embeddings such that
