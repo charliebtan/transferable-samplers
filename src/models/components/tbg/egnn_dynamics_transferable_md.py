@@ -7,7 +7,6 @@ from src.models.components.tbg.egnn import EGNN
 
 
 def remove_mean_with_mask(x, node_mask):
-    assert (x * (1 - node_mask)).abs().sum().item() < 1e-8
     N = node_mask.sum(1, keepdims=True)
 
     mean = torch.sum(x, dim=1, keepdim=True) / N
@@ -50,8 +49,6 @@ class EGNNDynamicsTransferableMD(nn.Module):
         # Count function calls
         self.counter = 0
 
-        self.eval_encoding = None
-
     def forward(self, t, x, encoding=None, node_mask=None):
         assert not x.shape[1] % self.num_dimensions, "x should be divisible by num_particles"
         num_particles = x.shape[1] // self.num_dimensions
@@ -66,16 +63,9 @@ class EGNNDynamicsTransferableMD(nn.Module):
             assert torch.all(encoding["aa_pos"][node_mask == 0] == 0), "aa_pos is not zero where mask is zero"
 
         if node_mask is None:
-            node_mask = torch.ones_like(x)
+            node_mask = torch.ones(x.shape[0], num_particles, device=x.device, dtype=torch.float)
         else:
             node_mask = node_mask.float()
-
-        assert (self.eval_encoding is None) ^ (encoding is None), (
-            "Exactly one of eval_encoding or encoding should be None"
-        )
-
-        if encoding is None:
-            encoding = self.eval_encoding
 
         # edge_mask is outer product of node_mask
         edge_mask = node_mask.unsqueeze(2) * node_mask.unsqueeze(1)  # [B, N, N]
@@ -87,22 +77,22 @@ class EGNNDynamicsTransferableMD(nn.Module):
         batch_size = x.shape[0]
 
         # Prepare edges
-        edges = self.get_adj_matrix(self.num_particles, batch_size, device=x.device)
+        edges = self.get_adj_matrix(num_particles, batch_size, device=x.device)
         edges = [edges[0], edges[1]]
 
         # Reshape masks
-        node_mask = node_mask.view(batch_size * self.num_particles, 1)
-        edge_mask = edge_mask.view(batch_size * self.num_particles * self.num_particles, 1)
+        node_mask = node_mask.view(batch_size * num_particles, 1)
+        edge_mask = edge_mask.view(batch_size * num_particles**2, 1)
 
         # Reshape x - apply node_mask
-        x = x.reshape(batch_size * self.num_particles, self.num_dimensions).clone() * node_mask
+        x = x.reshape(batch_size * num_particles, self.num_dimensions).clone() * node_mask
 
         # Prepare time embedding
         t = t.to(x)
         if t.shape != (batch_size, 1):
             t = t.repeat(batch_size)
-        t = t.repeat(1, self.num_particles)
-        t = t.reshape(batch_size * self.num_particles, 1) * node_mask
+        t = t.repeat(1, num_particles)
+        t = t.reshape(batch_size * num_particles, 1) * node_mask
 
         # build 'h' node features
         h = torch.stack(
@@ -121,19 +111,21 @@ class EGNNDynamicsTransferableMD(nn.Module):
                 ],
                 dim=-1,
             )
-        h = h.reshape(batch_size * self.num_particles, -1).to(x.device) * node_mask
+        h = h[:batch_size]  # TODO this is ugly but it's just how it's passed in currently
+
+        h = h.reshape(batch_size * num_particles, -1).to(x.device) * node_mask
         h = torch.cat([h, t], dim=-1)
-        h = h.reshape(batch_size * self.num_particles, -1)
+        h = h.reshape(batch_size * num_particles, -1)
 
         edge_attr = torch.sum((x[edges[0]] - x[edges[1]]) ** 2, dim=1, keepdim=True)
         _, x_final = self.egnn(h, x, edges, edge_attr=edge_attr, node_mask=node_mask, edge_mask=edge_mask)
         vel = (x_final - x) * node_mask  # This masking operation is redundant but just in case
 
-        vel = vel.view(batch_size, self.num_particles, self.num_dimensions)
-        vel = remove_mean_with_mask(vel, node_mask.view(batch_size, self.num_particles, 1))
+        vel = vel.view(batch_size, num_particles, self.num_dimensions)
+        vel = remove_mean_with_mask(vel, node_mask.view(batch_size, num_particles, 1))
 
         self.counter += 1
-        return vel.view(batch_size, self.num_particles * self.num_dimensions)
+        return vel.view(batch_size, num_particles * self.num_dimensions)
 
     def get_adj_matrix(self, n_nodes, batch_size, device):
         if n_nodes in self.edges_dict:

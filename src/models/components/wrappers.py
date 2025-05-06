@@ -20,7 +20,6 @@ class TorchdynWrapper(torch.nn.Module):
     def __init__(
         self,
         model,
-        d_base: int = None,
         div_estimator="exact",
         logp_tol_scale=1.0,
         n_eps=1,
@@ -57,11 +56,7 @@ class TorchdynWrapper(torch.nn.Module):
         eps = self.eps_fn(x, self.n)
 
         def vecfield(y):
-            if self.d_base is not None:
-                d_base_vec = torch.ones(y.shape[0]) * self.d
-                return self.model(t, y, d_base=d_base_vec)
-            else:
-                return self.model(t, y, d_base=self.d_base)
+            return self.model(t, y)
 
         _, vjpfunc = torch.func.vjp(vecfield, x.repeat(self.n, 1))
         return (vjpfunc(eps)[0] * eps).sum() / self.n
@@ -69,10 +64,7 @@ class TorchdynWrapper(torch.nn.Module):
     def div_fn_exact(self, t, x):
         def vecfield(y):
             y = y.view(1, -1)  # batch dims required by EGNN architecture
-            if self.d_base is not None:
-                return self.model(t, y).flatten()
-            else:
-                return self.model(t, y).flatten()
+            return self.model(t, y).flatten()
 
         J = torch.func.jacrev(vecfield)
 

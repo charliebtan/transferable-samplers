@@ -17,6 +17,7 @@ sampling_config:
   num_test_proposal_samples: 10_000
   num_smc_samples: 10_000
   batch_size: 10_000
+  clip_reweighting_logits: null
 
 ema_decay: 0.999
 eval_ema: true

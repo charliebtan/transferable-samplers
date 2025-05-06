@@ -1,5 +1,6 @@
 import copy
 import logging
+from functools import partial
 from typing import Optional
 
 import torch
@@ -121,11 +122,7 @@ class FlowMatchLitModule(TransferableBoltzmannGeneratorLitModule):
         dlog_p = torch.zeros((x.shape[0], 1), device=x.device)
         t_span = torch.linspace(1, 0, 2) if reverse else torch.linspace(0, 1, 2)
 
-        eval_net = copy.deepcopy(self.net)  # copied needed - ask alex
-        eval_net.eval_encoding = encoding  # yes its a hack - fight me (charlie)
-
-        print(eval_net.eval_encoding)
-        breakpoint()
+        eval_fn = partial(copy.deepcopy(self.net).forward, encoding=encoding)
 
         if self.hparams.div_estimator == "ito":
             x_ito, dlog_p_ito = self.sde_integrate(x, reverse=reverse)
@@ -137,14 +134,16 @@ class FlowMatchLitModule(TransferableBoltzmannGeneratorLitModule):
             return x_ito, dlog_p_ito
 
         if dummy_ll:
-            wrapped_net = torch_wrapper(eval_net)
+            wrapped_net = torch_wrapper(eval_fn)
+            logging.info("Using dummy ll")
         else:
             wrapped_net = TorchdynWrapper(
-                eval_net,
+                eval_fn,
                 div_estimator=self.hparams.div_estimator,
                 logp_tol_scale=self.hparams.logp_tol_scale,
                 n_eps=self.hparams.n_eps,
             )
+            logging.info(f"Using {self.hparams.div_estimator} with n_eps {self.hparams.n_eps}")
 
         node = NeuralODE(
             wrapped_net,
