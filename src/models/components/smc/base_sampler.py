@@ -1,5 +1,4 @@
 import logging
-from typing import Callable
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -13,7 +12,7 @@ from src.evaluation.metrics.ess import sampling_efficiency
 class SMCSampler(torch.nn.Module):
     def __init__(
         self,
-        log_image_fn: Callable,
+        log_image_fn: callable = None,
         batch_size: int = 128,
         langevin_eps: float = 1e-7,
         num_timesteps: int = 100,
@@ -231,7 +230,7 @@ class SMCSampler(torch.nn.Module):
                 return self.langevin_eps
 
         X = proposal_samples
-        A = torch.zeros(X.shape[0], device=X.device)  # the smc weights
+        A = torch.ones(X.shape[0], device=X.device)  # the smc weights
 
         A_list = [A]
         ESS_list = [1.0]
@@ -323,7 +322,7 @@ class SMCSampler(torch.nn.Module):
                 # cum_prob = torch.cumsum(torch.softmax(A, dim=-1), dim=0)
                 # indexes = np.searchsorted(cum_prob, qmc_rand, side="left").flatten()
                 X = self.resample(x=X, logw=A)
-                A = torch.zeros_like(A)
+                A = torch.ones_like(A)
                 logging.info(f"resampling @ step {j}")
 
                 # TODO: I do not like this. Maybe reconsider the MCMC class

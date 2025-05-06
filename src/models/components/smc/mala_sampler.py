@@ -58,13 +58,10 @@ class SMCSamplerMALA(SMCSampler):
         # get the energy gradients
         energy_grad_x, energy_grad_t = self.linear_energy_interpolation_gradients(source_energy, target_energy, t, x)
         dx = -eps * energy_grad_x + math.sqrt(2 * eps) * torch.randn_like(x)
-        dlogw = -energy_grad_t * dt
-
         x_proposal = x + dx
-        logw_proposal = logw + dlogw
 
         mask = self.metropolis_hastings(source_energy, target_energy, t, x, x_proposal, eps)
-
         x = mask * x_proposal + (1 - mask) * x
-        logw = mask * logw_proposal + (1 - mask) * logw
+
+        logw = logw - dt * energy_grad_t
         return x, logw
