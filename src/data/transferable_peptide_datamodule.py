@@ -209,7 +209,8 @@ class TransferablePeptideDataModule(BaseDataModule):
             test_seq_names.update(TEST_SUBSET_DICT["2"])
         if 4 in self.num_aa_range:
             test_seq_names.update(TEST_SUBSET_DICT["4"])
-        # TODO add data for 8
+        if 8 in self.num_aa_range:
+            test_seq_names.update(TEST_SUBSET_DICT["8"])
         if not test_seq_names:
             raise ValueError(
                 f"Test subset not defined for num_aa_range {self.num_aa_range}. "
@@ -450,7 +451,8 @@ class TransferablePeptideDataModule(BaseDataModule):
 
             if len(data) == 0:
                 logging.warning(f"No {name} samples present.")
-
+                continue
+            
             logging.info(f"Evaluating {prefix + name} samples")
 
             data = data[: self.hparams.num_eval_samples * 2]  # slice out extra samples for those lost to symmetry
