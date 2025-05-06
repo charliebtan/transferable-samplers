@@ -8,11 +8,13 @@ defaults:
 model:
   net:
     in_channels: 3
-    channels: 512
+    channels: 384
     num_blocks: 8
     layers_per_block: 8
     perm_type: "standard"
-    pos_embed_type: "learned"
+    use_adapt_ln: False
+    use_transition: False
+    pos_embed_type: "sinusoidal"
     cond_embed:
       _target_: src.models.components.tarflow.embed.ConditionalEmbedder
       channels: ${model.net.channels}
@@ -30,9 +32,9 @@ data:
   num_eval_samples: 5_000
 
 trainer:
-  check_val_every_n_epoch: 50
+  check_val_every_n_epoch: 100
   limit_train_batches: 1000
   limit_val_batches: 0.5 # it's quite slow otherwise - only affects val/loss
   limit_test_batches: null
   max_epochs: 500
-  num_sanity_val_steps: 1
+  num_sanity_val_steps: 0

@@ -58,6 +58,7 @@ class MetaBlock(torch.nn.Module):
         use_adapt_ln: bool = False,
         use_attn_pair_bias: bool = False,
         pair_bias_hidden_dim: int = 16,
+        use_transition: bool= False,
         use_qkln: bool = False,
         dropout: float = 0.0,
         pos_embed_type: str = "learned",  # learned, sinusoidal
@@ -77,10 +78,14 @@ class MetaBlock(torch.nn.Module):
             self.pair_proj = torch.nn.Sequential(
                 torch.nn.Linear(1, pair_bias_hidden_dim),
                 torch.nn.GELU(),
-                torch.nn.LayerNorm(pair_bias_hidden_dim),
                 # needs projecting to num_heads as each head has its own attn_mask
                 torch.nn.Linear(pair_bias_hidden_dim, num_heads, bias=False),  # softmax is invariant to bias
             )
+
+            # Scale the weights of the MLP layers - to slow down "switching on of learned mask"
+            with torch.no_grad():
+                self.pair_proj[0].weight.mul_(1e-3)
+                self.pair_proj[-1].weight.mul_(1e-9)
 
         self.use_attn_pair_bias = use_attn_pair_bias
 
@@ -107,6 +112,7 @@ class MetaBlock(torch.nn.Module):
                     expansion=expansion,
                     use_qkln=use_qkln,
                     use_attn_pair_bias=use_attn_pair_bias,
+                    use_transition=use_transition,
                     dropout=dropout,
                 )
                 for _ in range(num_layers)
@@ -140,7 +146,7 @@ class MetaBlock(torch.nn.Module):
         # no permutation on pos_embed - it encodes sequence position AFTER permutation
         pos_embed = self.pos_embed[: x.shape[1]]
         if self.pos_embed_type == "sinusoidal":
-            pos_embed = pos_embed * self.pos_embed_scale  # learnable scale for sinusoid
+            pos_embed = pos_embed.to(x.device) * self.pos_embed_scale.to(x.device)  # learnable scale for sinusoid
 
         # if it is a flip permutation the padding tokens are at the start of the sequence
         # for perfect invertiblity we need to shift the position embeddings such that
@@ -301,6 +307,7 @@ class TarFlow(torch.nn.Module):
         use_adapt_ln: bool = False,
         use_attn_pair_bias: bool = False,
         pair_bias_hidden_dim: int = 16,
+        use_transition: bool = False,
         use_qkln: bool = False,
         dropout: float = 0.0,
         perm_type: str = "standard",  # standard, globloc, random
@@ -344,6 +351,7 @@ class TarFlow(torch.nn.Module):
                     use_adapt_ln=use_adapt_ln,
                     use_attn_pair_bias=use_attn_pair_bias,
                     pair_bias_hidden_dim=pair_bias_hidden_dim,
+                    use_transition=use_transition,
                     use_qkln=use_qkln,
                     dropout=dropout,
                     conditional=self.conditional,

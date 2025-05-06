@@ -16,18 +16,17 @@ env=tbg3
 module purge
 module load python/3.11 cuda/12.2
 module load openmm/8.2.0
+module load httpproxy/1.0
 source $HOME/envs/$env/bin/activate
+wandb online
 
-wandb offline 
-
-RUN_NAME="tarflow_up_to_4aa"
+RUN_NAME="tarflow_up_to_4aa_test_v2"
 
 srun python -u src/train.py \
 experiment=training/tarflow_up_to_4aa logger=wandb \
 trainer=ddp \
 data.data_dir='/project/aip-necludov/shared/self-consume-bg/data/new' \
 data.batch_size=512 \
-data.train_lmdb_prefix='train_medium_up_to_4aa' \
 tags=[up_to_4aa,ddp] \
 hydra.run.dir='${paths.log_dir}/${task_name}/runs/'${RUN_NAME} \
 ckpt_path='${paths.log_dir}/${task_name}/runs/'${RUN_NAME}/checkpoints/last.ckpt \
