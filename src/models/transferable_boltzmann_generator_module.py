@@ -59,8 +59,6 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         self.datamodule = datamodule
 
         self.smc_sampler = smc_sampler(
-            source_energy=self.proposal_energy,
-            target_energy=self.datamodule.energy,
             log_image_fn=self.log_image,
         )
 
