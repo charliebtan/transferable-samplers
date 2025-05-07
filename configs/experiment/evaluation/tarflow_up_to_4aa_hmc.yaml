@@ -1,0 +1,46 @@
+# @package _global_
+
+defaults:
+  - override /model: normalizing_flow
+  - override /data: up_to_4aa
+  - override /trainer: gpu
+
+ckpt_path: "/network/scratch/m/majdi.hassan/self-consume-bg/self-consume-bg/logs/train/runs/tarflow_up_to_4aa_v2/checkpoints/last.ckpt"
+train: False
+task_name: eval
+
+model:
+  sampling_config:
+    use_com_adjustment: True
+    batch_size: 10_000
+    num_test_proposal_samples: 100_000
+    num_smc_samples: 100_000
+    clip_reweighting_logits: null # it was working well on AC without - lets try avoid
+  net:
+    in_channels: 3
+    channels: 384
+    num_blocks: 8
+    layers_per_block: 8
+    use_adapt_ln: False
+    use_transition: False
+    pos_embed_type: "learned"
+    cond_embed:
+      _target_: src.models.components.tarflow.embed.ConditionalEmbedder
+      channels: ${model.net.channels}
+
+  smc_sampler:
+    _target_: src.models.components.smc.hmc_sampler.SMCSamplerHMC
+    enabled: True
+    langevin_eps: 1e-7
+    num_timesteps: 100
+    batch_size: 1024 # set for 48gb
+    input_energy_cutoff: 100 # this might need tuning if you get NaNs!
+    do_energy_plots: True
+    log_freq: 10
+    
+data:
+  batch_size: 10_000
+  num_eval_samples: 10_000
+
+trainer:
+  limit_test_batches: 1
