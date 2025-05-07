@@ -7,11 +7,10 @@ from src.data.components.prepare_data import load_lmdb_metadata
 
 
 class PeptideDataset(torch.utils.data.Dataset):
-    def __init__(self, lmdb_path: str, seq_names: list[str], num_dimensions: int, transform=None, buffer=None):
+    def __init__(self, lmdb_path: str, seq_names: list[str], num_dimensions: int, transform=None):
         self.lmdb_path = lmdb_path
         self.seq_names = seq_names
         self.transform = transform
-        self.buffer = buffer if buffer is not None else []
         self.num_dimensions = num_dimensions
 
         self.metadata = load_lmdb_metadata(lmdb_path)
@@ -27,22 +26,18 @@ class PeptideDataset(torch.utils.data.Dataset):
         for seq_name in self.seq_to_idx:
             self.valid_indices.extend(self.seq_to_idx[seq_name])
 
-        self.data_length = len(self.valid_indices)
+        self.length = len(self.valid_indices)
 
         self.env = None  # LMDB environment is lazily loaded due to multiple processes accessing itj
 
     def __len__(self):
-        return self.data_length + len(self.buffer)
+        return self.length
 
     def _load_lmdb_entry(self, txn, idx):
         key = f"{idx:08}".encode()
         return pickle.loads(txn.get(key))  # noqa: S301
 
     def __getitem__(self, idx):
-        # Call from buffer if idx exceeds data length
-        if idx >= len(self.data_length):
-            return self.sample_buffer()
-
         lmdb_idx = self.valid_indices[idx]  # transform the index to the global index
 
         if self.env is None:
@@ -78,25 +73,3 @@ class PeptideDataset(torch.utils.data.Dataset):
                 x = self._load_lmdb_entry(txn, idx)["x"]
                 xs.append(torch.tensor(x))
         return torch.stack(xs)
-
-    def sample_buffer(self, batch_size=1):
-        # Sample by default 1 for __getitem__
-        # can sample larger batch_sizes by directly
-        # calling this.
-        # No need for idx since the input idx will
-        # not correspond to the internal idx.
-        x, _ = self.buffer.sample(batch_size)
-        sample = {"x": x.view(-1)}
-        if self.transform is not None:
-            x = x.view(-1, self.num_dimensions)
-            sample = self.transform(
-                {
-                    **sample,
-                    "x": x,
-                }
-            )
-            sample["x"] = sample["x"].view(-1)
-        return sample
-
-    def add(self, x):
-        self.buffer.add(x)
