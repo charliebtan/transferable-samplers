@@ -13,8 +13,8 @@ model:
   sampling_config:
     use_com_adjustment: True
     batch_size: 10_000
-    num_test_proposal_samples: 100_000
-    num_smc_samples: 100_000
+    num_test_proposal_samples: 10_000
+    num_smc_samples: 10_000
     clip_reweighting_logits: null # it was working well on AC without - lets try avoid
   net:
     in_channels: 3
