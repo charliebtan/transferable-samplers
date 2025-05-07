@@ -430,15 +430,6 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         else:
             smc_data = None
 
-        if self.datamodule.buffer is not None:
-            breakpoint()
-            if smc_data is not None:
-                # add data from smc if doing smc
-                self.datamodule.data_train.add(smc_data.samples)
-            else:
-                # Add the generated IS samples to the buffer for training
-                self.datamodule.data_train.add(reweighted_data.samples)
-
         if self.local_rank == 0:
             # log dataset metrics
             metrics = self.datamodule.metrics_and_plots(
