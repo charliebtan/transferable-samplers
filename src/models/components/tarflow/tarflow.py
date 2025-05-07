@@ -272,7 +272,7 @@ class MetaBlock(torch.nn.Module):
         # no permutation on pos_embed - it encodes sequence position AFTER permutation
         pos_embed = self.pos_embed[: x.shape[1]][None, ...]
         if self.pos_embed_type == "sinusoidal":
-            pos_embed = pos_embed * self.pos_embed_scale  # learnable scale for sinusoid
+            pos_embed = pos_embed.to(x.device) * self.pos_embed_scale.to(x.device)  # learnable scale for sinusoid
 
         if cond is not None:
             cond = self.permutation(cond, atom_type=atom_type, aa_type=aa_type)
