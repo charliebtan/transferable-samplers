@@ -5,7 +5,7 @@ defaults:
   - override /data: up_to_4aa
   - override /trainer: gpu
 
-ckpt_path: null
+ckpt_path: "/network/scratch/m/majdi.hassan/self-consume-bg/self-consume-bg/logs/train/runs/tarflow_up_to_4aa_v2/checkpoints/last.ckpt"
 train: False
 task_name: eval
 
@@ -17,7 +17,7 @@ model:
     num_smc_samples: 10_000
     clip_reweighting_logits: null # it was working well on AC without - lets try avoid
   net:
-    _target_: src.models.components.tarflow.tarflow.TarFlow
+    _target_: src.models.components.tarflow.old_tarflow.TarFlow
     in_channels: 3
     channels: 384
     num_blocks: 8
