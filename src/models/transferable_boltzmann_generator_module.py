@@ -277,7 +277,10 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             if self.hparams.eval_seq_name not in eval_seq_names:
                 raise ValueError(f"{self.hparams.eval_seq_name} not in set of test sequences: {eval_seq_names}")
 
-            eval_seq_names = [self.hparams.eval_seq_name]
+            if not isinstance(self.hparams.eval_seq_name, list):
+                eval_seq_names = [self.hparams.eval_seq_name]
+            else:
+                eval_seq_names = self.hparams.eval_seq_name
 
         for seq_name in eval_seq_names:
             true_samples, encoding, energy_fn = self.datamodule.prepare_eval(seq_name)
