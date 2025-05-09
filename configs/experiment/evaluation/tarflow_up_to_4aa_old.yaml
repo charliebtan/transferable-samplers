@@ -17,7 +17,7 @@ model:
     num_smc_samples: 10_000
     clip_reweighting_logits: null # it was working well on AC without - lets try avoid
   net:
-    _target_: src.models.components.tarflow.old_tarflow.TarFlow
+    _target_: src.models.components.tarflow.tarflow_old.TarFlow
     in_channels: 3
     channels: 384
     num_blocks: 8
