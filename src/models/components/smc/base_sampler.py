@@ -70,7 +70,7 @@ class SMCSampler(torch.nn.Module):
             # this is a bit hacky but is fine as long as
             # the energy function is defined properly and
             # doesn't mix batch items
-            x_grad = torch.autograd.grad(et.sum(), x)
+            x_grad = torch.autograd.grad(et.sum(), x)[0]
 
             assert x_grad.shape == x.shape, "x_grad should have the same shape as x"
 

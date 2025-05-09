@@ -5,7 +5,7 @@ from src.models.components.smc.base_sampler import SMCSampler
 
 class SMCSamplerHMC(SMCSampler):
     def leapfrog(self, source_energy, target_energy, t, x, v, dt):
-        grad_energy = lambda _x: self.linear_energy_interpolation_gradients(source_energy, target_energy, t, _x)[0]
+        grad_energy = lambda _x: self.linear_energy_interpolation_gradients(source_energy, target_energy, t, _x)
         v = v - 0.5 * dt * grad_energy(x)
         x = x + dt * v
         v = v - 0.5 * dt * grad_energy(x)
@@ -20,7 +20,7 @@ class SMCSamplerHMC(SMCSampler):
 
         # sample momentum from standard gaussian
         v = torch.randn_like(x)
-        s = torch.max(0, t - dt)
+        s = torch.max(torch.zeros_like(t), t - dt)
         # log w = log w + log p_t(x_{t-1}) - log p_{t-1}(x_{t-1})
         dlogw = -energy_fn(t, x) + energy_fn(s, x)
 
