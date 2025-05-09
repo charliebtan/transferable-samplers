@@ -14,9 +14,13 @@ class SMCSamplerMALA(SMCSampler):
         eps = self.langevin_eps_fn(t)
 
         # get the energy gradients
-        energy_grad_x, energy_grad_t = grad_energy_fn(t, x)
+        energy_grad_x = grad_energy_fn(t, x)
         dx = -eps * energy_grad_x + math.sqrt(2 * eps) * torch.randn_like(x)
         x_proposal = x + dx
+        s = torch.max(0, t - dt)
+
+        # log w = log w + log p_t(x_{t-1}) - log p_{t-1}(x_{t-1})
+        dlogw = -energy_fn(t, x) + energy_fn(s, x)
 
         # metropolis hastings
         energy_grad_x_proposal, _ = grad_energy_fn(t, x_proposal)
@@ -31,6 +35,7 @@ class SMCSamplerMALA(SMCSampler):
         mask = (logp > torch.log(u))[..., None].float()
 
         x = mask * x_proposal + (1 - mask) * x
-        logw = logw - dt * energy_grad_t
+        logw = logw + dlogw
+        acceptance_rate = mask.mean()
 
-        return x, logw
+        return x, logw, acceptance_rate

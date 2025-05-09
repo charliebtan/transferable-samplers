@@ -12,7 +12,7 @@ class SMCSamplerHMC(SMCSampler):
         return x, v
 
     def mcmc_kernel(self, source_energy, target_energy, t, x, logw, dt):
-        energy_fn = lambda _x: self.linear_energy_interpolation(source_energy, target_energy, t, _x)
+        energy_fn = lambda _t, _x: self.linear_energy_interpolation(source_energy, target_energy, _t, _x)
         norm = lambda _v: torch.sum(_v**2, dim=-1)
 
         # get step size for langevin
@@ -20,8 +20,9 @@ class SMCSamplerHMC(SMCSampler):
 
         # sample momentum from standard gaussian
         v = torch.randn_like(x)
-
-        dlogw = target_energy(x) - source_energy(x)
+        s = torch.max(0, t - dt)
+        # log w = log w + log p_t(x_{t-1}) - log p_{t-1}(x_{t-1})
+        dlogw = -energy_fn(t, x) + energy_fn(s, x)
 
         # update the samples
         x_proposal, v_proposal = self.leapfrog(source_energy, target_energy, t, x, v, eps)
@@ -33,5 +34,7 @@ class SMCSamplerHMC(SMCSampler):
         x = mask * x_proposal + (1 - mask) * x
 
         # update weights
-        logw = logw - dt * dlogw
-        return x, logw
+        logw = logw + dlogw
+        acceptance_rate = mask.mean()
+
+        return x, logw, acceptance_rate
