@@ -400,6 +400,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             # Add the generated IS samples to the buffer for training
             batch_size = reweighted_data.samples.shape[0]
             self.datamodule.data_train.buffer.add(reweighted_data.samples.view(batch_size, -1), sequence)
+            self.datamodule.save_buffer()
 
         if self.smc_sampler is not None and self.smc_sampler.enabled:
             logging.info("SMC sampling enabled")
