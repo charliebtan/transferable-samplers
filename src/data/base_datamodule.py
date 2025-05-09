@@ -59,7 +59,6 @@ class BaseDataModule(LightningDataModule):
             num_workers=self.hparams.num_workers,
             pin_memory=self.hparams.pin_memory,
             shuffle=True,
-            # persistent_workers=False
             persistent_workers=True
             if (self.hparams.num_workers > 0 and isinstance(self.data_train.buffer, list))
             else False,
