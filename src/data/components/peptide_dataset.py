@@ -1,4 +1,3 @@
-import logging
 import pickle
 
 import lmdb
@@ -52,7 +51,6 @@ class PeptideDataset(torch.utils.data.Dataset):
         return pickle.loads(txn.get(key))  # noqa: S301
 
     def __getitem__(self, idx):
-        logging.info(f"BUFFER LENGTH: {self.buffer_length}")
         if self.buffer_length > 0:
             u = torch.rand(size=(1,)).item()
             if u < self.buffer_ratio:
