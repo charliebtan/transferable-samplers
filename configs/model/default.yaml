@@ -7,7 +7,7 @@ _target_: src.model.BoltzmannGeneratorLitModule
 # if pct_start != 0.0 you warmup from max_lr / div_factor to max_lr too
 # normally you use this per-step but I've just got it per-epoch
 smc_sampler:
-  _target_: src.models.components.smc_sampler.SMCSampler
+  _target_: src.models.components.smc.fk_sampler.FeynmannKacSampler
   _partial_: true
   batch_size: ${data.batch_size}
   langevin_eps: 0.1
