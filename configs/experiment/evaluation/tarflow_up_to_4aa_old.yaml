@@ -5,10 +5,8 @@ defaults:
   - override /data: up_to_4aa
   - override /trainer: gpu
 
-ckpt_path: null
+ckpt_path: "/network/scratch/m/majdi.hassan/self-consume-bg/self-consume-bg/logs/train/runs/tarflow_up_to_4aa_v2/checkpoints/last.ckpt"
 train: False
-val: True
-test: False
 task_name: eval
 
 model:
@@ -19,7 +17,7 @@ model:
     num_smc_samples: 10_000
     clip_reweighting_logits: null # it was working well on AC without - lets try avoid
   net:
-    _target_: src.models.components.tarflow.tarflow.TarFlow
+    _target_: src.models.components.tarflow.tarflow_old.TarFlow
     in_channels: 3
     channels: 384
     num_blocks: 8
@@ -30,14 +28,12 @@ model:
       channels: ${model.net.channels}
 
   smc_sampler:
-    _target_: src.models.components.smc.ula_sampler.SMCSamplerULA
-    enabled: True
+    enabled: False
     langevin_eps: 1e-7
     num_timesteps: 100
     batch_size: 1024 # set for 48gb 
     input_energy_cutoff: 100 # this might need tuning if you get NaNs!
     do_energy_plots: True
-    log_freq: 10
     
 data:
   batch_size: 10_000
