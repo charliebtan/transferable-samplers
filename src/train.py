@@ -96,9 +96,16 @@ def train(cfg: DictConfig) -> tuple[dict[str, Any], dict[str, Any]]:
                 log.warning(f"Checkpoint path {ckpt_path} not found! Ignoring...")
                 ckpt_path = None
         if cfg.get("self_consume", False):
-            log.info("Running validation to populate buffer with samples initially")
-            # run validate to populate buffer with samples initially
-            trainer.validate(model=model, datamodule=datamodule, ckpt_path=ckpt_path)
+            buffer_ckpt_path = cfg.get("data.buffer_ckpt_path")
+            if (buffer_ckpt_path is not None) and (not os.path.exists(buffer_ckpt_path)):
+                log.info("Running validation to populate buffer with samples initially")
+                initial_ckpt_path = cfg.get("initial_ckpt_path")
+                assert initial_ckpt_path is not None, "Need pre-trained ckpt to give initial proposal"
+                model: LightningModule = hydra.utils.instantiate(
+                    ckpt_path=initial_ckpt_path, config=cfg.model, datamodule=datamodule
+                )
+                # run validate to populate buffer with samples initially
+                trainer.validate(model=model, datamodule=datamodule, ckpt_path=initial_ckpt_path)
 
         trainer.fit(model=model, datamodule=datamodule, ckpt_path=ckpt_path)
 
