@@ -99,6 +99,16 @@ def train(cfg: DictConfig) -> tuple[dict[str, Any], dict[str, Any]]:
 
     train_metrics = trainer.callback_metrics
 
+    if cfg.get("val"):
+        log.info("Starting validation!")
+        ckpt_path = cfg.get("ckpt_path")
+        if ckpt_path is None:
+            ckpt_path = trainer.checkpoint_callback.best_model_path
+            if ckpt_path == "":
+                log.warning("Best ckpt not found! Using current weights for testing...")
+                ckpt_path = None
+        trainer.validate(model=model, datamodule=datamodule, ckpt_path=ckpt_path)
+
     if cfg.get("test"):
         log.info("Starting testing!")
         ckpt_path = cfg.get("ckpt_path")
