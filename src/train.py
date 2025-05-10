@@ -99,6 +99,19 @@ def train(cfg: DictConfig) -> tuple[dict[str, Any], dict[str, Any]]:
 
     train_metrics = trainer.callback_metrics
 
+    if cfg.get("val"):
+        log.info("Starting validation!")
+        ckpt_path = cfg.get("ckpt_path")
+        if ckpt_path is None:
+            ckpt_path = trainer.checkpoint_callback.best_model_path
+            if ckpt_path == "":
+                log.warning("Best ckpt not found! Using current weights for testing...")
+                ckpt_path = None
+        trainer.validate(model=model, datamodule=datamodule, ckpt_path=ckpt_path)
+        log.info(f"Best ckpt path: {ckpt_path}")
+
+    val_metrics = trainer.callback_metrics
+
     if cfg.get("test"):
         log.info("Starting testing!")
         ckpt_path = cfg.get("ckpt_path")
@@ -113,7 +126,7 @@ def train(cfg: DictConfig) -> tuple[dict[str, Any], dict[str, Any]]:
     test_metrics = trainer.callback_metrics
 
     # merge train and test metrics
-    metric_dict = {**train_metrics, **test_metrics}
+    metric_dict = {**train_metrics, **val_metrics, **test_metrics}
 
     return metric_dict, object_dict
 
