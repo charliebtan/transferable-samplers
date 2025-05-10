@@ -28,7 +28,7 @@ class SMCSamplerHMC(SMCSampler):
         x_proposal, v_proposal = self.leapfrog(source_energy, target_energy, t, x, v, eps)
 
         # metropolis-hastings
-        logp = -0.5 * norm(v_proposal) + 0.5 * norm(v) - energy_fn(x_proposal) + energy_fn(x)
+        logp = -0.5 * norm(v_proposal) + 0.5 * norm(v) - energy_fn(t, x_proposal) + energy_fn(t, x)
         u = torch.rand_like(logp)
         mask = (logp > torch.log(u))[..., None].float()
         x = mask * x_proposal + (1 - mask) * x
