@@ -537,5 +537,6 @@ class TransferablePeptideDataModule(BaseDataModule):
         return metrics
 
     def save_buffer(self):
-        logging.info(f"Saving Buffer: {self.buffer_ckpt_path}")
-        self.data_train.buffer.save(self.buffer_ckpt_path)
+        if self.buffer_ckpt_path is not None:
+            logging.info(f"Saving Buffer: {self.buffer_ckpt_path}")
+            self.data_train.buffer.save(self.buffer_ckpt_path)
