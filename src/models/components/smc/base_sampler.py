@@ -348,7 +348,7 @@ class SMCSampler(torch.nn.Module):
                 A = torch.ones_like(A)
                 logging.info(f"resampling @ step {j}")
 
-                particle_ids = particle_ids[indexes]
+                particle_ids = particle_ids[indexes.cpu()]
                 A_list.append(A)
                 ESS = sampling_efficiency(A)
                 ESS_list.append(ESS.cpu())
@@ -378,7 +378,7 @@ class SMCSampler(torch.nn.Module):
 
         # Final resampling
         X, indexes = self.resample(x=X, logw=A)
-        particle_ids = particle_ids[indexes]
+        particle_ids = particle_ids[indexes.cpu()]
         unique_ratio = particle_ids.unique().numel() / len(particle_ids)
         logging.info(f"resampling @ step {j}")
         logging.info(f"Fraction of Original Samples: {unique_ratio} %")
