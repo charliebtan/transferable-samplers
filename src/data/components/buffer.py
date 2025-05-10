@@ -25,7 +25,6 @@ def sample_without_replacement(logits: torch.Tensor, n: int) -> torch.Tensor:
 class ReplayBuffer:
     def __init__(
         self,
-        dim: int,
         max_length: int,
         sample_with_replacement: bool = False,
     ):
@@ -48,9 +47,8 @@ class ReplayBuffer:
         sampling batch size, then we may overfit to the first batch of data, as we would update
         on it many times during the start of training.
         """
-        self.dim = dim
         self.max_length = max_length
-        self.buffer = torch.empty(size=(0, dim))
+        self.buffer = []
         self.seq_name = []
         self.sample_with_replacement = sample_with_replacement
 
@@ -61,7 +59,10 @@ class ReplayBuffer:
     def add(self, x: torch.Tensor, seq_name: str = None) -> None:
         """Add a new batch of generated data to the replay buffer."""
         x = x.detach().cpu()
-        self.buffer = torch.concat([self.buffer, x], dim=0)
+        if len(self.buffer) == 0:
+            self.buffer = x
+        else:
+            self.buffer = torch.concat([self.buffer, x], dim=0)
         self.seq_name = self.seq_name + [seq_name] * len(x)
         self.buffer = self.buffer[-self.max_length :]
         self.seq_name = self.seq_name[-self.max_length :]
