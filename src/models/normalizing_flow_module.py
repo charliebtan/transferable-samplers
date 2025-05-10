@@ -28,6 +28,9 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
         super().__init__(*args, **kwargs)
         assert not self.hparams.mean_free_prior, "Mean free prior is not supported for normalizing flows"
 
+        self.eval_encoding = None
+        self.eval_energy = None
+
     def model_step(
         self,
         batch: torch.Tensor,
@@ -38,9 +41,33 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
 
         x0, dlogp = self.net(x1, encoding=encoding, mask=mask)
         loss = self.prior.energy(x0, mask=mask).mean() - dlogp.mean()
+        self.log("train/mle_loss", loss.item(), prog_bar=True, sync_dist=True)
 
         if self.hparams.energy_kl_weight:
-            raise NotImplementedError()
+            assert self.hparams.eval_seq_name is not None, "Eval sequence name should be set"
+
+            if self.eval_encoding is None:
+                # on first step, we need to prepare the eval encoding
+                _, self.eval_encoding, self.eval_energy = self.datamodule.prepare_eval(self.hparams.eval_seq_name)
+
+            samples, log_q_theta, _ = self.generate_samples(
+                self.hparams.energy_kl_batch_size, encoding=self.eval_encoding
+            )
+
+            log_p = -self.eval_energy(samples)
+
+            self.log("train/log_p_mean", log_p.mean(), prog_bar=True, sync_dist=True)
+            self.log("train/log_p_median", log_p.median(), prog_bar=True, sync_dist=True)
+
+            self.log("train/log_q_theta_mean", log_q_theta.mean(), prog_bar=True, sync_dist=True)
+            self.log("train/log_q_theta_median", log_q_theta.median(), prog_bar=True, sync_dist=True)
+
+            num_particles = self.eval_encoding["atom_type"].size(0)
+            data_dim = num_particles * self.datamodule.hparams.num_dimensions
+            energy_loss = (log_q_theta - log_p).mean() / data_dim
+
+            loss = loss + self.hparams.energy_kl_weight * energy_loss
+            self.log("train/energy_loss", energy_loss.item(), prog_bar=True, sync_dist=True)
 
         return loss
 
