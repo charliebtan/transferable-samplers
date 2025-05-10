@@ -2,11 +2,10 @@
 
 defaults:
   - override /model: normalizing_flow
-  - override /data: 2aa
+  - override /data: up_to_4aa
   - override /trainer: gpu
 
-# ckpt_path: "/network/scratch/m/majdi.hassan/self-consume-bg/self-consume-bg/logs/train/runs/2aa_tarflow_noise_v3/checkpoints/last.ckpt"
-ckpt_path: "/network/scratch/t/tanc/self-consume-bg/logs/train/runs/2aa_tarflow_v4/checkpoints/last.ckpt"
+ckpt_path: null
 train: False
 task_name: eval
 
@@ -18,21 +17,24 @@ model:
     num_smc_samples: 10_000
     clip_reweighting_logits: 0.002
   net:
+    _target_: src.models.components.tarflow.tarflow.TarFlow
     in_channels: 3
     channels: 384
-    num_blocks: 6
-    layers_per_block: 6
+    num_blocks: 8
+    layers_per_block: 8
+    use_qkln: True
     cond_embed:
       _target_: src.models.components.tarflow.embed.ConditionalEmbedder
       channels: ${model.net.channels}
-      num_residue_pos: ${data.num_aa_max}
-  smc_sampler:
-    enabled: True
-    langevin_eps: 1e-7
-    num_timesteps: 1000
-    batch_size: 1024 # set for 48gb
-    input_energy_cutoff: null # this might need tuning if you get NaNs!
 
+  smc_sampler:
+    enabled: False
+    langevin_eps: 1e-7
+    num_timesteps: 100
+    batch_size: 1024 # set for 48gb 
+    input_energy_cutoff: 100 # this might need tuning if you get NaNs!
+    do_energy_plots: True
+    
 data:
   batch_size: 10_000
   num_eval_samples: 10_000

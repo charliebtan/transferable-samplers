@@ -1,6 +1,5 @@
 # ruff: noqa: E402, I001
 
-import os
 from typing import Any, Optional
 
 import hydra
@@ -86,49 +85,21 @@ def train(cfg: DictConfig) -> tuple[dict[str, Any], dict[str, Any]]:
         log.info("Logging hyperparameters!")
         log_hyperparameters(object_dict)
 
-    if cfg.get("train"):
-        log.info("Starting training!")
-        ckpt_path = cfg.get("ckpt_path")
-        if ckpt_path:
-            if os.path.exists(ckpt_path):
-                log.info(f"Resuming training from checkpoint: {ckpt_path}")
-            else:
-                log.warning(f"Checkpoint path {ckpt_path} not found! Ignoring...")
-                ckpt_path = None
-        trainer.fit(model=model, datamodule=datamodule, ckpt_path=ckpt_path)
+    assert not cfg.trainer.num_sanity_val_steps, "num_sanity_val_steps should be 0 for finetuning!"
+
+    initial_ckpt_path = cfg.get("initial_ckpt_path")
+    assert initial_ckpt_path is not None, "Need pre-trained ckpt to give initial proposal"
+    ckpt_path = cfg.get("ckpt_path")
+
+    log.info("Starting validation!")
+    trainer.validate(model=model, datamodule=datamodule, ckpt_path=initial_ckpt_path)
+
+    log.info("Starting training!")
+    trainer.fit(model=model, datamodule=datamodule, ckpt_path=ckpt_path)
 
     train_metrics = trainer.callback_metrics
 
-    if cfg.get("val"):
-        log.info("Starting validation!")
-        ckpt_path = cfg.get("ckpt_path")
-        if ckpt_path is None:
-            ckpt_path = trainer.checkpoint_callback.best_model_path
-            if ckpt_path == "":
-                log.warning("Best ckpt not found! Using current weights for testing...")
-                ckpt_path = None
-        trainer.validate(model=model, datamodule=datamodule, ckpt_path=ckpt_path)
-        log.info(f"Best ckpt path: {ckpt_path}")
-
-    val_metrics = trainer.callback_metrics
-
-    if cfg.get("test"):
-        log.info("Starting testing!")
-        ckpt_path = cfg.get("ckpt_path")
-        if ckpt_path is None:
-            ckpt_path = trainer.checkpoint_callback.best_model_path
-            if ckpt_path == "":
-                log.warning("Best ckpt not found! Using current weights for testing...")
-                ckpt_path = None
-        trainer.test(model=model, datamodule=datamodule, ckpt_path=ckpt_path)
-        log.info(f"Best ckpt path: {ckpt_path}")
-
-    test_metrics = trainer.callback_metrics
-
-    # merge train and test metrics
-    metric_dict = {**train_metrics, **val_metrics, **test_metrics}
-
-    return metric_dict, object_dict
+    return train_metrics, object_dict
 
 
 @hydra.main(version_base="1.3", config_path="../configs", config_name="train.yaml")

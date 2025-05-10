@@ -227,6 +227,7 @@ class AdaptiveAttnAndTransition(torch.nn.Module):
         residual_transition: bool = True,
         use_qkln: bool = False,  # false for consistency with tarflow.py
         use_attn_pair_bias: bool = False,  # false for consistency with tarflow.py
+        use_transition: bool = True,
         dropout=0.0,
         expansion=4,
     ):
@@ -235,6 +236,7 @@ class AdaptiveAttnAndTransition(torch.nn.Module):
         assert channels % head_channels == 0, "in_channels must be divisible by head_dim"
         self.residual_mha = residual_mha
         self.residual_transition = residual_transition
+        self.use_transition = use_transition
 
         self.mha = MultiHeadAttentionADALN(
             channels=channels,
@@ -245,7 +247,8 @@ class AdaptiveAttnAndTransition(torch.nn.Module):
             expansion=expansion,
         )
 
-        self.transition = TransitionADALN(channels=channels, channels_cond=channels, expansion_factor=expansion)
+        if use_transition:
+            self.transition = TransitionADALN(channels=channels, channels_cond=channels, expansion_factor=expansion)
 
     def _apply_mha(self, x, cond, mask, pair=None, attn_mask=None, attn_temp: float = 1.0, which_cache: str = "cond"):
         x_attn = self.mha(
@@ -278,7 +281,9 @@ class AdaptiveAttnAndTransition(torch.nn.Module):
         x = self._apply_mha(
             x, cond=cond, pair=pair, mask=mask, attn_mask=attn_mask, attn_temp=attn_temp, which_cache=which_cache
         )
-        x = self._apply_transition(x, cond, mask)
+        if self.use_transition:
+            x = self._apply_transition(x, cond, mask)
+            
         return x * mask[..., None]
 
 
