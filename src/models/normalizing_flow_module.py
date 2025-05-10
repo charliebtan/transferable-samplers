@@ -62,7 +62,8 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
             self.log("train/log_q_theta_median", log_q_theta.median(), prog_bar=True, sync_dist=True)
 
             num_particles = self.eval_encoding["atom_type"].size(0)
-            energy_loss = (log_q_theta - log_p).mean() / num_particles
+            data_dim = num_particles * self.datamodule.hparams.num_dimensions
+            energy_loss = (log_q_theta - log_p).mean() / data_dim
 
             loss = loss + self.hparams.energy_kl_weight * energy_loss
             self.log("train/energy_loss", energy_loss.item(), prog_bar=True, sync_dist=True)
