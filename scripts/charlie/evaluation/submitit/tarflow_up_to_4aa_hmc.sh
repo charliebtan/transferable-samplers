@@ -10,5 +10,4 @@ model.smc_sampler.batch_size=256 \
 model.smc_sampler.input_energy_cutoff=100 \
 seed=0 \
 ckpt_path="/network/scratch/m/majdi.hassan/self-consume-bg/self-consume-bg/logs/train/runs/tarflow_up_to_4aa_v2/checkpoints/last.ckpt" \
-+model.eval_seq_name="RSCR","TAQE","RGGF","TGRC","CWVY" \
-+trainer.limit_val_batches=1
++model.eval_seq_name="RSCR","TAQE","RGGF","TGRC","CWVY" 
