@@ -452,6 +452,9 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             metrics = {}
         return metrics
 
+    def generate_and_resample(self):
+        pass
+
     def on_train_epoch_start(self) -> None:
         logging.info("Train epoch start")
         self.train_metrics.reset()
