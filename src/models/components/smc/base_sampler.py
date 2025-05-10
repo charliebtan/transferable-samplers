@@ -201,6 +201,15 @@ class SMCSampler(torch.nn.Module):
         self.log_image_fn(fig, "langevin/acceptance-rate")
         plt.close()
 
+    def plot_particle_survival(self, survived_linages, t_list):
+        fig, ax = plt.subplots(1, 1, figsize=(7.5, 5))
+        ax.plot(t_list, survived_linages, linewidth=1, alpha=0.5)
+        ax.set_xlabel("Time", fontsize=12)
+        ax.set_ylabel("Survived Linages (%)", fontsize=12)
+        plt.tight_layout()
+        self.log_image_fn(fig, "langevin/linage-survived")
+        plt.close()
+
     @torch.no_grad()
     def resample(self, x, logw):
         if self.systematic_resampling:
@@ -216,7 +225,7 @@ class SMCSampler(torch.nn.Module):
             # multinomial resampling
             indexes = torch.multinomial(w, len(x), replacement=True)
 
-        return x[indexes]
+        return x[indexes], indexes
 
     @torch.no_grad()
     def sample(self, proposal_samples, source_energy, target_energy):
@@ -240,6 +249,7 @@ class SMCSampler(torch.nn.Module):
         t_list = [timesteps[0]]
         eps_list = [self.langevin_eps_fn(0.0)]
         acceptance_rate_list = [torch.tensor(1.0)]
+        survived_linages = [torch.tensor(1.0)]
         # dX_t_norm_list = [torch.zeros(X.shape[0])]
 
         if self.do_energy_plots:
@@ -257,7 +267,7 @@ class SMCSampler(torch.nn.Module):
             ]
 
         t_previous = 0.0
-
+        particle_ids = torch.arange(X.shape[0])
         for j, t in tqdm(enumerate(timesteps[:-1])):
             logging.info(f"Outer loop iteration {j}")
 
@@ -268,6 +278,7 @@ class SMCSampler(torch.nn.Module):
             # dX_t_norm_batches = []
             target_energy_batches = []
             interpolation_energy_batches = []
+            batch_acceptance_rate_list = []
 
             dt = t - t_previous
             for batch_idx, (X_batch, A_batch) in enumerate(zip(X_batches, A_batches)):
@@ -287,9 +298,12 @@ class SMCSampler(torch.nn.Module):
                         self.linear_energy_interpolation(source_energy, target_energy, t, X_batch).cpu()
                     )
 
+                batch_acceptance_rate_list.append(acceptance_rate.view(-1))
+
             # cat the batches to compute global statistics
             X = torch.cat(X_batches, dim=0)
             A = torch.cat(A_batches, dim=0)
+            acceptance_rate = torch.cat(batch_acceptance_rate_list, dim=0).mean()
 
             assert A.dim() == 1, "A should be a flat vector"
 
@@ -302,6 +316,7 @@ class SMCSampler(torch.nn.Module):
                 self.plot_weights(A_list, ESS_list, t_list)
                 self.plot_eps(eps_list, t_list)
                 self.plot_acceptance_rate(acceptance_rate_list, t_list)
+                self.plot_particle_survival(survived_linages, t_list)
 
             if X.isnan().any():
                 raise ValueError("X has NaNs")
@@ -312,6 +327,8 @@ class SMCSampler(torch.nn.Module):
             ESS = sampling_efficiency(A)
             ESS_list.append(ESS.cpu())
             acceptance_rate_list.append(acceptance_rate.cpu())
+            unique_ratio = particle_ids.unique().numel() / len(particle_ids)
+            survived_linages.append(unique_ratio)
             # dX_t_norm_list.append(np.concatenate(dX_t_norm_batches))
 
             t_list.append(t)
@@ -327,10 +344,11 @@ class SMCSampler(torch.nn.Module):
                 # qmc_rand = sampler.random(n=len(A))
                 # cum_prob = torch.cumsum(torch.softmax(A, dim=-1), dim=0)
                 # indexes = np.searchsorted(cum_prob, qmc_rand, side="left").flatten()
-                X = self.resample(x=X, logw=A)
+                X, indexes = self.resample(x=X, logw=A)
                 A = torch.ones_like(A)
                 logging.info(f"resampling @ step {j}")
 
+                particle_ids = particle_ids[indexes]
                 A_list.append(A)
                 ESS = sampling_efficiency(A)
                 ESS_list.append(ESS.cpu())
@@ -338,6 +356,8 @@ class SMCSampler(torch.nn.Module):
                 t_list.append(t + 1e-9)
                 eps_list.append(eps)
                 acceptance_rate_list.append(torch.tensor(1.0))
+                unique_ratio = particle_ids.unique().numel() / len(particle_ids)
+                survived_linages.append(unique_ratio)
                 # dX_t_norm_list.append(np.concatenate(dX_t_norm_batches))
 
                 # slice into list of batches (tensors)
@@ -357,8 +377,11 @@ class SMCSampler(torch.nn.Module):
             t_previous = t
 
         # Final resampling
-        X = self.resample(x=X, logw=A)
+        X, indexes = self.resample(x=X, logw=A)
+        particle_ids = particle_ids[indexes]
+        unique_ratio = particle_ids.unique().numel() / len(particle_ids)
         logging.info(f"resampling @ step {j}")
+        logging.info(f"Fraction of Original Samples: {unique_ratio} %")
 
         smc_samples = X
         smc_logits = A
