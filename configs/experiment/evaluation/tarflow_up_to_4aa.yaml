@@ -15,7 +15,7 @@ model:
     batch_size: 10_000
     num_test_proposal_samples: 10_000
     num_smc_samples: 10_000
-    clip_reweighting_logits: null # it was working well on AC without - lets try avoid
+    clip_reweighting_logits: 0.002
   net:
     _target_: src.models.components.tarflow.tarflow.TarFlow
     in_channels: 3
