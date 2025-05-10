@@ -30,14 +30,16 @@ model:
       channels: ${model.net.channels}
 
   smc_sampler:
-    _target_: src.models.components.smc.ula_sampler.SMCSamplerULA
+    _target_: src.models.components.smc.fk_sampler.FeynmannKacSampler
     enabled: True
-    langevin_eps: 1e-7
+    langevin_eps: 1e-5
     num_timesteps: 100
-    batch_size: 1024 # set for 48gb 
+    ess_threshold: 0.5
+    systematic_resampling: True
+    batch_size: 256 # set for 48gb
     input_energy_cutoff: 100 # this might need tuning if you get NaNs!
     do_energy_plots: True
-    log_freq: 10
+    log_freq: 1
     
 data:
   batch_size: 10_000
