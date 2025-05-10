@@ -122,7 +122,7 @@ class FlowMatchLitModule(TransferableBoltzmannGeneratorLitModule):
         dlog_p = torch.zeros((x.shape[0], 1), device=x.device)
         t_span = torch.linspace(1, 0, 2) if reverse else torch.linspace(0, 1, 2)
 
-        eval_fn = partial(copy.deepcopy(self.net).forward, encoding=encoding)
+        eval_fn = partial(copy.deepcopy(self.net), encoding=encoding)
 
         if self.hparams.div_estimator == "ito":
             x_ito, dlog_p_ito = self.sde_integrate(x, reverse=reverse)
@@ -155,6 +155,7 @@ class FlowMatchLitModule(TransferableBoltzmannGeneratorLitModule):
         if not dummy_ll:
             x = torch.cat([x, dlog_p], dim=-1)
         x = node.trajectory(x, t_span=t_span)[-1]
+        logging.info(f"nfe: {wrapped_net.nfe}")
         self.nfe += wrapped_net.nfe
         self.num_integrations += 1
         wrapped_net.nfe = 0

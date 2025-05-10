@@ -347,8 +347,16 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
         if self.local_rank == 0:
             os.makedirs(f"{output_dir}/{prefix}", exist_ok=True)
-            torch.save(samples_dict, f"{output_dir}/{prefix}/samples.pt")
-            logging.info(f"Saving {len(proposal_samples)} samples to {output_dir}/{prefix}_samples.pt")
+            if self.hparams.sampling_config.get("subset_idx") is not None:
+                torch.save(samples_dict, f"{output_dir}/{prefix}/samples_{self.hparams.sampling_config.subset_idx}.pt")
+                logging.info(
+                    f"Saving {len(proposal_samples)} samples to {output_dir} "
+                    "/{prefix}/samples_{self.hparams.sampling_config.subset_idx}.pt"
+                )
+                return {}  # early return if subset_idx is set - need to post-process these samples in notebook
+            else:
+                torch.save(samples_dict, f"{output_dir}/{prefix}/samples.pt")
+                logging.info(f"Saving {len(proposal_samples)} samples to {output_dir}/{prefix}/samples.pt")
 
         # Compute energy
         proposal_samples_energy = energy_fn(proposal_samples)
@@ -369,7 +377,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         self.log(f"{prefix}/proposal_com_std", proposal_com_std, sync_dist=True)
 
         # Apply CoM adjustment to energy, this must be done here for compatibility with CNFs
-        if self.hparams.sampling_config.use_com_adjustment:
+        if self.hparams.sampling_config.get("use_com_adjustment", False):
             proposal_log_p = proposal_log_p + self.com_energy_adjustment(proposal_samples)
 
         # Compute resampling index
