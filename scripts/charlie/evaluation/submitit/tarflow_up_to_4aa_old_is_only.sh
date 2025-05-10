@@ -6,5 +6,5 @@ logger=wandb \
 model.eval_seq_name="RSCR","TAQE","RGGF","TGRC","CWVY" \
 val=True \
 test=False \
-model.sampling_config.num_test_proposal_samples=10_000,100_000,1_000_000 \
+model.sampling_config.num_proposal_samples=10_000,100_000,1_000_000 \
 model.sampling_config.clip_reweighting_logits=null,0.002
