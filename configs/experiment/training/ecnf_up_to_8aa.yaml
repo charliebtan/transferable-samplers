@@ -12,7 +12,7 @@ model:
     encoding_dim: 4
 
   sampling_config:
-    batch_size: 256
+    batch_size: 8
     num_proposal_samples: 1_000
 
 data:
@@ -26,4 +26,4 @@ trainer:
   limit_val_batches: 0.5 # it's quite slow otherwise - only affects val/loss
   limit_test_batches: null
   max_epochs: 500
-  num_sanity_val_steps: 1
+  num_sanity_val_steps: 0

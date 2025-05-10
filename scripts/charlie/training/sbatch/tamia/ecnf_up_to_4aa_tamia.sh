@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH -J train_nf                 # Job name
 #SBATCH -o watch_folder/%x_%j.out     # output file (%j expands to jobID)
-#SBATCH -N 1                          # Total number of nodes requested
+#SBATCH -N 2                          # Total number of nodes requested
 #SBATCH --mem=256G                     # server memory requested (per node)
 #SBATCH -t 3:00:00                  # Time limit (hh:mm:ss)
 #SBATCH --account=aip-necludov               
@@ -21,6 +21,7 @@ source $HOME/envs/$env/bin/activate
 
 wandb online
 
+echo $SLURM_NNODES
 RUN_NAME="encf_up_to_4aa_v1"
 
 # ddp_find_unused_parameters_true needed because some of modules in final layer don't affect loss
@@ -30,12 +31,11 @@ experiment=training/ecnf_up_to_4aa logger=wandb \
 trainer=ddp \
 trainer.strategy=ddp_find_unused_parameters_true \
 data.data_dir='/project/aip-necludov/shared/self-consume-bg/data/new' \
-data.batch_size=256 \
-trainer.limit_train_batches=2000 \
-+trainer.accumulate_grad_batches=2 \
+data.batch_size=512 \
 tags=[up_to_4aa,ddp,cfm] \
 trainer.check_val_every_n_epoch=10000 \
 trainer.num_sanity_val_steps=0 \
+trainer.num_nodes=$SLURM_NNODES \
 hydra.run.dir='${paths.log_dir}/${task_name}/runs/'${RUN_NAME} \
 ckpt_path='${paths.log_dir}/${task_name}/runs/'${RUN_NAME}/checkpoints/last.ckpt \
 logger.wandb.id=${RUN_NAME}
