@@ -83,7 +83,7 @@ class FlowMatchLitModule(TransferableBoltzmannGeneratorLitModule):
         return loss
 
     def test_integrators(self) -> torch.Tensor:
-        x = self.prior.sample(self.hparams.sampling_config.batch_size).to(self.device)
+        x = self.prior.sample(self.hparams.sampling_config.batch_size, device=self.device)
         integrators = [
             "exact",
             "exact_no_functional",
@@ -262,7 +262,7 @@ class FlowMatchLitModule(TransferableBoltzmannGeneratorLitModule):
         data_dim = num_particles * self.datamodule.hparams.num_dimensions
 
         local_batch_size = batch_size // self.trainer.world_size
-        prior_samples = self.prior.sample(local_batch_size, num_particles).to(self.device)
+        prior_samples = self.prior.sample(local_batch_size, num_particles, device=self.device)
 
         # need to rescale to the "sum" of the log p (the prior returns the position-wise mean)
         prior_log_p = -self.prior.energy(prior_samples) * data_dim
