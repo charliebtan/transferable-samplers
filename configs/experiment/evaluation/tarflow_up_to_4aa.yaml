@@ -7,12 +7,15 @@ defaults:
 
 ckpt_path: null
 train: False
+val: False
+test: True
 task_name: eval
 
 model:
+  eval_seq_name: null
   sampling_config:
     use_com_adjustment: True
-    batch_size: 10_000
+    batch_size: 5_000
     num_test_proposal_samples: 10_000
     num_smc_samples: 10_000
     clip_reweighting_logits: 0.002
@@ -22,7 +25,10 @@ model:
     channels: 384
     num_blocks: 8
     layers_per_block: 8
-    use_qkln: True
+    perm_type: "standard"
+    use_adapt_ln: False
+    use_transition: False
+    pos_embed_type: "learned"
     cond_embed:
       _target_: src.models.components.tarflow.embed.ConditionalEmbedder
       channels: ${model.net.channels}
@@ -36,7 +42,7 @@ model:
     do_energy_plots: True
     
 data:
-  batch_size: 10_000
+  batch_size: 128
   num_eval_samples: 10_000
 
 trainer:
