@@ -28,3 +28,4 @@ data:
 
 trainer:
   limit_test_batches: 1
+  limit_val_batches: 1
