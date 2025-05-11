@@ -130,11 +130,11 @@ class Energy(torch.nn.Module):
         raise NotImplementedError()
 
     def energy(self, *xs, temperature=1.0, **kwargs):
-        assert len(xs) == len(self._event_shapes), (
-            f"Expected {len(self._event_shapes)} arguments but only received {len(xs)}"
+        assert len(xs) == len(self.event_shapes), (
+            f"Expected {len(self.event_shapes)} arguments but only received {len(xs)}"
         )
-        batch_shape = xs[0].shape[: -len(self._event_shapes[0])]
-        for i, (x, s) in enumerate(zip(xs, self._event_shapes)):
+        batch_shape = xs[0].shape[: -len(self.event_shapes[0])]
+        for i, (x, s) in enumerate(zip(xs, self.event_shapes)):
             assert x.shape[: -len(s)] == batch_shape, (
                 f"Inconsistent batch shapes."
                 f"Input at index {i} has batch shape {x.shape[: -len(s)]}"
@@ -298,17 +298,7 @@ class _BridgeEnergy(Energy):
         return self._bridge
 
     def _energy(self, batch, no_grads=False):
-        # check if we have already computed this energy (hash of string representation should be sufficient)
-        if hash(str(batch)) == self._last_batch:
-            return self._bridge.last_energies
-        else:
-            self._last_batch = hash(str(batch))
-            return _evaluate_bridge_energy(batch, self._bridge)
+        return _evaluate_bridge_energy(batch, self._bridge)
 
     def force(self, batch, temperature=None):
-        # check if we have already computed this energy
-        if hash(str(batch)) == self.last_batch:
-            return self.bridge.last_forces
-        else:
-            self._last_batch = hash(str(batch))
-            return self._bridge.evaluate(batch)[1]
+        return self._bridge.evaluate(batch)[1]
