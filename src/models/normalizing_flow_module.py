@@ -14,7 +14,7 @@ torch.backends.cudnn.allow_tf32 = False
 class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
     def __init__(
         self,
-        energy_kl_weight: float = 0.01,
+        energy_kl_weight: float = 0.0,
         log_invertibility_error: bool = True,
         *args,
         **kwargs,
@@ -26,6 +26,7 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
         :param scheduler: The learning rate scheduler to use for training.
         """
         super().__init__(*args, **kwargs)
+        assert not self.hparams.mean_free_prior, "Mean free prior is not supported for normalizing flows"
 
         self.eval_encoding = None
         self.eval_energy = None
@@ -122,7 +123,7 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
         data_dim = num_particles * self.datamodule.hparams.num_dimensions
 
         local_batch_size = batch_size // self.trainer.world_size
-        prior_samples = self.prior.sample(local_batch_size, num_particles).to(self.device)
+        prior_samples = self.prior.sample(local_batch_size, num_particles, device=self.device)
 
         # need to rescale to the "sum" of the log p (the prior returns the position-wise mean)
         prior_log_p = -self.prior.energy(prior_samples) * data_dim
@@ -183,7 +184,7 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
 
         log_p = prior_log_p.flatten() + fwd_logdets.flatten()
 
-        return x_pred, log_p, torch.empty(0)
+        return x_pred, log_p, prior_samples
 
 
 if __name__ == "__main__":

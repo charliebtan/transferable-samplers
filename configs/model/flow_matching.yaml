@@ -1,6 +1,6 @@
 defaults:
   - default
-  - net: egnn_dynamics_large
+  - net: egnn_dynamics_transferable_md
 
 _target_: src.models.flow_matching_module.FlowMatchLitModule
 mean_free_prior: True
@@ -12,12 +12,11 @@ n_eps: 1
 
 optimizer:
   _partial_: true
-  lr: 0.0005
+  lr: 5e-4
   betas:
     - 0.9
     - 0.999
-  eps: 1e-8
-  weight_decay: 0.01
+  weight_decay: 1e-2
 
 sampling_config:
   use_com_adjustment: False
