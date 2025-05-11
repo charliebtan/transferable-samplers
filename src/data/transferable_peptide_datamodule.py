@@ -9,7 +9,6 @@ import torch
 import torchvision
 
 from src.data.base_datamodule import BaseDataModule
-from src.data.components.buffer import ReplayBuffer
 from src.data.components.data_types import SamplesData
 from src.data.components.encoding import get_encoding_dict
 from src.data.components.openmm import OpenMMBridge, OpenMMEnergy
@@ -48,14 +47,11 @@ class TransferablePeptideDataModule(BaseDataModule):
         test_lmdb_prefix: str,
         num_aa_max: int,
         num_aa_min: int,
-        num_particles: int,
         num_dimensions: int,
+        num_particles: int,
         dim: int,  # dim of largest system
         com_augmentation: bool = False,
         atom_noise_augmentation_factor: float = 0.0,
-        buffer: ReplayBuffer = None,
-        buffer_ratio: float = 0.5,
-        buffer_ckpt_path: str = None,
         # TODO maybe make this all just *args?
         batch_size: int = 64,
         num_workers: int = 0,
@@ -81,9 +77,6 @@ class TransferablePeptideDataModule(BaseDataModule):
         self.tica_models_path = f"{data_dir}/tica_models"
 
         self.num_aa_range = list(range(num_aa_min, num_aa_max + 1))
-        self.buffer = buffer
-        self.buffer_ratio = buffer_ratio
-        self.buffer_ckpt_path = buffer_ckpt_path
 
     def prepare_data(self) -> None:
         """Download data if needed. Lightning ensures that `self.prepare_data()` is called only
@@ -331,22 +324,11 @@ class TransferablePeptideDataModule(BaseDataModule):
 
         transforms = torchvision.transforms.Compose(transform_list)
 
-        if self.buffer_ckpt_path is not None:
-            if os.path.exists(self.buffer_ckpt_path):
-                logging.info(f"Resuming buffer from checkpoint: {self.buffer_ckpt_path}")
-                self.buffer.load(self.buffer_ckpt_path)
-                logging.info(f"Number of Samples Loaded: {len(self.buffer)}")
-            else:
-                logging.info(f"Buffer checkpoint path {self.buffer_ckpt_path} not found! Ignoring...")
-
-        # TODO: implement sample ratio between data and generated samples
         self.data_train = PeptideDataset(
             self.train_lmdb_path,
             seq_names=self.train_seq_names,
             num_dimensions=self.hparams.num_dimensions,
             transform=transforms,
-            buffer=self.buffer,
-            buffer_ratio=self.buffer_ratio,
         )
 
         self.data_val = PeptideDataset(
@@ -397,8 +379,7 @@ class TransferablePeptideDataModule(BaseDataModule):
         )
 
         # Initialize potential
-        platform_name = "CUDA" if torch.cuda.is_available() else "CPU"
-        potential = OpenMMEnergy(bridge=OpenMMBridge(system, integrator, platform_name=platform_name))
+        potential = OpenMMEnergy(bridge=OpenMMBridge(system, integrator, platform_name="CUDA"))
 
         return potential
 
@@ -471,7 +452,7 @@ class TransferablePeptideDataModule(BaseDataModule):
             if len(data) == 0:
                 logging.warning(f"No {name} samples present.")
                 continue
-
+            
             logging.info(f"Evaluating {prefix + name} samples")
 
             data = data[: self.hparams.num_eval_samples * 2]  # slice out extra samples for those lost to symmetry
@@ -535,8 +516,3 @@ class TransferablePeptideDataModule(BaseDataModule):
             )
 
         return metrics
-
-    def save_buffer(self):
-        if self.buffer_ckpt_path is not None:
-            logging.info(f"Saving Buffer: {self.buffer_ckpt_path}")
-            self.data_train.buffer.save(self.buffer_ckpt_path)

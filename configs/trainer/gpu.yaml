@@ -1,5 +1,5 @@
 defaults:
   - default
 
-accelerator: cuda
+accelerator: gpu
 devices: 1
