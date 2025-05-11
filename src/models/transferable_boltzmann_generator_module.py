@@ -274,7 +274,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
     def evaluate_all(self, prefix):
         metrics = {}
         eval_seq_names = self.datamodule.val_seq_names if prefix.startswith("val") else self.datamodule.test_seq_names
-
+        # TODO: @Majdi look into just providing the seq names in eval config
         if (prefix.startswith("test") or prefix.startswith("val")) and self.hparams.get("eval_seq_name") is not None:
             if self.hparams.eval_seq_name not in eval_seq_names:
                 raise ValueError(f"{self.hparams.eval_seq_name} not in set of test sequences: {eval_seq_names}")
@@ -312,7 +312,6 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         """Generates samples from the proposal and runs SMC if enabled.
         Also computes metrics, through the datamodule function "metrics_and_plots".
         """
-
         true_data = SamplesData(
             self.datamodule.as_pointcloud(self.datamodule.unnormalize(true_samples)),
             energy_fn(true_samples),
@@ -330,10 +329,12 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             num_proposal_samples = self.hparams.sampling_config.num_proposal_samples
 
         # Generate samples and record time
-        torch.cuda.synchronize()
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
         start_time = time.time()
         proposal_samples, proposal_log_p, prior_samples = proposal_generator(num_proposal_samples, encoding)
-        torch.cuda.synchronize()
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
         time_duration = time.time() - start_time
         self.log(f"{prefix}/samples_walltime", time_duration, sync_dist=True)
         self.log(f"{prefix}/samples_per_second", len(proposal_samples) / time_duration, sync_dist=True)
@@ -395,6 +396,12 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             logits=resampling_logits,
         )
 
+        if self.datamodule.buffer is not None:
+            # Add the generated IS samples to the buffer for training
+            batch_size = reweighted_data.samples.shape[0]
+            self.datamodule.data_train.buffer.add(reweighted_data.samples.view(batch_size, -1), sequence)
+            self.datamodule.save_buffer()
+
         if self.smc_sampler is not None and self.smc_sampler.enabled:
             logging.info("SMC sampling enabled")
 
@@ -444,6 +451,9 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         else:
             metrics = {}
         return metrics
+
+    def generate_and_resample(self):
+        pass
 
     def on_train_epoch_start(self) -> None:
         logging.info("Train epoch start")
