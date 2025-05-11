@@ -17,12 +17,13 @@ class SMCSampler(torch.nn.Module):
         langevin_eps: float = 1e-7,
         num_timesteps: int = 100,
         ess_threshold: float = -1.0,
+        systematic_resampling: bool = False,
+        adaptive_step_size: bool = False,
         warmup: float = 0.1,
         enabled: bool = False,
         do_energy_plots: bool = False,
         log_freq: int = 10,
         input_energy_cutoff: float = None,
-        systematic_resampling: bool = False,
     ):
         super().__init__()
 
@@ -37,6 +38,7 @@ class SMCSampler(torch.nn.Module):
         self.log_freq = log_freq
         self.input_energy_cutoff = input_energy_cutoff
         self.systematic_resampling = systematic_resampling
+        self.adaptive_step_size = adaptive_step_size
 
     def mcmc_kernel(self, source_energy, target_energy, t, x, logw, dt):
         raise NotImplementedError
@@ -47,10 +49,16 @@ class SMCSampler(torch.nn.Module):
         else:
             return self.langevin_eps
 
+    def update_step_size(self, acceptance_rate):
+        if acceptance_rate > 0.6:
+            self.langevin_eps = self.langevin_eps * 1.1
+        elif acceptance_rate < 0.55:
+            self.langevin_eps = self.langevin_eps / 1.1
+
     def linear_energy_interpolation(self, source_energy, target_energy, t, x):
         E_source = source_energy(x)
         E_target = target_energy(x)
-        E_target = E_target.reshape(-1)
+
         assert E_source.shape == (x.shape[0],), f"Source energy should be a flat vector not {E_source.shape}"
         assert E_target.shape == (x.shape[0],), f"Target energy should be a flat vector, not {E_target.shape}"
         energy = (1 - t) * E_source + t * E_target
@@ -151,20 +159,6 @@ class SMCSampler(torch.nn.Module):
         self.log_image_fn(fig, "langevin/energy_histograms")
         plt.close()
 
-    def plot_dX_t_norm(self, dX_t_norm_list, t_list):
-        dX_t_norm_np = np.stack(dX_t_norm_list).T
-
-        fig, axs = plt.subplots(1, 1, figsize=(7.5, 5))
-
-        for k in range(dX_t_norm_np.shape[0]):
-            axs.plot(t_list, dX_t_norm_np[k], linewidth=1, alpha=0.5)
-
-        axs.set_xlabel("Time", fontsize=12)
-        axs.set_ylabel("||dX_t||", fontsize=12)
-        plt.tight_layout()
-        self.log_image_fn(fig, "langevin/dX_t_norm")
-        plt.close()
-
     def plot_weights(self, A_list, ESS_list, t_list):
         A_np = torch.stack(A_list).cpu().numpy()
 
@@ -250,7 +244,6 @@ class SMCSampler(torch.nn.Module):
         eps_list = [self.langevin_eps_fn(0.0)]
         acceptance_rate_list = [torch.tensor(1.0)]
         survived_linages = [torch.tensor(1.0)]
-        # dX_t_norm_list = [torch.zeros(X.shape[0])]
 
         if self.do_energy_plots:
             # slice into list of batches (tensors)
@@ -282,6 +275,9 @@ class SMCSampler(torch.nn.Module):
 
             dt = t - t_previous
             for batch_idx, (X_batch, A_batch) in enumerate(zip(X_batches, A_batches)):
+                if X_batch.isnan().any():
+                    raise ValueError("X contains NaNs")
+
                 # Update coordinates and weights according to mcmc kernel
                 X_batch, A_batch, acceptance_rate = self.mcmc_kernel(
                     source_energy=source_energy, target_energy=target_energy, t=t, x=X_batch, logw=A_batch, dt=dt
@@ -305,6 +301,9 @@ class SMCSampler(torch.nn.Module):
             A = torch.cat(A_batches, dim=0)
             acceptance_rate = torch.cat(batch_acceptance_rate_list, dim=0).mean()
 
+            if self.adaptive_step_size:
+                self.update_step_size(acceptance_rate)
+
             assert A.dim() == 1, "A should be a flat vector"
 
             if X.isnan().any() or A.isnan().any() or not (j + 1) % self.log_freq or j + 1 == num_timesteps:
@@ -312,7 +311,6 @@ class SMCSampler(torch.nn.Module):
                     self.plot_stepwise_energy(target_energy_list, interpolation_energy_list, t_list)
                     self.plot_stepwise_energy_hist(target_energy_list, interpolation_energy_list, t_list)
 
-                # self.plot_dX_t_norm(dX_t_norm_list, t_list)
                 self.plot_weights(A_list, ESS_list, t_list)
                 self.plot_eps(eps_list, t_list)
                 self.plot_acceptance_rate(acceptance_rate_list, t_list)
@@ -329,7 +327,6 @@ class SMCSampler(torch.nn.Module):
             acceptance_rate_list.append(acceptance_rate.cpu())
             unique_ratio = particle_ids.unique().numel() / len(particle_ids)
             survived_linages.append(unique_ratio)
-            # dX_t_norm_list.append(np.concatenate(dX_t_norm_batches))
 
             t_list.append(t)
             # log epsilon step size from langevin
@@ -355,7 +352,7 @@ class SMCSampler(torch.nn.Module):
 
                 t_list.append(t + 1e-9)
                 eps_list.append(eps)
-                acceptance_rate_list.append(torch.tensor(1.0))
+                acceptance_rate_list.append(acceptance_rate.cpu())
                 unique_ratio = particle_ids.unique().numel() / len(particle_ids)
                 survived_linages.append(unique_ratio)
                 # dX_t_norm_list.append(np.concatenate(dX_t_norm_batches))
