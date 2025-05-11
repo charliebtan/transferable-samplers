@@ -452,7 +452,7 @@ class TransferablePeptideDataModule(BaseDataModule):
             if len(data) == 0:
                 logging.warning(f"No {name} samples present.")
                 continue
-            
+
             logging.info(f"Evaluating {prefix + name} samples")
 
             data = data[: self.hparams.num_eval_samples * 2]  # slice out extra samples for those lost to symmetry
@@ -489,6 +489,12 @@ class TransferablePeptideDataModule(BaseDataModule):
                         self.tica_model_paths[sequence],
                         prefix=prefix + name,
                     )
+
+        # reduce size so plotting doesn't crash with many samples
+        true_data = true_data[: self.hparams.num_eval_samples]
+        proposal_data = proposal_data[: self.hparams.num_eval_samples]
+        resampled_data = resampled_data[: self.hparams.num_eval_samples]
+        smc_data = smc_data[: self.hparams.num_eval_samples] if smc_data is not None else None
 
         if self.hparams.do_plots:
             plot_energies(
