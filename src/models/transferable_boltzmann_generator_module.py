@@ -272,7 +272,6 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
     def evaluate_all(self, prefix):
         metrics = {}
         eval_seq_names = self.datamodule.val_seq_names if prefix.startswith("val") else self.datamodule.test_seq_names
-        # TODO: @Majdi look into just providing the seq names in eval config
         if (prefix.startswith("test") or prefix.startswith("val")) and self.hparams.get("eval_seq_name") is not None:
             if self.hparams.eval_seq_name not in eval_seq_names:
                 raise ValueError(f"{self.hparams.eval_seq_name} not in set of test sequences: {eval_seq_names}")
