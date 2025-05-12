@@ -5,7 +5,6 @@ import time
 from collections import defaultdict
 from typing import Any, Optional
 
-import hydra
 import matplotlib.pyplot as plt
 import torch
 import torchmetrics
@@ -323,40 +322,35 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             if "dummy_ll" in self.hparams and self.hparams.dummy_ll:
                 proposal_generator = lambda x: self.batched_generate_samples(x, dummy_ll=True)
 
-        if prefix.startswith("test"):
-            num_proposal_samples = self.hparams.sampling_config.num_test_proposal_samples
-        else:
-            num_proposal_samples = self.hparams.sampling_config.num_proposal_samples
+        BASE_DIR_1 = "/home/mila/t/tanc/scratch/self-consume-bg/logs/eval/multiruns/2025-05-11_01-44-04"
+        BASE_DIR_2 = "/home/mila/t/tanc/scratch/self-consume-bg/logs/eval/multiruns/2025-05-10_02-21-17"
 
-        # Generate samples and record time
-        torch.cuda.synchronize()
-        start_time = time.time()
-        proposal_samples, proposal_log_p, prior_samples = proposal_generator(num_proposal_samples, encoding)
-        torch.cuda.synchronize()
-        time_duration = time.time() - start_time
-        self.log(f"{prefix}/samples_walltime", time_duration, sync_dist=True)
-        self.log(f"{prefix}/samples_per_second", len(proposal_samples) / time_duration, sync_dist=True)
+        samples_dicts = []
+        for i in range(10):
+            found = False
+            for j in range(500):
+                path1 = f"{BASE_DIR_1}/{j}/{prefix}/samples_{i}.pt"
+                path2 = f"{BASE_DIR_2}/{j}/{prefix}/samples_{i}.pt"
 
-        # Save samples to disk
-        samples_dict = {
-            "prior_samples": prior_samples,
-            "proposal_samples": proposal_samples,
-            "proposal_log_p": proposal_log_p,
-        }
-        if output_dir is None:
-            output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
-        if self.local_rank == 0:
-            os.makedirs(f"{output_dir}/{prefix}", exist_ok=True)
-            if self.hparams.sampling_config.get("subset_idx") is not None:
-                torch.save(samples_dict, f"{output_dir}/{prefix}/samples_{self.hparams.sampling_config.subset_idx}.pt")
-                logging.info(
-                    f"Saving {len(proposal_samples)} samples to {output_dir} "
-                    "/{prefix}/samples_{self.hparams.sampling_config.subset_idx}.pt"
-                )
-                return {}  # early return if subset_idx is set - need to post-process these samples in notebook
-            else:
-                torch.save(samples_dict, f"{output_dir}/{prefix}/samples.pt")
-                logging.info(f"Saving {len(proposal_samples)} samples to {output_dir}/{prefix}/samples.pt")
+                if os.path.exists(path1):
+                    samples_dicts.append(torch.load(path1))
+                    found = True
+                    break
+                elif os.path.exists(path2):
+                    samples_dicts.append(torch.load(path2))
+                    found = True
+                    break
+
+            if not found:
+                raise FileNotFoundError(f"Sample file samples_{i}.pt not found in either directory.")
+
+        prior_samples = torch.cat([d["prior_samples"] for d in samples_dicts], dim=0)
+        proposal_samples = torch.cat([d["proposal_samples"] for d in samples_dicts], dim=0)
+        proposal_log_p = torch.cat([d["proposal_log_p"] for d in samples_dicts], dim=0)
+
+        logging.info(f"Prior samples shape: {prior_samples.shape}")
+        logging.info(f"Proposal samples shape: {proposal_samples.shape}")
+        logging.info(f"Proposal log p shape: {proposal_log_p.shape}")
 
         # Compute energy
         proposal_samples_energy = energy_fn(proposal_samples)
