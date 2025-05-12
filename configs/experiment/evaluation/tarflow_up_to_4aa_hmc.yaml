@@ -7,8 +7,8 @@ defaults:
 
 ckpt_path: "/network/scratch/m/majdi.hassan/self-consume-bg/self-consume-bg/logs/train/runs/tarflow_up_to_4aa_v2/checkpoints/last.ckpt"
 train: False
-val: True
-test: False
+val: False
+test: True
 
 task_name: eval
 
