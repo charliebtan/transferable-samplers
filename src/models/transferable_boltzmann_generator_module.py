@@ -17,7 +17,7 @@ from tqdm import tqdm
 from src.data.components.data_types import SamplesData
 from src.models.components.ema import EMA
 from src.models.components.priors import NormalDistribution
-from src.models.components.smc_sampler import SMCSampler
+from src.models.components.smc.base_sampler import SMCSampler
 from src.models.components.utils import resample
 
 logger = logging.getLogger(__name__)
@@ -59,8 +59,6 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         self.datamodule = datamodule
 
         self.smc_sampler = smc_sampler(
-            source_energy=self.proposal_energy,
-            target_energy=self.datamodule.energy,
             log_image_fn=self.log_image,
         )
 
@@ -273,12 +271,14 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
     def evaluate_all(self, prefix):
         metrics = {}
         eval_seq_names = self.datamodule.val_seq_names if prefix.startswith("val") else self.datamodule.test_seq_names
-
         if (prefix.startswith("test") or prefix.startswith("val")) and self.hparams.get("eval_seq_name") is not None:
             if self.hparams.eval_seq_name not in eval_seq_names:
                 raise ValueError(f"{self.hparams.eval_seq_name} not in set of test sequences: {eval_seq_names}")
 
-            eval_seq_names = [self.hparams.eval_seq_name]
+            if not isinstance(self.hparams.eval_seq_name, list):
+                eval_seq_names = [self.hparams.eval_seq_name]
+            else:
+                eval_seq_names = self.hparams.eval_seq_name
 
         for seq_name in eval_seq_names:
             true_samples, encoding, energy_fn = self.datamodule.prepare_eval(seq_name)
@@ -410,9 +410,11 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             # Generate smc samples and record time
             torch.cuda.synchronize()
             start_time = time.time()
-            self.smc_sampler.target_energy = energy_fn
+
+            # TODO: Make conditional proposal energy
+            cond_proposal_energy = lambda _x: self.proposal_energy(_x, encoding=encoding)
             smc_samples, smc_logits = self.smc_sampler.sample(
-                proposal_samples[:num_smc_samples], encoding=encoding
+                proposal_samples[:num_smc_samples], cond_proposal_energy, energy_fn
             )  # already returned resampled
             torch.cuda.synchronize()
             time_duration = time.time() - start_time
