@@ -271,7 +271,6 @@ class SMCSampler(torch.nn.Module):
             X_batches = [X[i : i + self.batch_size] for i in range(0, X.shape[0], self.batch_size)]
             A_batches = [A[i : i + self.batch_size] for i in range(0, A.shape[0], self.batch_size)]
 
-            # dX_t_norm_batches = []
             target_energy_batches = []
             interpolation_energy_batches = []
             batch_acceptance_rate_list = []
@@ -289,7 +288,6 @@ class SMCSampler(torch.nn.Module):
                 # apply the updates to the batch in the list
                 X_batches[batch_idx] = X_batch
                 A_batches[batch_idx] = A_batch
-                # dX_t_norm_batches.append(dX_t.norm(dim=-1).cpu())
 
                 if self.do_energy_plots:
                     target_energy_batches.append(target_energy(X_batch).cpu())
@@ -358,7 +356,6 @@ class SMCSampler(torch.nn.Module):
                 acceptance_rate_list.append(acceptance_rate.cpu())
                 unique_ratio = particle_ids.unique().numel() / len(particle_ids)
                 survived_linages.append(unique_ratio)
-                # dX_t_norm_list.append(np.concatenate(dX_t_norm_batches))
 
                 # slice into list of batches (tensors)
                 X_batches = [X[i : i + self.batch_size] for i in range(0, X.shape[0], self.batch_size)]
