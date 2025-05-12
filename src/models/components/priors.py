@@ -10,11 +10,13 @@ class NormalDistribution:
         self.distribution = Normal(mean, std)
         self.mean_free = mean_free
 
-    def sample(self, num_samples: int, num_particles: int, mask: torch.Tensor | None = None) -> torch.Tensor:
-        x = self.distribution.sample((num_samples, num_particles, self.num_dimensions))
+    def sample(
+        self, num_samples: int, num_particles: int, mask: torch.Tensor | None = None, device="cpu"
+    ) -> torch.Tensor:
+        x = self.distribution.sample((num_samples, num_particles, self.num_dimensions)).to(device)
         if self.mean_free:
             if mask is None:
-                mask = torch.ones((num_samples, num_particles), device=x.device)
+                mask = torch.ones((num_samples, num_particles), device=device)
             com = (x * mask[..., None]).sum(dim=1, keepdims=True) / mask.sum(dim=1, keepdims=True)[..., None]
             x = x - com
             x *= mask[..., None]

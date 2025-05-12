@@ -1,11 +1,7 @@
 defaults:
   - scheduler: cosine
   - optimizer: adam_w
-_target_: src.model.BoltzmannGeneratorLitModule
 
-# this does cosine annealing from max_lr to max_lr / div_factor / final_div_factor
-# if pct_start != 0.0 you warmup from max_lr / div_factor to max_lr too
-# normally you use this per-step but I've just got it per-epoch
 smc_sampler:
   _target_: src.models.components.smc.fk_sampler.FeynmannKacSampler
   _partial_: true
@@ -20,9 +16,8 @@ sampling_config:
   num_proposal_samples: 10_000
   num_test_proposal_samples: 10_000
   num_smc_samples: 10_000
-  num_eval_samples: 10_000
   batch_size: 10_000
-  clip_reweighting_logits: 0.002
+  clip_reweighting_logits: null
 
 ema_decay: 0.999
 eval_ema: true

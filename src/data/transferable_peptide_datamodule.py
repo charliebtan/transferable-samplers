@@ -47,8 +47,8 @@ class TransferablePeptideDataModule(BaseDataModule):
         test_lmdb_prefix: str,
         num_aa_max: int,
         num_aa_min: int,
-        num_particles: int,
         num_dimensions: int,
+        num_particles: int,
         dim: int,  # dim of largest system
         com_augmentation: bool = False,
         atom_noise_augmentation_factor: float = 0.0,
@@ -324,7 +324,6 @@ class TransferablePeptideDataModule(BaseDataModule):
 
         transforms = torchvision.transforms.Compose(transform_list)
 
-        # TODO: implement sample ratio between data and generated samples
         self.data_train = PeptideDataset(
             self.train_lmdb_path,
             seq_names=self.train_seq_names,
@@ -490,6 +489,12 @@ class TransferablePeptideDataModule(BaseDataModule):
                         self.tica_model_paths[sequence],
                         prefix=prefix + name,
                     )
+
+        # reduce size so plotting doesn't crash with many samples
+        true_data = true_data[: self.hparams.num_eval_samples]
+        proposal_data = proposal_data[: self.hparams.num_eval_samples]
+        resampled_data = resampled_data[: self.hparams.num_eval_samples]
+        smc_data = smc_data[: self.hparams.num_eval_samples] if smc_data is not None else None
 
         if self.hparams.do_plots:
             plot_energies(

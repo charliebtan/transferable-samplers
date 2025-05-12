@@ -1,24 +1,25 @@
 import copy
 import logging
+from functools import partial
 from typing import Optional
 
 import torch
 from torchdyn.core import NeuralODE
 
-from src.models.boltzmann_generator_module import BoltzmannGeneratorLitModule
 from src.models.components.wrappers import TorchdynWrapper, torch_wrapper
+from src.models.transferable_boltzmann_generator_module import TransferableBoltzmannGeneratorLitModule
 
 logger = logging.getLogger(__name__)
 
 
-class FlowMatchLitModule(BoltzmannGeneratorLitModule):
+class FlowMatchLitModule(TransferableBoltzmannGeneratorLitModule):
     """
 
     TODO - Add a description.
 
     """
 
-    def __init__(self, sigma: float = 0.0, *args, **kwargs) -> None:
+    def __init__(self, *args, **kwargs) -> None:
         """Initialize a `ProposalFlowLitModule`.
 
         :param net: The model to train.
@@ -32,25 +33,17 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
         if "strict_loading" in kwargs:
             self.strict_loading = kwargs["strict_loading"]
 
-    def forward(self, t: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, t: torch.Tensor, x: torch.Tensor, encoding, mask) -> torch.Tensor:
         """Perform a forward pass through the model `self.net`.
 
         :param x:
         :param t:
         :return: dx
         """
-        return self.net(t, x)
+        return self.net(t, x, encoding=encoding, node_mask=mask)
 
     def get_xt(self, x0, x1, t):
-        mu_t = (1.0 - t) * x0 + t * x1
-
-        if not self.hparams.sigma == 0.0:
-            noise = self.prior.sample(x1.shape[0]).to(x1.device)
-            xt = mu_t + self.hparams.sigma * noise
-        else:
-            xt = mu_t
-
-        return xt
+        return (1.0 - t) * x0 + t * x1
 
     def get_flow_targets(self, x0, x1):
         vt_flow = x1 - x0
@@ -67,21 +60,30 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
         :return: - A tensor of losses.
         """
 
-        t = torch.rand(batch.shape[0], 1, device=batch.device)
-        batch_prior = self.prior.sample(batch.shape[0]).to(batch.device)
+        x1 = batch["x"]
 
-        xt = self.get_xt(batch_prior, batch, t)
-        vt_flow = self.get_flow_targets(batch_prior, batch)
-        if "sigma" in self.hparams:
-            xt += self.hparams.sigma * torch.randn_like(xt)
+        encoding = batch["encoding"]
+        mask = batch.get("mask", None)
 
-        vt_pred = self.forward(t, xt)
+        num_samples = x1.shape[0]
+        assert not x1.shape[1] % self.datamodule.hparams.num_dimensions, (
+            f"x1 should be a multiple of {self.datamodule.hparams.num_dimensions}"
+        )
+        num_tokens = x1.shape[1] // self.datamodule.hparams.num_dimensions
+
+        t = torch.rand(num_samples, 1, device=x1.device)
+        prior_samples = self.prior.sample(num_samples, num_tokens, mask, device=x1.device)
+
+        xt = self.get_xt(prior_samples, x1, t)
+        vt_flow = self.get_flow_targets(prior_samples, x1)
+
+        vt_pred = self.forward(t, xt, encoding=encoding, mask=mask)
         loss = self.criterion(vt_pred, vt_flow)
 
         return loss
 
     def test_integrators(self) -> torch.Tensor:
-        x = self.prior.sample(self.hparams.sampling_config.batch_size).to(self.device)
+        x = self.prior.sample(self.hparams.sampling_config.batch_size, device=self.device)
         integrators = [
             "exact",
             "exact_no_functional",
@@ -116,9 +118,12 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
                 self.nfe = 0
 
     @torch.no_grad()
-    def flow(self, x: torch.Tensor, reverse=False, dummy_ll=False) -> torch.Tensor:
+    def flow(self, x: torch.Tensor, encoding, reverse=False, dummy_ll=False) -> torch.Tensor:
         dlog_p = torch.zeros((x.shape[0], 1), device=x.device)
         t_span = torch.linspace(1, 0, 2) if reverse else torch.linspace(0, 1, 2)
+
+        eval_fn = partial(copy.deepcopy(self.net), encoding=encoding)
+
         if self.hparams.div_estimator == "ito":
             x_ito, dlog_p_ito = self.sde_integrate(x, reverse=reverse)
             # prior_log_p = -self.prior.energy(x)
@@ -129,14 +134,16 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
             return x_ito, dlog_p_ito
 
         if dummy_ll:
-            wrapped_net = torch_wrapper(self.net)
+            wrapped_net = torch_wrapper(eval_fn)
+            logging.info("Using dummy ll")
         else:
             wrapped_net = TorchdynWrapper(
-                copy.deepcopy(self.net),
+                eval_fn,
                 div_estimator=self.hparams.div_estimator,
                 logp_tol_scale=self.hparams.logp_tol_scale,
                 n_eps=self.hparams.n_eps,
             )
+            logging.info(f"Using {self.hparams.div_estimator} with n_eps {self.hparams.n_eps}")
 
         node = NeuralODE(
             wrapped_net,
@@ -148,6 +155,7 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
         if not dummy_ll:
             x = torch.cat([x, dlog_p], dim=-1)
         x = node.trajectory(x, t_span=t_span)[-1]
+        logging.info(f"nfe: {wrapped_net.nfe}")
         self.nfe += wrapped_net.nfe
         self.num_integrations += 1
         wrapped_net.nfe = 0
@@ -155,6 +163,7 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
             dlog_p = x[..., -1] * self.hparams.logp_tol_scale
             x = x[..., :-1]
         # logp = (-self.prior.energy(x).view(-1) - dlog_p.view(-1))
+
         return x, dlog_p
 
     def euler_maruyama_step(
@@ -219,12 +228,14 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
         x, dlogp = self.flow(x, reverse=True)
         return -(-self.prior.energy(x).view(-1) - dlogp.view(-1))
 
-    def evaluate(self, prefix: str = "val", generator=None, output_dir=None) -> None:
+    def evaluate(
+        self, sequence, true_samples, encoding, energy_fn, prefix: str = "val", proposal_generator=None, output_dir=None
+    ):
         logger.info(f"has test_integrators {hasattr(self.hparams, 'test_integrators')}")
         if True and hasattr(self.hparams, "test_integrators"):
             self.test_integrators()
             return {}
-        results = super().evaluate(prefix=prefix, proposal_generator=generator, output_dir=output_dir)
+        results = super().evaluate(sequence, true_samples, encoding, energy_fn, prefix, proposal_generator, output_dir)
 
         self.log(f"{prefix}/nfe", self.nfe / (max(self.num_integrations, 1e-4)))
         self.nfe = 0
@@ -235,6 +246,7 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
     def generate_samples(
         self,
         batch_size: int,
+        encoding: Optional[dict[str, torch.Tensor]] = None,
         dummy_ll: bool = False,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Generate samples from the model.
@@ -246,17 +258,26 @@ class FlowMatchLitModule(BoltzmannGeneratorLitModule):
             probability.
         """
 
+        num_particles = encoding["atom_type"].size(0)
+        data_dim = num_particles * self.datamodule.hparams.num_dimensions
+
         local_batch_size = batch_size // self.trainer.world_size
-        prior_samples = self.prior.sample(local_batch_size).to(self.device)
-        # for MF this is actually not log_p as missing - log(Z) - doesn't matter for bias
-        prior_log_p = -self.prior.energy(prior_samples)
+        prior_samples = self.prior.sample(local_batch_size, num_particles, device=self.device)
+
+        # need to rescale to the "sum" of the log p (the prior returns the position-wise mean)
+        prior_log_p = -self.prior.energy(prior_samples) * data_dim
+
+        if encoding is not None:
+            encoding = {
+                key: tensor.unsqueeze(0).repeat(local_batch_size, 1).to(self.device) for key, tensor in encoding.items()
+            }
 
         with torch.no_grad():
-            samples, dlog_p = self.flow(prior_samples, reverse=False, dummy_ll=dummy_ll)
+            samples, dlog_p = self.flow(prior_samples, encoding=encoding, reverse=False, dummy_ll=dummy_ll)
             samples = self.all_gather(samples).reshape(batch_size, -1)
             dlog_p = self.all_gather(dlog_p).reshape(-1, *dlog_p.shape[1:])
-        prior_log_p = self.all_gather(prior_log_p).reshape(-1, *prior_log_p.shape[1:])
-        prior_samples = self.all_gather(prior_samples).reshape(-1, *prior_samples.shape[1:])
+            prior_log_p = self.all_gather(prior_log_p).reshape(-1, *prior_log_p.shape[1:])
+            prior_samples = self.all_gather(prior_samples).reshape(-1, *prior_samples.shape[1:])
 
         log_p = prior_log_p.flatten() + dlog_p.flatten()
 
