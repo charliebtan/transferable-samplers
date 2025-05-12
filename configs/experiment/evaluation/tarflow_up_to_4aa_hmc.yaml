@@ -27,7 +27,11 @@ model:
     channels: 384
     num_blocks: 8
     layers_per_block: 8
+    use_adapt_ln: False
+    use_transition: False   
     use_qkln: True
+    perm_type: "standard"
+    pos_embed_type: "learned"
     cond_embed:
       _target_: src.models.components.tarflow.embed.ConditionalEmbedder
       channels: ${model.net.channels}
