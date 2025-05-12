@@ -33,7 +33,6 @@ class FeynmannKacSampler(SMCSampler):
         self.log_freq = log_freq
         self.input_energy_cutoff = input_energy_cutoff
         self.systematic_resampling = systematic_resampling
-        self.T = self.langevin_eps * num_timesteps
 
     def mcmc_kernel(self, source_energy, target_energy, t, x, logw, dt):
         # get step size for langevin
@@ -49,9 +48,6 @@ class FeynmannKacSampler(SMCSampler):
 
         # acceptance rate is always 1
         return x, logw, torch.ones(1).mean()
-
-    def init_timesteps(self):
-        return torch.linspace(0, self.T, self.num_timesteps + 1)
 
     def linear_energy_interpolation(self, source_energy, target_energy, t, x):
         E_source = source_energy(x)
