@@ -1,7 +1,7 @@
 #!/bin/bash
 python src/train.py -m launcher=mila_48gb \
 experiment=evaluation/tarflow_up_to_4aa_old \
-tags=[up_to_4aa,eval,ablation_v1,adapt_ln] \
+tags=[up_to_4aa,eval,ablation_v2,adapt_ln] \
 logger=wandb \
 model.net.use_adapt_ln=True \
 model.sampling_config.batch_size=2500 \
