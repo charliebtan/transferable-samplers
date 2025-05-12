@@ -55,7 +55,7 @@ class FeynmannKacSampler(SMCSampler):
 
         assert E_source.shape == (x.shape[0],), f"Source energy should be a flat vector not {E_source.shape}"
         assert E_target.shape == (x.shape[0],), f"Target energy should be a flat vector, not {E_target.shape}"
-        energy = (1 - t / self.T) * E_source + t / self.T * E_target
+        energy = (1 - t) * E_source + t * E_target
         return energy
 
     def linear_energy_interpolation_gradients(self, source_energy, target_energy, t, x):
