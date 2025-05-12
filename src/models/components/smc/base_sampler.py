@@ -43,6 +43,9 @@ class SMCSampler(torch.nn.Module):
     def mcmc_kernel(self, source_energy, target_energy, t, x, logw, dt):
         raise NotImplementedError
 
+    def init_timesteps(self):
+        return torch.linspace(0, 1, self.num_timesteps + 1)
+
     def langevin_eps_fn(self, t):
         if t < self.warmup:
             return (self.langevin_eps * t) / self.warmup
@@ -233,7 +236,7 @@ class SMCSampler(torch.nn.Module):
             logging.info("Clipping energies")
 
         num_timesteps = self.num_timesteps
-        timesteps = torch.linspace(0, 1, num_timesteps + 1)
+        timesteps = self.init_timesteps()
 
         X = proposal_samples
         A = torch.ones(X.shape[0], device=X.device)  # the smc weights
