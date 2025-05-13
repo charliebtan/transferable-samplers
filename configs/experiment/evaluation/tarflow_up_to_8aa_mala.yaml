@@ -9,14 +9,13 @@ ckpt_path: "/network/scratch/t/tanc/self-consume-bg/logs/train/runs/tarflow_up_t
 train: False
 val: False
 test: True
-
 task_name: eval
 
 model:
   eval_seq_name: null
   sampling_config:
     use_com_adjustment: True
-    batch_size: 10_000
+    batch_size: 5_000
     num_proposal_samples: 10_000
     num_test_proposal_samples: 10_000
     num_smc_samples: 10_000
