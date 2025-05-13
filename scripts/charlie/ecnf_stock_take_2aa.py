@@ -1,11 +1,27 @@
 import os
 
-ALL_DATES = ['2025-05-11_22-22-44']
+ALL_DATES = ["2025-05-11_22-22-44"]
 
 BASE_ROOT = "/home/mila/t/tanc/scratch/self-consume-bg/logs/eval/multiruns"
 SEQ_NAMES = [
-    "AC", "AT", "ET", "GN", "GP", "HT", "IM", "KG", "KQ", "KS", "LW", "NF", "NY",
-    "RL", "RV", "TD",]
+    "AC",
+    "AT",
+    "ET",
+    "GN",
+    "GP",
+    "HT",
+    "IM",
+    "KG",
+    "KQ",
+    "KS",
+    "LW",
+    "NF",
+    "NY",
+    "RL",
+    "RV",
+    "TD",
+]
+
 
 def count_successful_sequences(base_dir, seq_names):
     found_runs = {seq: [] for seq in seq_names}
@@ -25,6 +41,7 @@ def count_successful_sequences(base_dir, seq_names):
                     found_runs[seq].append(idx)
 
     return found_runs
+
 
 if __name__ == "__main__":
     # Aggregate results from all dates
