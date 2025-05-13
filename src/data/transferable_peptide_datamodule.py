@@ -22,7 +22,7 @@ from src.data.components.prepare_data import (
     prepare_tica_models,
 )
 from src.data.components.symmetry import resolve_chirality
-from src.data.components.test_subset import ALL_TEST_SUBSET, TEST_SUBSET_DICT
+from src.data.components.test_subset import ALL_TEST_SUBSET, SCALING_SUBSET, TEST_SUBSET_DICT
 from src.data.components.transforms.add_encoding import AddEncodingTransform
 from src.data.components.transforms.atom_noise import AtomNoiseTransform
 from src.data.components.transforms.center_of_mass import CenterOfMassTransform
@@ -187,7 +187,7 @@ class TransferablePeptideDataModule(BaseDataModule):
             val_seq_names = list(VALIDATION_SUBSET_DICT["8"].keys())
         elif self.num_aa_range == [2, 3, 4]:
             val_seq_names = list(VALIDATION_SUBSET_DICT["24"].keys())
-        elif self.num_aa_range == [2, 3, 4, 5, 6, 7, 8]:
+        elif self.num_aa_range == [2, 3, 4, 5, 6, 7, 8] or self.num_aa_range == [2, 3, 4, 5, 6, 7, 8, 9, 10]:
             val_seq_names = list(VALIDATION_SUBSET_DICT["248"].keys())
         else:
             raise ValueError(
@@ -211,6 +211,8 @@ class TransferablePeptideDataModule(BaseDataModule):
             test_seq_names.update(TEST_SUBSET_DICT["4"])
         if 8 in self.num_aa_range:
             test_seq_names.update(TEST_SUBSET_DICT["8"])
+        if (9 in self.num_aa_range) or (10 in self.num_aa_range):
+            test_seq_names.update(SCALING_SUBSET)
         if not test_seq_names:
             raise ValueError(
                 f"Test subset not defined for num_aa_range {self.num_aa_range}. "
