@@ -385,27 +385,41 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         #     if not found:
         #         raise FileNotFoundError(f"Sample file samples_{i}.pt not found in either directory.")
 
-        BASE_DIR_1 = "/home/mila/t/tanc/scratch/self-consume-bg/logs/eval/multiruns/2025-05-11_01-44-04"
-        BASE_DIR_2 = "/home/mila/t/tanc/scratch/self-consume-bg/logs/eval/multiruns/2025-05-10_02-21-17"
+        BASE_ROOT = "/home/mila/t/tanc/scratch/self-consume-bg/logs/eval/multiruns"
+        ALL_DATES = [
+            "2025-05-10_02-21-17",
+            "2025-05-11_18-51-26",
+            "2025-05-11_18-49-32",
+            "2025-05-11_18-55-20",
+            "2025-05-11_18-55-02",
+            "2025-05-11_18-52-16",
+            "2025-05-11_01-44-04",
+            "2025-05-11_18-55-55",
+            "2025-05-11_18-49-08",
+            "2025-05-11_18-55-39",
+            "2025-05-11_18-49-54",
+            "2025-05-13_20-21-00",
+            "2025-05-13_20-19-58",
+        ]
 
         samples_dicts = []
-        for i in range(10):
-            found = False
-            for j in range(500):
-                path1 = f"{BASE_DIR_1}/{j}/{prefix}/samples_{i}.pt"
-                path2 = f"{BASE_DIR_2}/{j}/{prefix}/samples_{i}.pt"
 
-                if os.path.exists(path1):
-                    samples_dicts.append(torch.load(path1))
-                    found = True
-                    break
-                elif os.path.exists(path2):
-                    samples_dicts.append(torch.load(path2))
-                    found = True
-                    break
+        for i in range(10):  # samples_0.pt to samples_9.pt
+            found = False
+
+            for j in range(500):  # folders numbered 0 through 499
+                for date in ALL_DATES:
+                    path = f"{BASE_ROOT}/{date}/{j}/{prefix}/samples_{i}.pt"
+                    if os.path.exists(path):
+                        samples_dicts.append(torch.load(path))
+                        found = True
+                        break  # stop checking dates for this (i, j)
+
+                if found:
+                    break  # sample i found for some j/date combo
 
             if not found:
-                raise FileNotFoundError(f"Sample file samples_{i}.pt not found in either directory.")
+                logging.warning(f"Sample file samples_{i}.pt not found in any directory.")
 
         prior_samples = torch.cat([d["prior_samples"] for d in samples_dicts], dim=0)
         proposal_samples = torch.cat([d["proposal_samples"] for d in samples_dicts], dim=0)
