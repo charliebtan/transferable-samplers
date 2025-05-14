@@ -322,6 +322,22 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             if "dummy_ll" in self.hparams and self.hparams.dummy_ll:
                 proposal_generator = lambda x: self.batched_generate_samples(x, dummy_ll=True)
 
+        # BASE_DIR_1 = "/home/mila/t/tanc/scratch/self-consume-bg/logs/eval/multiruns/2025-05-11_22-22-44"
+
+        # samples_dicts = []
+        # for i in range(10):
+        #     found = False
+        #     for j in range(500):
+        #         path1 = f"{BASE_DIR_1}/{j}/{prefix}/samples_{i}.pt"
+
+        #         if os.path.exists(path1):
+        #             samples_dicts.append(torch.load(path1))
+        #             found = True
+        #             break
+
+        #     if not found:
+        #         raise FileNotFoundError(f"Sample file samples_{i}.pt not found in either directory.")
+
         BASE_DIR_1 = "/home/mila/t/tanc/scratch/self-consume-bg/logs/eval/multiruns/2025-05-11_01-44-04"
         BASE_DIR_2 = "/home/mila/t/tanc/scratch/self-consume-bg/logs/eval/multiruns/2025-05-10_02-21-17"
 
