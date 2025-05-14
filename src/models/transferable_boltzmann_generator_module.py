@@ -10,6 +10,7 @@ import torch
 import torchmetrics
 from lightning import LightningDataModule, LightningModule
 from lightning.pytorch.loggers import WandbLogger
+from torch.distributions import Normal
 from torchmetrics import MeanMetric
 from tqdm import tqdm
 
@@ -21,6 +22,50 @@ from src.models.components.smc.base_sampler import SMCSampler
 from src.models.components.utils import resample
 
 logger = logging.getLogger(__name__)
+
+
+class BADNormalDistribution:
+    def __init__(self, num_dimensions: int = 3, mean: float = 0.0, std: float = 1.0, mean_free: bool = False):
+        self.num_dimensions = num_dimensions
+        self.mean = mean
+        self.std = std
+        self.distribution = Normal(mean, std)
+        self.mean_free = mean_free
+
+    def sample(
+        self, num_samples: int, num_particles: int, mask: torch.Tensor | None = None, device="cpu"
+    ) -> torch.Tensor:
+        x = self.distribution.sample((num_samples, num_particles, self.num_dimensions)).to(device)
+        if self.mean_free:
+            if mask is None:
+                mask = torch.ones((num_samples, num_particles), device=device)
+            com = (x * mask[..., None]).sum(dim=1, keepdims=True) / mask.sum(dim=1, keepdims=True)[..., None]
+            x = x - com
+            x *= mask[..., None]
+        return x.reshape(num_samples, -1)
+
+    def energy(self, x: torch.Tensor, mask: torch.Tensor | None = None) -> torch.Tensor:
+        assert x.dim() == 2
+        num_samples = x.shape[0]
+        num_particles = x.shape[-1] // self.num_dimensions
+        if mask is None:
+            mask = torch.ones((num_samples, num_particles), device=x.device)
+        if self.mean_free:
+            x = x.reshape(num_samples, -1, self.num_dimensions)
+            com = (x * mask[..., None]).sum(dim=1, keepdims=True) / mask.sum(dim=1, keepdims=True)[..., None]
+            x = x - com
+            x *= mask[..., None]
+            x = x.reshape(num_samples, -1)
+
+        pointwise_energy = -self.distribution.log_prob(x)
+        pointwise_energy = pointwise_energy.reshape(num_samples, -1, self.num_dimensions)
+        pointwise_energy = pointwise_energy * mask.unsqueeze(-1)
+        pointwise_energy = pointwise_energy.reshape(num_samples, -1)
+        num_particles = mask.sum(dim=-1, keepdim=True)
+        # account for the pad tokens when taking the mean
+        energy = pointwise_energy.sum(dim=-1, keepdims=True) / (num_particles * self.num_dimensions)
+
+        return energy
 
 
 class TransferableBoltzmannGeneratorLitModule(LightningModule):
@@ -365,6 +410,17 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         prior_samples = torch.cat([d["prior_samples"] for d in samples_dicts], dim=0)
         proposal_samples = torch.cat([d["proposal_samples"] for d in samples_dicts], dim=0)
         proposal_log_p = torch.cat([d["proposal_log_p"] for d in samples_dicts], dim=0)
+
+        self.bad_prior = BADNormalDistribution(mean_free=self.hparams.mean_free_prior)
+
+        num_particles = encoding["atom_type"].size(0)
+        data_dim = num_particles * self.datamodule.hparams.num_dimensions
+
+        bad_prior_log_p = self.bad_prior.energy(prior_samples).flatten() * data_dim
+        good_prior_log_p = self.prior.energy(prior_samples).flatten() * data_dim
+
+        dlog_p = proposal_log_p.flatten() - bad_prior_log_p
+        proposal_log_p = good_prior_log_p + dlog_p
 
         logging.info(f"Prior samples shape: {prior_samples.shape}")
         logging.info(f"Proposal samples shape: {proposal_samples.shape}")
