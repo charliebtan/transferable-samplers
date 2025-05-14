@@ -15,6 +15,7 @@ from torchmetrics import MeanMetric
 from tqdm import tqdm
 
 from src.data.components.data_types import SamplesData
+from src.data.components.symmetry import resolve_chirality
 from src.models.components.ema import EMA
 from src.models.components.priors import NormalDistribution
 from src.models.components.smc.base_sampler import SMCSampler
@@ -35,6 +36,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         ema_decay: float,
         compile: bool,
         use_com_adjustment: bool = False,
+        dont_fix_symmetry: bool = False,
         *args,
         **kwargs,
     ) -> None:
@@ -71,7 +73,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         self.test_metrics = self.train_metrics.clone(prefix="test/")
 
         self.prior = NormalDistribution(
-            self.datamodule.hparams.num_dimensions,  # for transferable this will be the dim of the largest peptide
+            self.datamodule.hparams.num_dimensions,
             mean_free=self.hparams.mean_free_prior,
         )
 
@@ -376,6 +378,18 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         logging.info(f"Proposal CoM std: {proposal_com_std}")
         self.log(f"{prefix}/proposal_com_std", proposal_com_std, sync_dist=True)
 
+        symmetry_metrics, symmetry_change = resolve_chirality(
+            true_data.samples,
+            proposal_data.samples,
+            self.datamodule.topology_dict[sequence],
+            prefix=prefix + "/proposal",
+        )
+        metrics = symmetry_metrics
+        if not self.hparams.dont_fix_symmetry:
+            proposal_samples = proposal_samples[~symmetry_change]
+            proposal_log_p = proposal_log_p[~symmetry_change]
+            proposal_samples_energy = proposal_samples_energy[~symmetry_change]
+
         # Apply CoM adjustment to energy, this must be done here for compatibility with CNFs
         if self.hparams.sampling_config.get("use_com_adjustment", False):
             proposal_log_p = proposal_log_p + self.com_energy_adjustment(proposal_samples)
@@ -441,14 +455,16 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
 
         if self.local_rank == 0:
             # log dataset metrics
-            metrics = self.datamodule.metrics_and_plots(
-                self.log_image,
-                sequence,
-                true_data,
-                proposal_data,
-                reweighted_data,
-                smc_data,
-                prefix=prefix,
+            metrics.update(
+                self.datamodule.metrics_and_plots(
+                    self.log_image,
+                    sequence,
+                    true_data,
+                    proposal_data,
+                    reweighted_data,
+                    smc_data,
+                    prefix=prefix,
+                )
             )
         else:
             metrics = {}
