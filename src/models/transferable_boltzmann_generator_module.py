@@ -14,9 +14,10 @@ from torchmetrics import MeanMetric
 from tqdm import tqdm
 
 from src.data.components.data_types import SamplesData
+from src.data.components.symmetry import resolve_chirality
 from src.models.components.ema import EMA
 from src.models.components.priors import NormalDistribution
-from src.models.components.smc_sampler import SMCSampler
+from src.models.components.smc.base_sampler import SMCSampler
 from src.models.components.utils import resample
 
 logger = logging.getLogger(__name__)
@@ -34,6 +35,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         ema_decay: float,
         compile: bool,
         use_com_adjustment: bool = False,
+        dont_fix_symmetry: bool = False,
         *args,
         **kwargs,
     ) -> None:
@@ -58,8 +60,6 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         self.datamodule = datamodule
 
         self.smc_sampler = smc_sampler(
-            source_energy=self.proposal_energy,
-            target_energy=self.datamodule.energy,
             log_image_fn=self.log_image,
         )
 
@@ -72,7 +72,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         self.test_metrics = self.train_metrics.clone(prefix="test/")
 
         self.prior = NormalDistribution(
-            self.datamodule.hparams.num_dimensions,  # for transferable this will be the dim of the largest peptide
+            self.datamodule.hparams.num_dimensions,
             mean_free=self.hparams.mean_free_prior,
         )
 
@@ -272,12 +272,14 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
     def evaluate_all(self, prefix):
         metrics = {}
         eval_seq_names = self.datamodule.val_seq_names if prefix.startswith("val") else self.datamodule.test_seq_names
-
         if (prefix.startswith("test") or prefix.startswith("val")) and self.hparams.get("eval_seq_name") is not None:
             if self.hparams.eval_seq_name not in eval_seq_names:
                 raise ValueError(f"{self.hparams.eval_seq_name} not in set of test sequences: {eval_seq_names}")
 
-            eval_seq_names = [self.hparams.eval_seq_name]
+            if not isinstance(self.hparams.eval_seq_name, list):
+                eval_seq_names = [self.hparams.eval_seq_name]
+            else:
+                eval_seq_names = self.hparams.eval_seq_name
 
         for seq_name in eval_seq_names:
             true_samples, encoding, energy_fn = self.datamodule.prepare_eval(seq_name)
@@ -386,6 +388,18 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         logging.info(f"Proposal CoM std: {proposal_com_std}")
         self.log(f"{prefix}/proposal_com_std", proposal_com_std, sync_dist=True)
 
+        symmetry_metrics, symmetry_change = resolve_chirality(
+            true_data.samples,
+            proposal_data.samples,
+            self.datamodule.topology_dict[sequence],
+            prefix=prefix + "/proposal",
+        )
+        metrics = symmetry_metrics
+        if not self.hparams.dont_fix_symmetry:
+            proposal_samples = proposal_samples[~symmetry_change]
+            proposal_log_p = proposal_log_p[~symmetry_change]
+            proposal_samples_energy = proposal_samples_energy[~symmetry_change]
+
         # Apply CoM adjustment to energy, this must be done here for compatibility with CNFs
         if self.hparams.sampling_config.get("use_com_adjustment", False):
             proposal_log_p = proposal_log_p + self.com_energy_adjustment(proposal_samples)
@@ -420,9 +434,11 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             # Generate smc samples and record time
             torch.cuda.synchronize()
             start_time = time.time()
-            self.smc_sampler.target_energy = energy_fn
+
+            # TODO: Make conditional proposal energy
+            cond_proposal_energy = lambda _x: self.proposal_energy(_x, encoding=encoding)
             smc_samples, smc_logits = self.smc_sampler.sample(
-                proposal_samples[:num_smc_samples], encoding=encoding
+                proposal_samples[:num_smc_samples], cond_proposal_energy, energy_fn
             )  # already returned resampled
             torch.cuda.synchronize()
             time_duration = time.time() - start_time
@@ -449,14 +465,16 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
 
         if self.local_rank == 0:
             # log dataset metrics
-            metrics = self.datamodule.metrics_and_plots(
-                self.log_image,
-                sequence,
-                true_data,
-                proposal_data,
-                reweighted_data,
-                smc_data,
-                prefix=prefix,
+            metrics.update(
+                self.datamodule.metrics_and_plots(
+                    self.log_image,
+                    sequence,
+                    true_data,
+                    proposal_data,
+                    reweighted_data,
+                    smc_data,
+                    prefix=prefix,
+                )
             )
         else:
             metrics = {}

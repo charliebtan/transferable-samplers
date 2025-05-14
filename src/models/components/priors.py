@@ -34,8 +34,9 @@ class NormalDistribution:
             x = x - com
             x *= mask[..., None]
             x = x.reshape(num_samples, -1)
-
-        pointwise_energy = -self.distribution.log_prob(x)
+            pointwise_energy = 0.5 * x.pow(2) / self.std**2
+        else:
+            pointwise_energy = -self.distribution.log_prob(x)
 
         pointwise_energy = pointwise_energy.reshape(num_samples, -1, self.num_dimensions)
         pointwise_energy = pointwise_energy * mask.unsqueeze(-1)

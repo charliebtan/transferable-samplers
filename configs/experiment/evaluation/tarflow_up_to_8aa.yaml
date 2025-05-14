@@ -2,10 +2,10 @@
 
 defaults:
   - override /model: normalizing_flow
-  - override /data: up_to_4aa
+  - override /data: up_to_8aa
   - override /trainer: gpu
 
-ckpt_path: null
+ckpt_path: "/network/scratch/t/tanc/self-consume-bg/logs/train/runs/tarflow_up_to_8aa_no_pb_v1/checkpoints/epoch_299_time.ckpt"
 train: False
 val: False
 test: True
@@ -16,29 +16,29 @@ model:
   sampling_config:
     use_com_adjustment: True
     batch_size: 5_000
-    num_test_proposal_samples: 10_000
+    num_test_proposal_samples: 1_000_000
     num_smc_samples: 10_000
-    clip_reweighting_logits: 0.002
+    clip_reweighting_logits: 0.002 # it was working well on AC without - lets try avoid
   net:
-    _target_: src.models.components.tarflow.tarflow_old.TarFlow
+    _target_: src.models.components.tarflow.tarflow.TarFlow
     in_channels: 3
     channels: 384
     num_blocks: 8
     layers_per_block: 8
-    use_adapt_ln: False
+    use_adapt_ln: True
+    use_transition: True
+    use_attn_pair_bias: False
     use_qkln: True
+    perm_type: "globloc"
+    pos_embed_type: "sinusoidal"
     cond_embed:
       _target_: src.models.components.tarflow.embed.ConditionalEmbedder
       channels: ${model.net.channels}
 
   smc_sampler:
+    _target_: src.models.components.smc.mala_sampler.SMCSamplerMALA
     enabled: False
-    langevin_eps: 1e-7
-    num_timesteps: 100
-    batch_size: 1024 # set for 48gb 
-    input_energy_cutoff: 100 # this might need tuning if you get NaNs!
-    do_energy_plots: True
-    
+
 data:
   batch_size: 128
   num_eval_samples: 10_000

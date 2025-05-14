@@ -1,5 +1,6 @@
 # ruff: noqa: E402, I001
 
+import os
 from typing import Any, Optional
 
 import hydra
@@ -90,6 +91,12 @@ def train(cfg: DictConfig) -> tuple[dict[str, Any], dict[str, Any]]:
     initial_ckpt_path = cfg.get("initial_ckpt_path")
     assert initial_ckpt_path is not None, "Need pre-trained ckpt to give initial proposal"
     ckpt_path = cfg.get("ckpt_path")
+
+    buffer_ckpt_path = cfg.get("data.buffer_ckpt_path")
+    if (buffer_ckpt_path is None) or (not os.path.exists(buffer_ckpt_path)):
+        log.info("Running validation to populate buffer with samples initially")
+        initial_ckpt_path = cfg.get("initial_ckpt_path")
+        assert initial_ckpt_path is not None, "Need pre-trained ckpt to give initial proposal"
 
     log.info("Starting validation!")
     trainer.validate(model=model, datamodule=datamodule, ckpt_path=initial_ckpt_path)

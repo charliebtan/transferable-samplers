@@ -2,21 +2,21 @@
 
 defaults:
   - override /model: normalizing_flow
-  - override /data: up_to_4aa
+  - override /data: scale
   - override /trainer: gpu
 
-ckpt_path: "/network/scratch/m/majdi.hassan/self-consume-bg/self-consume-bg/logs/train/runs/tarflow_up_to_4aa_v2/checkpoints/last.ckpt"
+ckpt_path: "/network/scratch/m/majdi.hassan/self-consume-bg/self-consume-bg/logs/train/runs/tarflow_up_to_8aa_v3/checkpoints/last.ckpt"
 train: False
 val: False
 test: True
 task_name: eval
 
 model:
-  eval_seq_name: null
+  eval_seq_name: ["YQNPDGSQA","GYDPETGTWG"]
   sampling_config:
     use_com_adjustment: True
-    batch_size: 5_000
-    num_test_proposal_samples: 10_000
+    batch_size: 2_500
+    num_test_proposal_samples: 250_000
     num_smc_samples: 10_000
     clip_reweighting_logits: 0.002 # it was working well on AC without - lets try avoid
   net:
@@ -28,7 +28,7 @@ model:
     perm_type: "standard"
     use_adapt_ln: False
     use_transition: False
-    pos_embed_type: "learned"
+    pos_embed_type: "sinusoidal"
     cond_embed:
       _target_: src.models.components.tarflow.embed.ConditionalEmbedder
       channels: ${model.net.channels}
