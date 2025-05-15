@@ -382,8 +382,10 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             prior_log_p = -self.prior.energy(torch.tensor(prior_samples)) * data_dim
             proposal_log_p = prior_log_p.flatten() - proposal_dlog_p.flatten()
         elif self.hparams.sampling_config.get("md", False):
-            data = np.load(f"/scratch/md-runner-scbg-baselines/data/md/{sequence}/{sequence}_310_99500/99499.npz")
-            proposal_samples = torch.from_numpy(data["positions"]).float()
+            data = np.load(
+                f"/network/scratch/t/tanc/md-runner-scbg-baselines/data/md/{sequence}/{sequence}_310_99500/99499.npz"
+            )
+            proposal_samples = torch.from_numpy(data["all_positions"]).float()
             num_samples = proposal_samples.shape[0]
             proposal_samples = self.datamodule.normalize(proposal_samples.view(num_samples, -1))
             proposal_samples = proposal_samples[: self.hparams.sampling_config.num_samples_subset]
@@ -391,6 +393,9 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
                 self.datamodule.as_pointcloud(self.datamodule.unnormalize(proposal_samples)),
                 energy_fn(proposal_samples),
             )
+            proposal_log_p = torch.zeros_like(proposal_data.energy)
+            prior_samples = np.zeros_like(proposal_samples)
+            logging.info(f"Proposal samples shape: {proposal_samples.shape}")
         elif self.datamodule.hparams.num_aa_max == 2:
             BASE_DIR_1 = "/home/mila/t/tanc/scratch/self-consume-bg/logs/eval/multiruns/2025-05-11_22-22-44"
 
@@ -453,16 +458,17 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             proposal_samples = torch.cat([d["proposal_samples"] for d in samples_dicts], dim=0)
             proposal_log_p = torch.cat([d["proposal_log_p"] for d in samples_dicts], dim=0)
 
-        self.bad_prior = BADNormalDistribution(mean_free=self.hparams.mean_free_prior)
+        if not self.hparams.sampling_config.get("md", False) and not self.hparams.sampling_config.get("leon", False):
+            self.bad_prior = BADNormalDistribution(mean_free=self.hparams.mean_free_prior)
 
-        num_particles = encoding["atom_type"].size(0)
-        data_dim = num_particles * self.datamodule.hparams.num_dimensions
+            num_particles = encoding["atom_type"].size(0)
+            data_dim = num_particles * self.datamodule.hparams.num_dimensions
 
-        bad_prior_log_p = self.bad_prior.energy(prior_samples).flatten() * data_dim
-        good_prior_log_p = self.prior.energy(prior_samples).flatten() * data_dim
+            bad_prior_log_p = self.bad_prior.energy(prior_samples).flatten() * data_dim
+            good_prior_log_p = self.prior.energy(prior_samples).flatten() * data_dim
 
-        dlog_p = proposal_log_p.flatten() + bad_prior_log_p
-        proposal_log_p = dlog_p - good_prior_log_p.flatten()
+            dlog_p = proposal_log_p.flatten() + bad_prior_log_p
+            proposal_log_p = dlog_p - good_prior_log_p.flatten()
 
         logging.info(f"Prior samples shape: {prior_samples.shape}")
         logging.info(f"Proposal samples shape: {proposal_samples.shape}")

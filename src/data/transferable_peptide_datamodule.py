@@ -444,8 +444,6 @@ class TransferablePeptideDataModule(BaseDataModule):
 
         for data, name in [
             [proposal_data, "proposal"],
-            [resampled_data, "resampled"],
-            [smc_data, "smc"],
         ]:
             if data is None and name == "smc":
                 continue
@@ -485,31 +483,31 @@ class TransferablePeptideDataModule(BaseDataModule):
         # reduce size so plotting doesn't crash with many samples
         true_data = true_data[: self.hparams.num_eval_samples]
         proposal_data = proposal_data[: self.hparams.num_eval_samples]
-        resampled_data = resampled_data[: self.hparams.num_eval_samples]
-        smc_data = smc_data[: self.hparams.num_eval_samples] if smc_data is not None else None
+        # resampled_data = resampled_data[: self.hparams.num_eval_samples]
+        # smc_data = smc_data[: self.hparams.num_eval_samples] if smc_data is not None else None
 
         if self.hparams.do_plots:
             plot_energies(
                 log_image_fn,
                 true_data.energy,
                 proposal_data.energy if len(proposal_data) > 0 else None,
-                resampled_data.energy if len(resampled_data) > 0 else None,
-                smc_data.energy if (smc_data is not None and len(smc_data) > 0) else None,
+                None,
+                None,
                 prefix=prefix,
             )
             plot_atom_distances(
                 log_image_fn,
                 true_data.samples,
                 proposal_data.samples if len(proposal_data) > 0 else None,
-                resampled_data.samples if len(resampled_data) > 0 else None,
-                smc_data.samples if (smc_data is not None and len(smc_data) > 0) else None,
+                None,
+                None,
                 prefix=prefix,
             )
             plot_com_norms(
                 log_image_fn,
                 proposal_data.samples if len(proposal_data) > 0 else None,
-                resampled_data.samples if len(resampled_data) > 0 else None,
-                smc_data.samples if (smc_data is not None and len(smc_data) > 0) else None,
+                None,
+                None,
                 prefix=prefix,
             )
 
