@@ -477,6 +477,7 @@ class TransferablePeptideDataModule(BaseDataModule):
                         data.samples,
                         self.topology_dict[sequence],
                         self.tica_model_paths[sequence],
+                        ref_samples=true_data.samples,
                         prefix=prefix + name,
                     )
 

@@ -1,12 +1,11 @@
+import copy
 import logging
-import os
 import statistics as stats
 import time
 from collections import defaultdict
 from typing import Any, Optional
 
 import matplotlib.pyplot as plt
-import numpy as np
 import torch
 import torchmetrics
 from lightning import LightningDataModule, LightningModule
@@ -370,105 +369,113 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             if "dummy_ll" in self.hparams and self.hparams.dummy_ll:
                 proposal_generator = lambda x: self.batched_generate_samples(x, dummy_ll=True)
 
-        if self.hparams.sampling_config.get("leon", False):
-            data_dim = true_samples.shape[1]
+        # if self.hparams.sampling_config.get("leon", False):
+        #     data_dim = true_samples.shape[1]
 
-            data = np.load(f"result_data/Flow-Matching-2AA-wloss-9layer-128-encoding-long2_{sequence}.npz")
+        #     data = np.load(f"result_data/Flow-Matching-2AA-wloss-9layer-128-encoding-long2_{sequence}.npz")
 
-            proposal_samples = self.datamodule.normalize(torch.tensor(data["samples_np"]) / 30.0)
-            proposal_dlog_p = torch.tensor(data["dlogp_np"])
-            prior_samples = torch.tensor(data["latent_np"])
+        #     proposal_samples = self.datamodule.normalize(torch.tensor(data["samples_np"]) / 30.0)
+        #     proposal_dlog_p = torch.tensor(data["dlogp_np"])
+        #     prior_samples = torch.tensor(data["latent_np"])
 
-            prior_log_p = -self.prior.energy(torch.tensor(prior_samples)) * data_dim
-            proposal_log_p = prior_log_p.flatten() - proposal_dlog_p.flatten()
-        elif self.hparams.sampling_config.get("md", False):
-            data = np.load(
-                f"/network/scratch/t/tanc/md-runner-scbg-baselines/data/md/{sequence}/{sequence}_310_99500/99499.npz"
-            )
-            proposal_samples = torch.from_numpy(data["all_positions"]).float()
-            num_samples = proposal_samples.shape[0]
-            proposal_samples = self.datamodule.normalize(proposal_samples.view(num_samples, -1))
-            proposal_samples = proposal_samples[: self.hparams.sampling_config.num_samples_subset]
-            proposal_data = SamplesData(
-                self.datamodule.as_pointcloud(self.datamodule.unnormalize(proposal_samples)),
-                energy_fn(proposal_samples),
-            )
-            proposal_log_p = torch.zeros_like(proposal_data.energy)
-            prior_samples = np.zeros_like(proposal_samples)
-            logging.info(f"Proposal samples shape: {proposal_samples.shape}")
-        elif self.datamodule.hparams.num_aa_max == 2:
-            BASE_DIR_1 = "/home/mila/t/tanc/scratch/self-consume-bg/logs/eval/multiruns/2025-05-11_22-22-44"
+        #     prior_log_p = -self.prior.energy(torch.tensor(prior_samples)) * data_dim
+        #     proposal_log_p = prior_log_p.flatten() - proposal_dlog_p.flatten()
+        # elif self.hparams.sampling_config.get("md", False):
+        #     data = np.load(
+        #         f"/network/scratch/t/tanc/md-runner-scbg-baselines/data/md/{sequence}/{sequence}_310_99500/99499.npz"
+        #     )
+        #     proposal_samples = torch.from_numpy(data["all_positions"]).float()
+        #     num_samples = proposal_samples.shape[0]
+        #     proposal_samples = self.datamodule.normalize(proposal_samples.view(num_samples, -1))
+        #     proposal_samples = proposal_samples[: self.hparams.sampling_config.num_samples_subset]
+        #     proposal_data = SamplesData(
+        #         self.datamodule.as_pointcloud(self.datamodule.unnormalize(proposal_samples)),
+        #         energy_fn(proposal_samples),
+        #     )
+        #     proposal_log_p = torch.zeros_like(proposal_data.energy)
+        #     prior_samples = np.zeros_like(proposal_samples)
+        #     logging.info(f"Proposal samples shape: {proposal_samples.shape}")
 
-            samples_dicts = []
-            for i in range(10):
-                found = False
-                for j in range(500):
-                    path1 = f"{BASE_DIR_1}/{j}/{prefix}/samples_{i}.pt"
+        # elif self.datamodule.hparams.num_aa_max == 2:
+        #     BASE_DIR_1 = "/home/mila/t/tanc/scratch/self-consume-bg/logs/eval/multiruns/2025-05-11_22-22-44"
 
-                    if os.path.exists(path1):
-                        samples_dicts.append(torch.load(path1))
-                        found = True
-                        break
+        #     samples_dicts = []
+        #     for i in range(10):
+        #         found = False
+        #         for j in range(500):
+        #             path1 = f"{BASE_DIR_1}/{j}/{prefix}/samples_{i}.pt"
 
-                if not found:
-                    raise FileNotFoundError(f"Sample file samples_{i}.pt not found in either directory.")
+        #             if os.path.exists(path1):
+        #                 samples_dicts.append(torch.load(path1))
+        #                 found = True
+        #                 break
 
-            prior_samples = torch.cat([d["prior_samples"] for d in samples_dicts], dim=0)
-            proposal_samples = torch.cat([d["proposal_samples"] for d in samples_dicts], dim=0)
-            proposal_log_p = torch.cat([d["proposal_log_p"] for d in samples_dicts], dim=0)
+        #         if not found:
+        #             raise FileNotFoundError(f"Sample file samples_{i}.pt not found in either directory.")
 
-        else:
-            BASE_ROOT = "/home/mila/t/tanc/scratch/self-consume-bg/logs/eval/multiruns"
-            ALL_DATES = [
-                "2025-05-10_02-21-17",
-                "2025-05-11_18-51-26",
-                "2025-05-11_18-49-32",
-                "2025-05-11_18-55-20",
-                "2025-05-11_18-55-02",
-                "2025-05-11_18-52-16",
-                "2025-05-11_01-44-04",
-                "2025-05-11_18-55-55",
-                "2025-05-11_18-49-08",
-                "2025-05-11_18-55-39",
-                "2025-05-11_18-49-54",
-                "2025-05-13_20-21-00",
-                "2025-05-13_20-19-58",
-            ]
+        #     prior_samples = torch.cat([d["prior_samples"] for d in samples_dicts], dim=0)
+        #     proposal_samples = torch.cat([d["proposal_samples"] for d in samples_dicts], dim=0)
+        #     proposal_log_p = torch.cat([d["proposal_log_p"] for d in samples_dicts], dim=0)
 
-            samples_dicts = []
+        # else:
+        #     BASE_ROOT = "/home/mila/t/tanc/scratch/self-consume-bg/logs/eval/multiruns"
+        #     ALL_DATES = [
+        #         "2025-05-10_02-21-17",
+        #         "2025-05-11_18-51-26",
+        #         "2025-05-11_18-49-32",
+        #         "2025-05-11_18-55-20",
+        #         "2025-05-11_18-55-02",
+        #         "2025-05-11_18-52-16",
+        #         "2025-05-11_01-44-04",
+        #         "2025-05-11_18-55-55",
+        #         "2025-05-11_18-49-08",
+        #         "2025-05-11_18-55-39",
+        #         "2025-05-11_18-49-54",
+        #         "2025-05-13_20-21-00",
+        #         "2025-05-13_20-19-58",
+        #     ]
 
-            for i in range(10):  # samples_0.pt to samples_9.pt
-                found = False
+        #     samples_dicts = []
 
-                for j in range(500):  # folders numbered 0 through 499
-                    for date in ALL_DATES:
-                        path = f"{BASE_ROOT}/{date}/{j}/{prefix}/samples_{i}.pt"
-                        if os.path.exists(path):
-                            samples_dicts.append(torch.load(path))
-                            found = True
-                            break  # stop checking dates for this (i, j)
+        #     for i in range(10):  # samples_0.pt to samples_9.pt
+        #         found = False
 
-                    if found:
-                        break  # sample i found for some j/date combo
+        #         for j in range(500):  # folders numbered 0 through 499
+        #             for date in ALL_DATES:
+        #                 path = f"{BASE_ROOT}/{date}/{j}/{prefix}/samples_{i}.pt"
+        #                 if os.path.exists(path):
+        #                     samples_dicts.append(torch.load(path))
+        #                     found = True
+        #                     break  # stop checking dates for this (i, j)
 
-                if not found:
-                    logging.warning(f"Sample file samples_{i}.pt not found in any directory.")
+        #             if found:
+        #                 break  # sample i found for some j/date combo
 
-            prior_samples = torch.cat([d["prior_samples"] for d in samples_dicts], dim=0)
-            proposal_samples = torch.cat([d["proposal_samples"] for d in samples_dicts], dim=0)
-            proposal_log_p = torch.cat([d["proposal_log_p"] for d in samples_dicts], dim=0)
+        #         if not found:
+        #             logging.warning(f"Sample file samples_{i}.pt not found in any directory.")
 
-        if not self.hparams.sampling_config.get("md", False) and not self.hparams.sampling_config.get("leon", False):
-            self.bad_prior = BADNormalDistribution(mean_free=self.hparams.mean_free_prior)
+        #     prior_samples = torch.cat([d["prior_samples"] for d in samples_dicts], dim=0)
+        #     proposal_samples = torch.cat([d["proposal_samples"] for d in samples_dicts], dim=0)
+        #     proposal_log_p = torch.cat([d["proposal_log_p"] for d in samples_dicts], dim=0)
 
-            num_particles = encoding["atom_type"].size(0)
-            data_dim = num_particles * self.datamodule.hparams.num_dimensions
+        # if not self.hparams.sampling_config.get("md", False) and not self.hparams.sampling_config.get("leon", False):
+        #     self.bad_prior = BADNormalDistribution(mean_free=self.hparams.mean_free_prior)
 
-            bad_prior_log_p = self.bad_prior.energy(prior_samples).flatten() * data_dim
-            good_prior_log_p = self.prior.energy(prior_samples).flatten() * data_dim
+        #     num_particles = encoding["atom_type"].size(0)
+        #     data_dim = num_particles * self.datamodule.hparams.num_dimensions
 
-            dlog_p = proposal_log_p.flatten() + bad_prior_log_p
-            proposal_log_p = dlog_p - good_prior_log_p.flatten()
+        #     bad_prior_log_p = self.bad_prior.energy(prior_samples).flatten() * data_dim
+        #     good_prior_log_p = self.prior.energy(prior_samples).flatten() * data_dim
+
+        #     dlog_p = proposal_log_p.flatten() + bad_prior_log_p
+        #     proposal_log_p = dlog_p - good_prior_log_p.flatten()
+
+        data = torch.load(
+            "/home/mila/t/tanc/scratch/self-consume-bg/logs/eval/multiruns/2025-05-13_03-25-18/16/test/SAEL/samples.pt"
+        )
+        prior_samples = data["prior_samples"]
+        proposal_samples = data["proposal_samples"]
+        proposal_log_p = data["proposal_log_p"]
 
         logging.info(f"Prior samples shape: {prior_samples.shape}")
         logging.info(f"Proposal samples shape: {proposal_samples.shape}")
@@ -572,7 +579,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
                 logits=smc_logits,
             )
         else:
-            smc_data = None
+            smc_data = copy.deepcopy(true_data)
 
         if self.local_rank == 0:
             # log dataset metrics
