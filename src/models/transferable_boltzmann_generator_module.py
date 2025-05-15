@@ -6,6 +6,7 @@ from collections import defaultdict
 from typing import Any, Optional
 
 import matplotlib.pyplot as plt
+import numpy as np
 import torch
 import torchmetrics
 from lightning import LightningDataModule, LightningModule
@@ -15,7 +16,7 @@ from torchmetrics import MeanMetric
 from tqdm import tqdm
 
 from src.data.components.data_types import SamplesData
-from src.data.components.symmetry import resolve_chirality
+from src.data.components.symmetry import get_symmetry_change, resolve_chirality
 from src.models.components.ema import EMA
 from src.models.components.priors import NormalDistribution
 from src.models.components.smc.base_sampler import SMCSampler
@@ -369,61 +370,78 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             if "dummy_ll" in self.hparams and self.hparams.dummy_ll:
                 proposal_generator = lambda x: self.batched_generate_samples(x, dummy_ll=True)
 
-        # BASE_DIR_1 = "/home/mila/t/tanc/scratch/self-consume-bg/logs/eval/multiruns/2025-05-11_22-22-44"
+        if self.hparams.sampling_config.get("leon", False):
+            data_dim = true_samples.shape[1]
 
-        # samples_dicts = []
-        # for i in range(10):
-        #     found = False
-        #     for j in range(500):
-        #         path1 = f"{BASE_DIR_1}/{j}/{prefix}/samples_{i}.pt"
+            data = np.load(f"result_data/Flow-Matching-2AA-wloss-9layer-128-encoding-long2_{sequence}.npz")
 
-        #         if os.path.exists(path1):
-        #             samples_dicts.append(torch.load(path1))
-        #             found = True
-        #             break
+            proposal_samples = self.datamodule.normalize(torch.tensor(data["samples_np"]) / 30.0)
+            proposal_dlog_p = torch.tensor(data["dlogp_np"])
+            prior_samples = torch.tensor(data["latent_np"])
 
-        #     if not found:
-        #         raise FileNotFoundError(f"Sample file samples_{i}.pt not found in either directory.")
+            prior_log_p = -self.prior.energy(torch.tensor(prior_samples)) * data_dim
+            proposal_log_p = prior_log_p.flatten() - proposal_dlog_p.flatten()
+        elif self.datamodule.hparams.num_aa_max == 2:
+            BASE_DIR_1 = "/home/mila/t/tanc/scratch/self-consume-bg/logs/eval/multiruns/2025-05-11_22-22-44"
 
-        BASE_ROOT = "/home/mila/t/tanc/scratch/self-consume-bg/logs/eval/multiruns"
-        ALL_DATES = [
-            "2025-05-10_02-21-17",
-            "2025-05-11_18-51-26",
-            "2025-05-11_18-49-32",
-            "2025-05-11_18-55-20",
-            "2025-05-11_18-55-02",
-            "2025-05-11_18-52-16",
-            "2025-05-11_01-44-04",
-            "2025-05-11_18-55-55",
-            "2025-05-11_18-49-08",
-            "2025-05-11_18-55-39",
-            "2025-05-11_18-49-54",
-            "2025-05-13_20-21-00",
-            "2025-05-13_20-19-58",
-        ]
+            samples_dicts = []
+            for i in range(10):
+                found = False
+                for j in range(500):
+                    path1 = f"{BASE_DIR_1}/{j}/{prefix}/samples_{i}.pt"
 
-        samples_dicts = []
-
-        for i in range(10):  # samples_0.pt to samples_9.pt
-            found = False
-
-            for j in range(500):  # folders numbered 0 through 499
-                for date in ALL_DATES:
-                    path = f"{BASE_ROOT}/{date}/{j}/{prefix}/samples_{i}.pt"
-                    if os.path.exists(path):
-                        samples_dicts.append(torch.load(path))
+                    if os.path.exists(path1):
+                        samples_dicts.append(torch.load(path1))
                         found = True
-                        break  # stop checking dates for this (i, j)
+                        break
 
-                if found:
-                    break  # sample i found for some j/date combo
+                if not found:
+                    raise FileNotFoundError(f"Sample file samples_{i}.pt not found in either directory.")
 
-            if not found:
-                logging.warning(f"Sample file samples_{i}.pt not found in any directory.")
+            prior_samples = torch.cat([d["prior_samples"] for d in samples_dicts], dim=0)
+            proposal_samples = torch.cat([d["proposal_samples"] for d in samples_dicts], dim=0)
+            proposal_log_p = torch.cat([d["proposal_log_p"] for d in samples_dicts], dim=0)
 
-        prior_samples = torch.cat([d["prior_samples"] for d in samples_dicts], dim=0)
-        proposal_samples = torch.cat([d["proposal_samples"] for d in samples_dicts], dim=0)
-        proposal_log_p = torch.cat([d["proposal_log_p"] for d in samples_dicts], dim=0)
+        else:
+            BASE_ROOT = "/home/mila/t/tanc/scratch/self-consume-bg/logs/eval/multiruns"
+            ALL_DATES = [
+                "2025-05-10_02-21-17",
+                "2025-05-11_18-51-26",
+                "2025-05-11_18-49-32",
+                "2025-05-11_18-55-20",
+                "2025-05-11_18-55-02",
+                "2025-05-11_18-52-16",
+                "2025-05-11_01-44-04",
+                "2025-05-11_18-55-55",
+                "2025-05-11_18-49-08",
+                "2025-05-11_18-55-39",
+                "2025-05-11_18-49-54",
+                "2025-05-13_20-21-00",
+                "2025-05-13_20-19-58",
+            ]
+
+            samples_dicts = []
+
+            for i in range(10):  # samples_0.pt to samples_9.pt
+                found = False
+
+                for j in range(500):  # folders numbered 0 through 499
+                    for date in ALL_DATES:
+                        path = f"{BASE_ROOT}/{date}/{j}/{prefix}/samples_{i}.pt"
+                        if os.path.exists(path):
+                            samples_dicts.append(torch.load(path))
+                            found = True
+                            break  # stop checking dates for this (i, j)
+
+                    if found:
+                        break  # sample i found for some j/date combo
+
+                if not found:
+                    logging.warning(f"Sample file samples_{i}.pt not found in any directory.")
+
+            prior_samples = torch.cat([d["prior_samples"] for d in samples_dicts], dim=0)
+            proposal_samples = torch.cat([d["proposal_samples"] for d in samples_dicts], dim=0)
+            proposal_log_p = torch.cat([d["proposal_log_p"] for d in samples_dicts], dim=0)
 
         self.bad_prior = BADNormalDistribution(mean_free=self.hparams.mean_free_prior)
 
@@ -443,12 +461,6 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         # Compute energy
         proposal_samples_energy = energy_fn(proposal_samples)
 
-        # Datatype for easier metrics and plotting
-        proposal_data = SamplesData(
-            self.datamodule.as_pointcloud(self.datamodule.unnormalize(proposal_samples)),
-            proposal_samples_energy,
-        )
-
         # Compute proposal center of mass std
         coms = self.datamodule.center_of_mass(proposal_samples)
         proposal_com_std = coms.std()
@@ -459,8 +471,8 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         self.log(f"{prefix}/proposal_com_std", proposal_com_std, sync_dist=True)
 
         symmetry_metrics, symmetry_change = resolve_chirality(
-            true_data.samples,
-            proposal_data.samples,
+            self.datamodule.as_pointcloud(self.datamodule.unnormalize(true_samples)),
+            self.datamodule.as_pointcloud(self.datamodule.unnormalize(proposal_samples)),
             self.datamodule.topology_dict[sequence],
             prefix=prefix + "/proposal",
         )
@@ -469,6 +481,19 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             proposal_samples = proposal_samples[~symmetry_change]
             proposal_log_p = proposal_log_p[~symmetry_change]
             proposal_samples_energy = proposal_samples_energy[~symmetry_change]
+
+        symmetry_change = get_symmetry_change(
+            self.datamodule.as_pointcloud(self.datamodule.unnormalize(true_samples)),
+            self.datamodule.as_pointcloud(self.datamodule.unnormalize(proposal_samples)),
+            self.datamodule.topology_dict[sequence],
+        )
+        proposal_samples[symmetry_change] *= -1
+
+        # Datatype for easier metrics and plotting
+        proposal_data = SamplesData(
+            self.datamodule.as_pointcloud(self.datamodule.unnormalize(proposal_samples)),
+            proposal_samples_energy,
+        )
 
         # Apply CoM adjustment to energy, this must be done here for compatibility with CNFs
         if self.hparams.sampling_config.get("use_com_adjustment", False):

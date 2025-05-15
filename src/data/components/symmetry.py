@@ -110,3 +110,13 @@ def resolve_chirality(true_samples, pred_samples, topology, prefix=""):
         logging.warning(f"Uncorrectable symmetry rate is {uncorrectable_symmetry_rate:.2f}, ")
 
     return metrics, symmetry_change
+
+
+def get_symmetry_change(true_samples, pred_samples, topology):
+    true_samples = true_samples[: len(pred_samples)]
+
+    adj_list = get_adj_list(topology)
+    atom_types = get_atom_types(topology)
+
+    symmetry_change = check_symmetry_change(true_samples, pred_samples, adj_list, atom_types)
+    return symmetry_change

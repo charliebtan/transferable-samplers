@@ -265,7 +265,7 @@ class TransferablePeptideDataModule(BaseDataModule):
         )
 
         pdb_paths = [
-            *train_metadata["pdb_paths"].values(),
+            # *train_metadata["pdb_paths"].values(),
             *val_metadata["pdb_paths"].values(),
             *test_metadata["pdb_paths"].values(),
         ]
