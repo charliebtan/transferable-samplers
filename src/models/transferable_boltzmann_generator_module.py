@@ -381,6 +381,16 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
 
             prior_log_p = -self.prior.energy(torch.tensor(prior_samples)) * data_dim
             proposal_log_p = prior_log_p.flatten() - proposal_dlog_p.flatten()
+        elif self.hparams.sampling_config.get("md", False):
+            data = np.load(f"/scratch/md-runner-scbg-baselines/data/md/{sequence}/{sequence}_310_99500/99499.npz")
+            proposal_samples = torch.from_numpy(data["positions"]).float()
+            num_samples = proposal_samples.shape[0]
+            proposal_samples = self.datamodule.normalize(proposal_samples.view(num_samples, -1))
+            proposal_samples = proposal_samples[: self.hparams.sampling_config.num_samples_subset]
+            proposal_data = SamplesData(
+                self.datamodule.as_pointcloud(self.datamodule.unnormalize(proposal_samples)),
+                energy_fn(proposal_samples),
+            )
         elif self.datamodule.hparams.num_aa_max == 2:
             BASE_DIR_1 = "/home/mila/t/tanc/scratch/self-consume-bg/logs/eval/multiruns/2025-05-11_22-22-44"
 
@@ -451,8 +461,8 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         bad_prior_log_p = self.bad_prior.energy(prior_samples).flatten() * data_dim
         good_prior_log_p = self.prior.energy(prior_samples).flatten() * data_dim
 
-        dlog_p = proposal_log_p.flatten() - bad_prior_log_p
-        proposal_log_p = good_prior_log_p + dlog_p
+        dlog_p = proposal_log_p.flatten() + bad_prior_log_p
+        proposal_log_p = dlog_p - good_prior_log_p.flatten()
 
         logging.info(f"Prior samples shape: {prior_samples.shape}")
         logging.info(f"Proposal samples shape: {proposal_samples.shape}")
