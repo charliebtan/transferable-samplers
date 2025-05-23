@@ -1,4 +1,4 @@
-# Fast Transferable Boltzmann Generators
+# Ensemble
 
 ## Dev Setup
 
@@ -9,17 +9,18 @@ pre-commit install
 
 ## Install
 ```
-conda create -n fast-tbg python=3.11
-conda activate fast-tbg
+conda create -n ensemble python=3.11
+conda activate ensemble
 pip install -r requirements.txt
 ```
 
 ## Train
 ```
-python src/train.py experiment=training/tarflow_aldp trainer=gpu
+python src/train.py experiment=training/tarflow_up_to_8aa trainer=gpu
 ```
 
 ## Sampling
 ```
-python src/eval.py ckpt_path=${CHECKPOINT_PATH} experiment=evaluation/tarflow_aldp
+python src/eval.py ckpt_path=${CHECKPOINT_PATH} experiment=evaluation/tarflow_up_to_8aa
+
 ```
