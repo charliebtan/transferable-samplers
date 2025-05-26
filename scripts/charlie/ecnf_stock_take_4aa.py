@@ -12,6 +12,8 @@ ALL_DATES = [
     "2025-05-11_18-49-08",
     "2025-05-11_18-55-39",
     "2025-05-11_18-49-54",
+    "2025-05-13_20-21-00",
+    "2025-05-13_20-19-58",
 ]
 
 BASE_ROOT = "/home/mila/t/tanc/scratch/self-consume-bg/logs/eval/multiruns"
