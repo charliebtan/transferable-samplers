@@ -91,15 +91,20 @@ class OTPlanSampler:
 
 
 def torus_wasserstein(x0, x1):
-    a, b = pot.unif(x0.shape[0]), pot.unif(x1.shape[0])
-    if x0.dim() > 2:
-        x0 = x0.reshape(x0.shape[0], -1)
-    if x1.dim() > 2:
-        x1 = x1.reshape(x1.shape[0], -1)
+    x0 = np.asarray(x0)
+    x1 = np.asarray(x1)
 
-    pdists = (((x0[None, :, :] - x1[:, None, :]) % np.pi) ** 2).sum(-1)
-    ret = math.sqrt(pot.emd2(a, b, pdists.detach().cpu().numpy(), numItermax=1e7))
-    return ret
+    # weights:
+    a, b = pot.unif(x0.shape[0]), pot.unif(x1.shape[0])
+
+    # wrapped (circular) distances:
+    x0 = x0[:, None]
+    x1 = x1[None, :]
+    dists = np.minimum(np.abs(x0 - x1), 2 * np.pi - np.abs(x0 - x1)) ** 2
+
+    # Compute Wasserstein distance using POT
+    distance_squared = pot.emd2(a, b, dists.sum(-1), numItermax=int(1e9))
+    return np.sqrt(distance_squared).item()
 
 
 def wasserstein(
