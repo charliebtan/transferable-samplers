@@ -1,0 +1,31 @@
+# @package _global_
+
+defaults:
+  - override /model: normalizing_flow
+  - override /data: al3
+  - override /trainer: gpu
+
+model:
+  net:
+    _target_: src.models.components.tarflow.tarflow_sbg.TarFlow
+    in_channels: 3
+    channels: 256
+    num_blocks: 6
+    layers_per_block: 6
+
+  optimizer:
+    lr: 1e-4
+    weight_decay: 4e-4
+
+  sampling_config:
+    num_proposal_samples: 5_000
+
+data:
+  batch_size: 512
+  com_augmentation: True
+  num_eval_samples: 5_000
+
+trainer:
+  check_val_every_n_epoch: 50
+  max_epochs: 1000
+  num_sanity_val_steps: 0

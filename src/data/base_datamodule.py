@@ -1,8 +1,18 @@
-from typing import Any, Optional
+import logging
+from typing import Any, Callable, Optional
 
 import torch
 from lightning import LightningDataModule
 from torch.utils.data import DataLoader
+
+from src.data.components.data_types import SamplesData
+from src.data.components.symmetry import resolve_chirality
+from src.evaluation.metrics.evaluate_peptide_data import evaluate_peptide_data
+from src.evaluation.plots.plot_atom_distances import plot_atom_distances
+from src.evaluation.plots.plot_com_norms import plot_com_norms
+from src.evaluation.plots.plot_energies import plot_energies
+from src.evaluation.plots.plot_ramachandran import plot_ramachandran
+from src.evaluation.plots.plot_tica import plot_tica
 
 
 class BaseDataModule(LightningDataModule):
@@ -59,9 +69,7 @@ class BaseDataModule(LightningDataModule):
             num_workers=self.hparams.num_workers,
             pin_memory=self.hparams.pin_memory,
             shuffle=True,
-            persistent_workers=True
-            if (self.hparams.num_workers > 0 and isinstance(self.data_train.buffer, list))
-            else False,
+            persistent_workers=True if self.hparams.num_workers > 0 else False,
         )
 
     def val_dataloader(self) -> DataLoader[Any]:
@@ -132,6 +140,120 @@ class BaseDataModule(LightningDataModule):
         x = self.unnormalize(x)
         energy = self.potential.energy(x).flatten()
         return energy
+
+    def metrics_and_plots(
+        self,
+        log_image_fn: Callable,
+        sequence: str,
+        true_data: SamplesData,
+        proposal_data: SamplesData,
+        resampled_data: SamplesData,
+        smc_data: Optional[SamplesData] = None,
+        prefix: str = "",
+    ) -> None:
+        """Log metrics and plots at the end of an epoch."""
+
+        if len(prefix) > 0 and prefix[-1] != "/":
+            prefix += "/"
+
+        metrics = {}
+
+        if self.hparams.do_plots:
+            plot_ramachandran(
+                log_image_fn,
+                true_data.samples,
+                self.topology_dict[sequence],
+                prefix=prefix + "true",
+            )
+            plot_tica(
+                log_image_fn,
+                true_data.samples,
+                self.topology_dict[sequence],
+                self.tica_model_paths[sequence],
+                prefix=prefix + "true",
+            )
+
+        for data, name in [
+            [proposal_data, "proposal"],
+            [resampled_data, "resampled"],
+            [smc_data, "smc"],
+        ]:
+            if data is None and name == "smc":
+                continue
+
+            if len(data) == 0:
+                logging.warning(f"No {name} samples present.")
+                continue
+
+            logging.info(f"Evaluating {prefix + name} samples")
+
+            data = data[: self.hparams.num_eval_samples * 2]  # slice out extra samples for those lost to symmetry
+
+            symmetry_metrics, symmetry_change = resolve_chirality(
+                true_data.samples,
+                data.samples,
+                self.topology_dict[sequence],
+                prefix + name,
+            )
+            data = data[~symmetry_change]
+            metrics.update(symmetry_metrics)
+
+            if len(data) == 0:
+                logging.warning(f"No {name} samples left after symmetry correction.")
+            else:
+                metrics.update(
+                    evaluate_peptide_data(
+                        true_data,
+                        data,
+                        topology=self.topology_dict[sequence],
+                        tica_model=self.tica_model_paths[sequence],
+                        num_eval_samples=self.hparams.num_eval_samples,
+                        prefix=prefix + name,
+                        compute_distribution_distances=False,
+                    )
+                )
+                if self.hparams.do_plots:
+                    plot_ramachandran(log_image_fn, data.samples, self.topology_dict[sequence], prefix=prefix + name)
+                    plot_tica(
+                        log_image_fn,
+                        data.samples,
+                        self.topology_dict[sequence],
+                        self.tica_model_paths[sequence],
+                        prefix=prefix + name,
+                    )
+
+        # reduce size so plotting doesn't crash with many samples
+        true_data = true_data[: self.hparams.num_eval_samples]
+        proposal_data = proposal_data[: self.hparams.num_eval_samples]
+        resampled_data = resampled_data[: self.hparams.num_eval_samples]
+        smc_data = smc_data[: self.hparams.num_eval_samples] if smc_data is not None else None
+
+        if self.hparams.do_plots:
+            plot_energies(
+                log_image_fn,
+                true_data.energy,
+                proposal_data.energy if len(proposal_data) > 0 else None,
+                resampled_data.energy if len(resampled_data) > 0 else None,
+                smc_data.energy if (smc_data is not None and len(smc_data) > 0) else None,
+                prefix=prefix,
+            )
+            plot_atom_distances(
+                log_image_fn,
+                true_data.samples,
+                proposal_data.samples if len(proposal_data) > 0 else None,
+                resampled_data.samples if len(resampled_data) > 0 else None,
+                smc_data.samples if (smc_data is not None and len(smc_data) > 0) else None,
+                prefix=prefix,
+            )
+            plot_com_norms(
+                log_image_fn,
+                proposal_data.samples if len(proposal_data) > 0 else None,
+                resampled_data.samples if len(resampled_data) > 0 else None,
+                smc_data.samples if (smc_data is not None and len(smc_data) > 0) else None,
+                prefix=prefix,
+            )
+
+        return metrics
 
 
 if __name__ == "__main__":

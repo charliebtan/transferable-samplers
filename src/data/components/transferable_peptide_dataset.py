@@ -6,7 +6,7 @@ import torch
 from src.data.components.prepare_data import load_lmdb_metadata
 
 
-class PeptideDataset(torch.utils.data.Dataset):
+class TransferablePeptideDataset(torch.utils.data.Dataset):
     def __init__(self, lmdb_path: str, seq_names: list[str], num_dimensions: int, transform=None):
         self.lmdb_path = lmdb_path
         self.seq_names = seq_names

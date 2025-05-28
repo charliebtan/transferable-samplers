@@ -36,7 +36,7 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
         batch: torch.Tensor,
     ) -> torch.Tensor:
         x1 = batch["x"]
-        encoding = batch["encoding"]
+        encoding = batch.get("encoding", None)
         mask = batch.get("mask", None)
 
         x0, dlogp = self.net(x1, encoding=encoding, mask=mask)
@@ -127,7 +127,11 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
             probability.
         """
 
-        num_particles = encoding["atom_type"].size(0)
+        if encoding is None:
+            num_particles = self.datamodule.hparams.num_particles
+        else:
+            num_particles = encoding["atom_type"].size(0)
+
         data_dim = num_particles * self.datamodule.hparams.num_dimensions
 
         local_batch_size = batch_size // self.trainer.world_size

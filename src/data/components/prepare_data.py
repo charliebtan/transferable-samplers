@@ -221,7 +221,10 @@ def _prepare_single_tica(seq_name, npz_path, pdb_path):
     logging.info(f"Loading {seq_name} for TICA")
     samples = np.load(npz_path, allow_pickle=False)
     topology = md.load_topology(pdb_path)
-    traj_samples = md.Trajectory(samples["positions"], topology=topology)
+    try:
+        traj_samples = md.Trajectory(samples["positions"], topology=topology)
+    except IndexError:
+        traj_samples = md.Trajectory(samples, topology=topology)
     tica_model = run_tica(traj_samples, lagtime=100, dim=2)
     return tica_model
 
