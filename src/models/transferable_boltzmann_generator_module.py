@@ -226,15 +226,12 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         self.log_dict(metrics.compute(), sync_dist=True)
         metrics.reset()
         if self.hparams.ema_decay > 0:
-            if self.hparams.eval_ema:
-                self.net.backup()
-                self.net.copy_to_model()
-                self.evaluate_all(prefix)
-                self.net.restore_to_model()
-            if self.hparams.eval_non_ema:
-                self.evaluate_all(prefix + "/non_ema")
+            self.net.backup()
+            self.net.copy_to_model()
+            self.evaluate_all(prefix)
+            self.net.restore_to_model()
         else:
-            self.evaluate(prefix)
+            self.evaluate_all(prefix)
         plt.close("all")
 
     def add_aggregate_metrics(self, metrics: dict[str, torch.Tensor], prefix: str = "val") -> dict[str, torch.Tensor]:

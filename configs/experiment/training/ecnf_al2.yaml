@@ -17,8 +17,8 @@ model:
   ema_decay: 0.0
 
   sampling_config:
-    batch_size: 64
-    num_proposal_samples: 10_000
+    batch_size: 4
+    num_proposal_samples: 32
     num_test_proposal_samples: 10_000
 
 data:
@@ -28,6 +28,6 @@ data:
   num_eval_samples: 10_000
 
 trainer:
-  check_val_every_n_epoch: 10000
+  check_val_every_n_epoch: 50
   max_epochs: 1000
   num_sanity_val_steps: 0
