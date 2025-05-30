@@ -62,7 +62,7 @@ class FlowMatchLitModule(TransferableBoltzmannGeneratorLitModule):
 
         x1 = batch["x"]
 
-        encoding = batch["encoding"]
+        encoding = batch.get("encoding", None)
         mask = batch.get("mask", None)
 
         num_samples = x1.shape[0]
@@ -258,7 +258,11 @@ class FlowMatchLitModule(TransferableBoltzmannGeneratorLitModule):
             probability.
         """
 
-        num_particles = encoding["atom_type"].size(0)
+        if encoding is None:
+            num_particles = self.datamodule.hparams.num_particles
+        else:
+            num_particles = encoding["atom_type"].size(0)
+
         data_dim = num_particles * self.datamodule.hparams.num_dimensions
 
         local_batch_size = batch_size // self.trainer.world_size
