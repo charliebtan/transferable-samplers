@@ -2,14 +2,14 @@
 
 defaults:
   - override /model: normalizing_flow
-  - override /data: al3
+  - override /data: al6
   - override /trainer: gpu
 
 model:
   net:
     _target_: src.models.components.tarflow.tarflow_sbg.TarFlow
     in_channels: 3
-    channels: 256
+    channels: 384
     num_blocks: 6
     layers_per_block: 6
     dropout: 0.0

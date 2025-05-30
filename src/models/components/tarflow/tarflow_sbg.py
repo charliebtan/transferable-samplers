@@ -27,12 +27,13 @@ class PermutationFlip(Permutation):
 class Attention(torch.nn.Module):
     USE_SPDA: bool = True
 
-    def __init__(self, in_channels: int, head_channels: int):
+    def __init__(self, in_channels: int, head_channels: int, dropout: float = 0.0):
         assert in_channels % head_channels == 0
         super().__init__()
         self.norm = torch.nn.LayerNorm(in_channels)
         self.qkv = torch.nn.Linear(in_channels, in_channels * 3)
         self.proj = torch.nn.Linear(in_channels, in_channels)
+        self.dropout = torch.nn.Dropout(dropout)
         self.num_heads = in_channels // head_channels
         self.sqrt_scale = head_channels ** (-0.25)
         self.sample = False
@@ -61,7 +62,7 @@ class Attention(torch.nn.Module):
             mask = mask.bool()
         x = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=mask, scale=scale)
         x = x.transpose(1, 2).reshape(B, T, C)
-        x = self.proj(x)
+        x = self.dropout(self.proj(x))
         return x
 
     def forward_base(
@@ -86,7 +87,7 @@ class Attention(torch.nn.Module):
         attn = attn.float().softmax(dim=-2).type(attn.dtype)
         x = torch.einsum("bmnh,bnhd->bmhd", attn, v)
         x = x.reshape(B, T, C)
-        x = self.proj(x)
+        x = self.dropout(self.proj(x))
         return x
 
     def forward(
@@ -102,12 +103,13 @@ class Attention(torch.nn.Module):
 
 
 class MLP(torch.nn.Module):
-    def __init__(self, channels: int, expansion: int):
+    def __init__(self, channels: int, expansion: int, dropout: float = 0.0):
         super().__init__()
         self.norm = torch.nn.LayerNorm(channels)
         self.main = torch.nn.Sequential(
             torch.nn.Linear(channels, channels * expansion),
             torch.nn.GELU(),
+            torch.nn.Dropout(dropout),
             torch.nn.Linear(channels * expansion, channels),
         )
 
@@ -116,10 +118,10 @@ class MLP(torch.nn.Module):
 
 
 class AttentionBlock(torch.nn.Module):
-    def __init__(self, channels: int, head_channels: int, expansion: int = 4):
+    def __init__(self, channels: int, head_channels: int, expansion: int = 4, dropout: float = 0.0):
         super().__init__()
-        self.attention = Attention(channels, head_channels)
-        self.mlp = MLP(channels, expansion)
+        self.attention = Attention(channels, head_channels, dropout=dropout)
+        self.mlp = MLP(channels, expansion, dropout=dropout)
 
     def forward(
         self,
@@ -147,6 +149,7 @@ class MetaBlock(torch.nn.Module):
         expansion: int = 4,
         nvp: bool = True,
         num_classes: int = 0,
+        dropout: float = 0.0,
     ):
         super().__init__()
         self.proj_in = torch.nn.Linear(in_channels, channels)
@@ -156,7 +159,7 @@ class MetaBlock(torch.nn.Module):
         else:
             self.class_embed = None
         self.attn_blocks = torch.nn.ModuleList(
-            [AttentionBlock(channels, head_dim, expansion) for _ in range(num_layers)]
+            [AttentionBlock(channels, head_dim, expansion, dropout=dropout) for _ in range(num_layers)]
         )
         self.nvp = nvp
         output_dim = in_channels * 2 if nvp else in_channels
@@ -283,6 +286,7 @@ class TarFlow(torch.nn.Module):
         layers_per_block: int,
         nvp: bool = True,
         num_classes: int = 0,
+        dropout: float = 0.0,
         *args,
         **kwargs,
     ):
@@ -308,6 +312,7 @@ class TarFlow(torch.nn.Module):
                     layers_per_block,
                     nvp=nvp,
                     num_classes=num_classes,
+                    dropout=dropout,
                 )
             )
         self.blocks = torch.nn.ModuleList(blocks)

@@ -13,7 +13,7 @@ def plot_energies(
     proposal_samples_energy,
     resampled_samples_energy,
     smc_samples_energy,
-    max_energy=-100,
+    max_energy=100,
     ylim=None,
     prefix="",
 ):

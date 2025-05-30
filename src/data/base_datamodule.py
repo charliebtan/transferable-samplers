@@ -6,7 +6,6 @@ from lightning import LightningDataModule
 from torch.utils.data import DataLoader
 
 from src.data.components.data_types import SamplesData
-from src.data.components.symmetry import resolve_chirality
 from src.evaluation.metrics.evaluate_peptide_data import evaluate_peptide_data
 from src.evaluation.plots.plot_atom_distances import plot_atom_distances
 from src.evaluation.plots.plot_com_norms import plot_com_norms
@@ -189,38 +188,26 @@ class BaseDataModule(LightningDataModule):
 
             data = data[: self.hparams.num_eval_samples * 2]  # slice out extra samples for those lost to symmetry
 
-            symmetry_metrics, symmetry_change = resolve_chirality(
-                true_data.samples,
-                data.samples,
-                self.topology_dict[sequence],
-                prefix + name,
-            )
-            data = data[~symmetry_change]
-            metrics.update(symmetry_metrics)
-
-            if len(data) == 0:
-                logging.warning(f"No {name} samples left after symmetry correction.")
-            else:
-                metrics.update(
-                    evaluate_peptide_data(
-                        true_data,
-                        data,
-                        topology=self.topology_dict[sequence],
-                        tica_model=self.tica_model_paths[sequence],
-                        num_eval_samples=self.hparams.num_eval_samples,
-                        prefix=prefix + name,
-                        compute_distribution_distances=False,
-                    )
+            metrics.update(
+                evaluate_peptide_data(
+                    true_data,
+                    data,
+                    topology=self.topology_dict[sequence],
+                    tica_model=self.tica_model_paths[sequence],
+                    num_eval_samples=self.hparams.num_eval_samples,
+                    prefix=prefix + name,
+                    compute_distribution_distances=False,
                 )
-                if self.hparams.do_plots:
-                    plot_ramachandran(log_image_fn, data.samples, self.topology_dict[sequence], prefix=prefix + name)
-                    plot_tica(
-                        log_image_fn,
-                        data.samples,
-                        self.topology_dict[sequence],
-                        self.tica_model_paths[sequence],
-                        prefix=prefix + name,
-                    )
+            )
+            if self.hparams.do_plots:
+                plot_ramachandran(log_image_fn, data.samples, self.topology_dict[sequence], prefix=prefix + name)
+                plot_tica(
+                    log_image_fn,
+                    data.samples,
+                    self.topology_dict[sequence],
+                    self.tica_model_paths[sequence],
+                    prefix=prefix + name,
+                )
 
         # reduce size so plotting doesn't crash with many samples
         true_data = true_data[: self.hparams.num_eval_samples]

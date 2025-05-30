@@ -16,6 +16,9 @@ from torchmetrics import MeanMetric
 from tqdm import tqdm
 
 from src.data.components.data_types import SamplesData
+from src.data.components.symmetry import (
+    get_symmetry_change,
+)
 from src.data.single_peptide_datamodule import SinglePeptideDataModule
 from src.models.components.ema import EMA
 from src.models.components.priors import NormalDistribution
@@ -37,6 +40,8 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         ema_decay: float,
         compile: bool,
         use_com_adjustment: bool = False,
+        fix_symmetry: bool = True,
+        drop_unfixable_symmetry: bool = False,
         *args,
         **kwargs,
     ) -> None:
@@ -273,7 +278,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
     def evaluate_all(self, prefix):
         metrics = {}
 
-        if type(self.datamodule) == SinglePeptideDataModule:
+        if type(self.datamodule) is SinglePeptideDataModule:
             true_samples, encoding, energy_fn = self.datamodule.prepare_eval(prefix)
             metrics.update(
                 self.evaluate(
@@ -281,11 +286,10 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
                     true_samples,
                     encoding,
                     energy_fn,
-                    prefix=prefix,
+                    prefix=f"{prefix}/{self.datamodule.hparams.sequence}",
                     proposal_generator=self.batched_generate_samples,
                 )
             )
-            self.log_dict(metrics, sync_dist=True)
         else:
             eval_seq_names = (
                 self.datamodule.val_seq_names if prefix.startswith("val") else self.datamodule.test_seq_names
@@ -315,15 +319,15 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
                     )
                 )
 
-            # Aggregate metrics across all sequences
-            if self.local_rank == 0:
-                metric_object_list = [self.add_aggregate_metrics(metrics, prefix=prefix)]
-            else:
-                metric_object_list = [None]  # List must have same length for broadcast
-            if self.trainer.world_size > 1:
-                # Broadcast metrics to all processes - must log from all for checkpointing
-                torch.distributed.broadcast_object_list(metric_object_list, src=0)
-            self.log_dict(metric_object_list[0])
+        # Aggregate metrics across all sequences
+        if self.local_rank == 0:
+            metric_object_list = [self.add_aggregate_metrics(metrics, prefix=prefix)]
+        else:
+            metric_object_list = [None]  # List must have same length for broadcast
+        if self.trainer.world_size > 1:
+            # Broadcast metrics to all processes - must log from all for checkpointing
+            torch.distributed.broadcast_object_list(metric_object_list, src=0)
+        self.log_dict(metric_object_list[0])
 
     @torch.no_grad()
     def evaluate(
@@ -332,6 +336,8 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         """Generates samples from the proposal and runs SMC if enabled.
         Also computes metrics, through the datamodule function "metrics_and_plots".
         """
+
+        metrics = {}
 
         true_data = SamplesData(
             self.datamodule.as_pointcloud(self.datamodule.unnormalize(true_samples)),
@@ -356,8 +362,14 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             proposal_samples, proposal_log_p, prior_samples = proposal_generator(num_proposal_samples, encoding)
             torch.cuda.synchronize()
             time_duration = time.time() - start_time
-            self.log(f"{prefix}/samples_walltime", time_duration, sync_dist=True)
-            self.log(f"{prefix}/samples_per_second", len(proposal_samples) / time_duration, sync_dist=True)
+
+            metrics.update(
+                {
+                    f"{prefix}/samples_walltime": time_duration,
+                    f"{prefix}/samples_per_second": len(proposal_samples) / time_duration,
+                    f"{prefix}/seconds_per_sample": time_duration / len(proposal_samples),
+                }
+            )
 
             # Save samples to disk
             samples_dict = {
@@ -390,12 +402,23 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             proposal_log_p = samples_dict["log_p"]
             prior_samples = samples_dict["prior_samples"]
 
-            cfg_path = self.hparams.sampling_config.load_samples_path.replace("test_samples.pt", ".hydra/config.yaml")
-            original_cfg = OmegaConf.load(cfg_path)
+            try:
+                cfg_path = self.hparams.sampling_config.load_samples_path.replace(
+                    "test_samples.pt", ".hydra/config.yaml"
+                )
+                original_cfg = OmegaConf.load(cfg_path)
+            except FileNotFoundError:
+                cfg_path = self.hparams.sampling_config.load_samples_path.replace(
+                    "test_samples.pt", "/0/.hydra/config.yaml"
+                )
+                original_cfg = OmegaConf.load(cfg_path)
 
             self.log("original/ess_thresold", original_cfg.model.jarzynski_sampler.ess_threshold)
             self.log("original/num_test_proposal_samples", original_cfg.model.sampling_config.num_test_proposal_samples)
             self.log("original/num_timesteps", original_cfg.model.jarzynski_sampler.num_timesteps)
+            self.log("original/use_com_adjustment", original_cfg.model.get("use_com_energy", 0))
+            self.log("original/clip_logits", original_cfg.model.clip_logits if original_cfg.model.clip_logits else 0.0)
+            self.log("original/langevin_epsilon", original_cfg.model.jarzynski_sampler.get("langevin_eps", 0))
 
         # Compute energy
         proposal_samples_energy = energy_fn(proposal_samples)
@@ -414,6 +437,47 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         self.proposal_com_std = proposal_com_std
         logging.info(f"Proposal CoM std: {proposal_com_std}")
         self.log(f"{prefix}/proposal_com_std", proposal_com_std, sync_dist=True)
+
+        temp_proposal_samples = proposal_samples.clone()
+
+        first_symmetry_change = get_symmetry_change(
+            self.datamodule.as_pointcloud(self.datamodule.unnormalize(true_samples)),
+            self.datamodule.as_pointcloud(self.datamodule.unnormalize(temp_proposal_samples)),
+            self.datamodule.topology_dict[sequence],
+        )
+
+        correct_symmetry_rate = 1 - first_symmetry_change.float().mean().item()
+
+        temp_proposal_samples[first_symmetry_change] *= -1
+
+        second_symmetry_change = get_symmetry_change(
+            self.datamodule.as_pointcloud(self.datamodule.unnormalize(true_samples)),
+            self.datamodule.as_pointcloud(self.datamodule.unnormalize(temp_proposal_samples)),
+            self.datamodule.topology_dict[sequence],
+        )
+
+        uncorrectable_symmetry_rate = second_symmetry_change.float().mean().item()
+
+        if self.hparams.fix_symmetry:
+            proposal_samples[first_symmetry_change] *= -1
+
+            if self.hparams.drop_unfixable_symmetry:  # only makes sense to drop if symmetry is fixed
+                proposal_samples = proposal_samples[~second_symmetry_change]
+                proposal_log_p = proposal_log_p[~second_symmetry_change]
+                proposal_samples_energy = proposal_samples_energy[~second_symmetry_change]
+
+        metrics.update(
+            {
+                f"{prefix}/proposal/correct_symmetry_rate": correct_symmetry_rate,
+                f"{prefix}/proposal/uncorrectable_symmetry_rate": uncorrectable_symmetry_rate,
+            }
+        )
+
+        # Datatype for easier metrics and plotting
+        proposal_data = SamplesData(
+            self.datamodule.as_pointcloud(self.datamodule.unnormalize(proposal_samples)),
+            proposal_samples_energy,
+        )
 
         # Apply CoM adjustment to energy, this must be done here for compatibility with CNFs
         if self.hparams.sampling_config.get("use_com_adjustment", False):
@@ -497,14 +561,16 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
 
         if self.local_rank == 0:
             # log dataset metrics
-            metrics = self.datamodule.metrics_and_plots(
-                self.log_image,
-                sequence,
-                true_data,
-                proposal_data,
-                reweighted_data,
-                smc_data,
-                prefix=prefix,
+            metrics.update(
+                self.datamodule.metrics_and_plots(
+                    self.log_image,
+                    sequence,
+                    true_data,
+                    proposal_data,
+                    reweighted_data,
+                    smc_data,
+                    prefix=prefix,
+                )
             )
         else:
             metrics = {}

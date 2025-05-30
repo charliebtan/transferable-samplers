@@ -1,4 +1,5 @@
 import logging
+import math
 from typing import Optional
 
 import mdtraj as md
@@ -25,8 +26,6 @@ class SinglePeptideDataModule(BaseDataModule):
         data_dir: str,
         sequence: str,
         temperature: float,
-        # num_aa_max: int,
-        # num_aa_min: int,
         num_dimensions: int,
         num_particles: int,
         dim: int,
@@ -42,7 +41,6 @@ class SinglePeptideDataModule(BaseDataModule):
         super().__init__(batch_size=batch_size, num_workers=num_workers, pin_memory=pin_memory)
 
         assert dim == num_dimensions * num_particles, "dim must be equal to num_dimensions * num_particles"
-        assert num_workers < 2, "need a copy of lmdb for each worker, use at most 1 worker"
 
         self.train_data_path = f"{data_dir}/{sequence}_{temperature}K_train.npy"
         self.val_data_path = f"{data_dir}/{sequence}_{temperature}K_val.npy"
@@ -66,7 +64,8 @@ class SinglePeptideDataModule(BaseDataModule):
         if self.trainer is not None:
             if self.hparams.batch_size % self.trainer.world_size != 0:
                 raise RuntimeError(
-                    f"Batch size ({self.hparams.batch_size}) is not divisible by the number of devices ({self.trainer.world_size})."
+                    f"Batch size ({self.hparams.batch_size}) is not divisible by the number "
+                    "of devices ({self.trainer.world_size})."
                 )
             self.batch_size_per_device = self.hparams.batch_size // self.trainer.world_size
 
@@ -91,22 +90,15 @@ class SinglePeptideDataModule(BaseDataModule):
         val_data = val_data[:: val_data.shape[0] // self.hparams.num_eval_samples]
         test_data = test_data[:: test_data.shape[0] // self.hparams.num_eval_samples]
 
-        # val_rng = np.random.default_rng(0)
-        # self.data_val = torch.tensor(val_rng.permutation(self.data_val))
-
-        # test_rng = np.random.default_rng(1)
-        # self.data_test = torch.tensor(test_rng.permutation(self.data_test))[:100_000]
-
         transform_list = [
             StandardizeTransform(self.std, self.hparams.num_dimensions),
             Random3DRotationTransform(self.hparams.num_dimensions),
         ]
         if self.hparams.com_augmentation:
             # We just define a value for the center of mass std deviation in SBG
-
             transform_list.append(
                 CenterOfMassTransform(
-                    1 / self.hparams.com_augmentation_std,
+                    1 / math.sqrt(self.hparams.num_particles),
                     self.hparams.num_dimensions,
                 )
             )
@@ -146,7 +138,7 @@ class SinglePeptideDataModule(BaseDataModule):
         self.topology_dict = {self.hparams.sequence: self.topology}
         self.tica_model_paths = {self.hparams.sequence: f"{self.tica_models_path}/{self.hparams.sequence}-tica.pkl"}
 
-        if self.hparams.sequence == "Ace-AAA-Nme":
+        if self.hparams.sequence in ["Ace-A-Nme", "Ace-AAA-Nme"]:
             forcefield = openmm.app.ForceField("amber99sbildn.xml", "tip3p.xml", "amber99_obc.xml")
 
             system = forcefield.createSystem(
@@ -158,11 +150,12 @@ class SinglePeptideDataModule(BaseDataModule):
             temperature = 300
             integrator = openmm.LangevinMiddleIntegrator(
                 temperature * openmm.unit.kelvin,
-                0.3 / openmm.unit.picosecond,
+                0.3 / openmm.unit.picosecond
+                if self.hparams.sequence == "Ace-AAA-Nme"
+                else 1.0 / openmm.unit.picosecond,
                 1.0 * openmm.unit.femtosecond,
             )
             potential = OpenMMEnergy(bridge=OpenMMBridge(system, integrator, platform_name="CUDA"))
-
         else:
             forcefield = app.ForceField("amber14-all.xml", "implicit/obc1.xml")
 
@@ -189,10 +182,6 @@ class SinglePeptideDataModule(BaseDataModule):
             true_samples = self.data_val.get_seq_data()
         else:
             raise ValueError(f"Prefix {prefix} is not recognized. Use 'val' or 'test' to get the evaluation data.")
-
-        # TODO can this be handle better? in the lmdb?
-        # how to do nice plots? - i suppose plots will be a more rare occasion
-        true_samples = true_samples[: self.hparams.num_eval_samples]
 
         true_samples = true_samples.reshape(
             true_samples.shape[0],
