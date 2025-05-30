@@ -36,6 +36,7 @@ class SinglePeptideDataModule(BaseDataModule):
         num_workers: int = 0,
         pin_memory: bool = False,
         num_eval_samples: int = 10_000,
+        normalization: bool = True,
         do_plots: bool = True,
     ):
         super().__init__(batch_size=batch_size, num_workers=num_workers, pin_memory=pin_memory)
@@ -84,7 +85,7 @@ class SinglePeptideDataModule(BaseDataModule):
         val_data = self.zero_center_of_mass(val_data)
         test_data = self.zero_center_of_mass(test_data)
 
-        self.std = train_data.std()
+        self.std = train_data.std() if self.hparams.normalization else 1.0
 
         # Slice the eval data
         val_data = val_data[:: val_data.shape[0] // self.hparams.num_eval_samples]

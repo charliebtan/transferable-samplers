@@ -19,7 +19,7 @@ class FlowMatchLitModule(TransferableBoltzmannGeneratorLitModule):
 
     """
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, sigma=0.0, *args, **kwargs) -> None:
         """Initialize a `ProposalFlowLitModule`.
 
         :param net: The model to train.
@@ -43,7 +43,17 @@ class FlowMatchLitModule(TransferableBoltzmannGeneratorLitModule):
         return self.net(t, x, encoding=encoding, node_mask=mask)
 
     def get_xt(self, x0, x1, t):
-        return (1.0 - t) * x0 + t * x1
+        mu_t = (1.0 - t) * x0 + t * x1
+
+        if not self.hparams.sigma == 0.0:
+            num_samples = x1.shape[0]
+            num_tokens = x1.shape[1] // self.datamodule.hparams.num_dimensions
+            noise = self.prior.sample(num_samples, num_tokens, mask=None, device=x1.device)
+            xt = mu_t + self.hparams.sigma * noise
+        else:
+            xt = mu_t
+
+        return xt
 
     def get_flow_targets(self, x0, x1):
         vt_flow = x1 - x0

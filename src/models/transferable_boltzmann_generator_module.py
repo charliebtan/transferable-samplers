@@ -130,10 +130,14 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         """
         optimizer = self.hparams.optimizer(params=self.trainer.model.parameters())
         if self.hparams.scheduler is not None:
-            scheduler = self.hparams.scheduler(
-                optimizer=optimizer,
-                total_steps=self.trainer.estimated_stepping_batches,
-            )
+            try:
+                scheduler = self.hparams.scheduler(
+                    optimizer=optimizer,
+                    total_steps=self.trainer.estimated_stepping_batches,
+                )
+            except TypeError:  # TODO i'm sorry i'm tired
+                # If the scheduler does not take total_steps as an argument
+                scheduler = self.hparams.scheduler(optimizer=optimizer)
             return {
                 "optimizer": optimizer,
                 "lr_scheduler": {
