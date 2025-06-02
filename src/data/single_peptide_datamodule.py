@@ -5,12 +5,12 @@ from typing import Optional
 import mdtraj as md
 import numpy as np
 import openmm
+import openmm.app
 import torch
 import torchvision
-from bgflow import OpenMMBridge, OpenMMEnergy
-from openmm import app
 
 from src.data.base_datamodule import BaseDataModule
+from src.data.components.openmm import OpenMMBridge, OpenMMEnergy
 from src.data.components.prepare_data import prepare_tica_models
 from src.data.components.single_peptide_dataset import SinglePeptideDataset
 from src.data.components.transforms.center_of_mass import CenterOfMassTransform
@@ -134,7 +134,7 @@ class SinglePeptideDataModule(BaseDataModule):
         logging.info(f"Test dataset size: {len(self.data_test)}")
 
         self.topology = md.load_topology(self.pdb_path)
-        self.pdb = app.PDBFile(self.pdb_path)
+        self.pdb = openmm.app.PDBFile(self.pdb_path)
 
         self.topology_dict = {self.hparams.sequence: self.topology}
         self.tica_model_paths = {self.hparams.sequence: f"{self.tica_models_path}/{self.hparams.sequence}-tica.pkl"}
@@ -158,11 +158,11 @@ class SinglePeptideDataModule(BaseDataModule):
             )
             potential = OpenMMEnergy(bridge=OpenMMBridge(system, integrator, platform_name="CUDA"))
         else:
-            forcefield = app.ForceField("amber14-all.xml", "implicit/obc1.xml")
+            forcefield = openmm.app.ForceField("amber14-all.xml", "implicit/obc1.xml")
 
             system = forcefield.createSystem(
                 self.pdb.topology,
-                nonbondedMethod=app.CutoffNonPeriodic,
+                nonbondedMethod=openmm.app.CutoffNonPeriodic,
                 nonbondedCutoff=2.0 * openmm.unit.nanometer,
                 constraints=None,
             )
