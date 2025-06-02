@@ -1,7 +1,7 @@
 #!/bin/bash
-python src/train.py -m launcher=mila_l40 \
+python src/train.py -m launcher=mila_rtx8000 \
 experiment=evaluation/tarflow_al2_fk \
-tags=[sbg,tarflow,al2,smcais_v4] \
+tags=[sbg,tarflow,al2,smcais_v5] \
 model.sampling_config.num_test_proposal_samples=10_000,100_000 \
 model.sampling_config.use_com_adjustment=1 \
 model.sampling_config.clip_reweighting_logits=0.002 \
