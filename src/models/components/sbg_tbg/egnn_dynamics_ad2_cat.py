@@ -1,5 +1,3 @@
-import math
-
 import mdtraj as md
 import numpy as np
 import torch
@@ -12,11 +10,11 @@ from src.models.components.tbg.utils import remove_mean
 class EGNN_dynamics_AD2_cat(nn.Module):
     def __init__(
         self,
-        n_particles,
-        n_dimensions,
-        hidden_nf=64,
+        num_particles,
+        num_dimensions,
+        channels=64,
         act_fn=torch.nn.SiLU(),
-        n_layers=5,  # changed to match AD2_classical_train_tgb_full.py
+        num_layers=5,  # changed to match AD2_classical_train_tgb_full.py
         recurrent=True,
         attention=True,  # changed to match AD2_classical_train_tgb_full.py
         tanh=True,  # changed to match AD2_classical_train_tgb_full.py
@@ -27,9 +25,9 @@ class EGNN_dynamics_AD2_cat(nn.Module):
         M=128,
     ):
         super().__init__()
-        self._n_particles = n_particles
-        self._n_dimensions = n_dimensions
-        if n_particles >= 53:
+        self._n_particles = num_particles
+        self._n_dimensions = num_dimensions
+        if num_particles >= 53:
             self.data_dir = data_dir
             self.atom_types_encoding = np.load(f"{self.data_dir}/{atom_encoding_filename}", allow_pickle=True).item()
             self.pdb_path = f"{self.data_dir}/{pdb_filename}"
@@ -38,14 +36,14 @@ class EGNN_dynamics_AD2_cat(nn.Module):
         self.h_initial = self.get_h_initial()
 
         h_size = self.h_initial.size(1)
-        h_size += 2  # Add time and d_base
+        h_size += 1  # Add time
 
         self.egnn = EGNN(
             in_node_nf=h_size,
             in_edge_nf=1,
-            hidden_nf=hidden_nf,
+            hidden_nf=channels,
             act_fn=act_fn,
-            n_layers=n_layers,
+            n_layers=num_layers,
             recurrent=recurrent,
             attention=attention,
             tanh=tanh,
@@ -143,17 +141,11 @@ class EGNN_dynamics_AD2_cat(nn.Module):
         h_initial = torch.cat([amino_idx_onehot, amino_types_onehot, atom_onehot], dim=1)
         return h_initial
 
-    def forward(self, t, x, d_base=None, *args, **kwargs):
+    def forward(self, t, x, *args, **kwargs):
         t = t.view(-1, 1)
-        d_base = d_base.view(-1, 1) if d_base is not None else None
 
         if t.numel() == 1:
             t = t.repeat(x.shape[0], 1)
-
-        if d_base is None:
-            d_base = torch.ones_like(t) * math.log2(self.M)  # so it defaults to non-shortcut model
-        elif d_base.numel() == 1:
-            d_base = d_base.repeat(x.shape[0], 1)
 
         n_batch = x.shape[0]
         edges = self._cast_edges2batch(self.edges, n_batch, self._n_particles, device=x.device)
@@ -170,12 +162,7 @@ class EGNN_dynamics_AD2_cat(nn.Module):
         t = t.repeat(1, self._n_particles)
         t = t.reshape(n_batch * self._n_particles, 1)
 
-        if d_base.shape != (n_batch, 1):
-            d_base = d_base.repeat(n_batch)
-        d_base = d_base.repeat(1, self._n_particles)
-        d_base = d_base.reshape(n_batch * self._n_particles, 1)
-
-        h = torch.cat([h, t, d_base], dim=-1)
+        h = torch.cat([h, t], dim=-1)
         edge_attr = torch.sum((x[edges[0]] - x[edges[1]]) ** 2, dim=1, keepdim=True)
         _, x_final = self.egnn(h, x, edges, edge_attr=edge_attr)
         vel = x_final - x

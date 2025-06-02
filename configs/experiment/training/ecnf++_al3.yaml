@@ -2,7 +2,7 @@
 
 defaults:
   - override /model: flow_matching
-  - override /model/net: egnn_dynamics
+  - override /model/net: egnn_dynamics_ad2_cat
   - override /data: al3
   - override /trainer: gpu
 
