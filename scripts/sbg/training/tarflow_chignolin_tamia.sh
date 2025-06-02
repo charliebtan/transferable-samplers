@@ -3,7 +3,7 @@
 #SBATCH -o watch_folder/%x_%j.out     # output file (%j expands to jobID)
 #SBATCH -N 1                          # Total number of nodes requested
 #SBATCH --mem=256G                     # server memory requested (per node)
-#SBATCH -t 12:00:00                  # Time limit (hh:mm:ss)
+#SBATCH -t 3:00:00                  # Time limit (hh:mm:ss)
 #SBATCH --account=aip-necludov               
 #SBATCH --ntasks-per-node=4
 #SBATCH --gres=gpu:h100:4                  # Type/number of GPUs needed
