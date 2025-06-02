@@ -23,7 +23,6 @@ model:
 
 data:
   batch_size: 512
-  normalization: False
   com_augmentation: False
   num_eval_samples: 10_000
 

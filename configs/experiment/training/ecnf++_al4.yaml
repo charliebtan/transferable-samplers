@@ -12,7 +12,7 @@ model:
     num_layers: 5
 
   sampling_config:
-    batch_size: 32
+    batch_size: 16
     num_proposal_samples: 32
     num_test_proposal_samples: 10_000
 
