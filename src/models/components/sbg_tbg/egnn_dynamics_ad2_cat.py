@@ -20,7 +20,7 @@ class EGNN_dynamics_AD2_cat(nn.Module):
         tanh=True,  # changed to match AD2_classical_train_tgb_full.py
         atom_encoding_filename: str = "atom_types_ecoding.npy",
         data_dir="data/alanine",
-        pdb_filename="",
+        pdb_filename="AAAAAA_310K.pdb",
         agg="sum",
         M=128,
     ):

@@ -17,7 +17,7 @@ model:
   ema_decay: 0.0
 
   sampling_config:
-    batch_size: 4
+    batch_size: 64
     num_proposal_samples: 32
     num_test_proposal_samples: 10_000
 
