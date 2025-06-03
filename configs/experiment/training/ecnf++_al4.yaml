@@ -17,11 +17,12 @@ model:
     num_test_proposal_samples: 10_000
 
 data:
-  batch_size: 512
+  batch_size: 256
   com_augmentation: False
   num_eval_samples: 10_000
 
 trainer:
   check_val_every_n_epoch: 50
+  accumulate_grad_batches: 2
   max_epochs: 1000
   num_sanity_val_steps: 0
