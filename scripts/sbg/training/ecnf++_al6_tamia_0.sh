@@ -20,7 +20,7 @@ module load httpproxy/1.0
 source $HOME/envs/$env/bin/activate
 wandb online
 
-RUN_NAME=tarflow_al6_0_v4
+RUN_NAME=ecnf++_al6_0_v4
 
 srun python -u src/train.py \
 trainer=ddp \

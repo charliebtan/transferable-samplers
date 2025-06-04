@@ -482,6 +482,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
 
         # Apply CoM adjustment to energy, this must be done here for compatibility with CNFs
         if self.hparams.sampling_config.get("use_com_adjustment", False):
+            logging.info("Applying center of mass energy adjustment enabled")
             proposal_log_p = proposal_log_p + self.com_energy_adjustment(proposal_samples)
 
         # Compute resampling index

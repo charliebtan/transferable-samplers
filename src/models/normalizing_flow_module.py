@@ -72,7 +72,6 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
         return loss
 
     def com_energy_adjustment(self, x: torch.Tensor) -> torch.Tensor:
-        logging.info("Applying CoM adjustment")
 
         assert self.proposal_com_std is not None, "Center of mass std should be set"
 

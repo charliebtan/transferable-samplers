@@ -17,6 +17,8 @@ from src.utils.instantiators import instantiate_callbacks, instantiate_loggers
 from src.utils.logging_utils import log_hyperparameters
 from src.utils.pylogger import RankedLogger
 from src.utils.utils import extras, get_metric_value, task_wrapper
+import time
+import random
 
 torch.set_float32_matmul_precision("highest")  # high at minimum!
 torch.backends.cuda.matmul.allow_tf32 = False
@@ -141,6 +143,11 @@ def main(cfg: DictConfig) -> Optional[float]:
     # apply extra utilities
     # (e.g. ask for tags if none are provided in cfg, print cfg tree, etc.)
     extras(cfg)
+
+    if "multiruns" in cfg.paths.output_dir:
+        sleep_time = random.uniform(0, 180)
+        log.info(f"Sleeping for {sleep_time:.2f} seconds to avoid wandb rate limitations.")
+        time.sleep(sleep_time)
 
     # train the model
     metric_dict, _ = train(cfg)

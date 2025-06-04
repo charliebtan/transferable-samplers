@@ -169,3 +169,7 @@ AImplicitUnconstrained*
 /wandb/
 
 ___*.py
+
+*.pdb
+
+src/data/data_old/*

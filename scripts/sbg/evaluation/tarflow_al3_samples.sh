@@ -1,5 +1,5 @@
 #!/bin/bash
-python src/train.py -m launcher=mila_rtx8000 \
+python src/train.py -m launcher=mila_48gb \
 experiment=evaluation/tarflow_al3_fk \
 tags=[sbg,tarflow,al3,smc_samples_v1] \
 model.sampling_config.num_test_proposal_samples=100,200,500,1_000,2_000,5_000,10_000,20_000,50_000,100_000,200_000,500_000 \
