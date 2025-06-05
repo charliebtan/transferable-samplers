@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import mdtraj as md
 from matplotlib.colors import LogNorm
 
-from src.evaluation.metrics.tica import tica_features
+from src.evaluation.metrics.tica import tica_features, tica_features_ca
 
 matplotlib.rcParams["mathtext.fontset"] = "stix"
 matplotlib.rcParams["font.family"] = "STIXGeneral"
@@ -28,7 +28,13 @@ def plot_tica(log_image_fn, samples, topology, tica_model_path, prefix=""):
     with open(tica_model_path, "rb") as f:
         tica_model = pickle.load(f)  # noqa: S301
     pred_traj_samples = md.Trajectory(samples.cpu().numpy(), topology=topology)
-    features = tica_features(pred_traj_samples)
+
+    if topology.n_residues > 4:
+        ca_list = [atom.index for atom in topology.atoms if atom.name == "CA"]
+        features = tica_features_ca(pred_traj_samples, ca_list=ca_list)
+    else:
+        features = tica_features(pred_traj_samples)
+
     tics = tica_model.transform(features)
     fig, ax = plt.subplots()
     ax = plot_tic01(ax, tics, tics_lims=tics)
