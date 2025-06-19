@@ -1,0 +1,550 @@
+ALA:
+  standard:
+    # β-carbon group (methyl group)
+    - CB        # β-carbon
+    - HB1       # methyl hydrogen
+    - HB2       # methyl hydrogen
+    - HB3       # methyl hydrogen
+
+ARG:
+  standard:
+    # β-carbon group (methylene)
+    - CB        # β-carbon
+    - HB2       # β-methylene hydrogen
+    - HB3       # β-methylene hydrogen
+
+    # γ-carbon group (methylene)
+    - CG        # γ-carbon
+    - HG2       # γ-methylene hydrogen
+    - HG3       # γ-methylene hydrogen
+
+    # δ-carbon group (methylene)
+    - CD        # δ-carbon
+    - HD2       # δ-methylene hydrogen
+    - HD3       # δ-methylene hydrogen
+
+    # ε-nitrogen group (secondary amine)
+    - NE        # ε-nitrogen
+    - HE        # ε-amino hydrogen
+
+    # ζ-carbon and guanidinium group
+    - CZ        # ζ-carbon (central carbon of guanidinium)
+    - NH1       # terminal nitrogen 1
+    - HH11      # NH1 hydrogen
+    - HH12      # NH1 hydrogen
+    - NH2       # terminal nitrogen 2
+    - HH21      # NH2 hydrogen
+    - HH22      # NH2 hydrogen
+
+ASN:
+  standard:
+    # β-carbon group (methylene)
+    - CB        # β-carbon
+    - HB2       # β-methylene hydrogen
+    - HB3       # β-methylene hydrogen
+
+    # γ-carbon group (carboxamide)
+    - CG        # γ-carbon
+
+    # Carbonyl oxygen of the amide group
+    - OD1       # carbonyl oxygen
+
+    # Amide nitrogen and its hydrogens
+    - ND2       # amide nitrogen
+    - HD21      # amide hydrogen
+    - HD22      # amide hydrogen
+
+ASP:
+  standard:
+    # β-carbon group (methylene)
+    - CB        # β-carbon
+    - HB2       # β-methylene hydrogen
+    - HB3       # β-methylene hydrogen
+
+    # γ-carbon group (carboxylate)
+    - CG        # γ-carbon
+
+    # Carboxylate oxygens
+    - OD1       # carboxylate oxygen
+    - OD2       # carboxylate oxygen
+
+CYS:
+  standard:
+    # β-carbon group (methylene)
+    - CB        # β-carbon
+    - HB2       # β-methylene hydrogen
+    - HB3       # β-methylene hydrogen
+
+    # Thiol group
+    - SG        # sulfur
+    - HG        # thiol hydrogen
+
+GLN:
+  standard:
+    # β-carbon group (methylene)
+    - CB        # β-carbon
+    - HB2       # β-methylene hydrogen
+    - HB3       # β-methylene hydrogen
+
+    # γ-carbon group (methylene)
+    - CG        # γ-carbon
+    - HG2       # γ-methylene hydrogen
+    - HG3       # γ-methylene hydrogen
+
+    # δ-carbon group (carboxamide)
+    - CD        # δ-carbon
+
+    # Carbonyl oxygen
+    - OE1       # carbonyl oxygen
+
+    # Amide nitrogen and its hydrogens
+    - NE2       # amide nitrogen
+    - HE21      # amide hydrogen
+    - HE22      # amide hydrogen
+
+GLU:
+  standard:
+    # β-carbon group (methylene)
+    - CB        # β-carbon
+    - HB2       # β-methylene hydrogen
+    - HB3       # β-methylene hydrogen
+
+    # γ-carbon group (methylene)
+    - CG        # γ-carbon
+    - HG2       # γ-methylene hydrogen
+    - HG3       # γ-methylene hydrogen
+
+    # δ-carbon group (carboxylate)
+    - CD        # δ-carbon
+
+    # Carboxylate oxygens
+    - OE1       # oxygen ε1
+    - OE2       # oxygen ε2
+
+GLY:
+  standard: [] # HA3 is considered part of the backbone, no side chain
+
+HIE:
+  standard:
+    # β-carbon group
+    - CB        # β-carbon
+    - HB2       # β-methylene hydrogen
+    - HB3       # β-methylene hydrogen
+
+    # γ-carbon (bridge to ring)
+    - CG        # γ-carbon
+
+    # Imidazole ring atoms (δ-protonated form)
+    - ND1       # ring nitrogen (not protonated)
+    - CE1       # ring carbon adjacent to ND1
+    - HE1       # ring hydrogen on CE1
+    - NE2       # ring nitrogen (protonated)
+    - HE2       # hydrogen on NE2
+    - CD2       # ring carbon between CG and NE2
+    - HD2       # ring hydrogen on CD2
+
+  ring_reverse:
+    # β-carbon group
+    - CB        # β-carbon
+    - HB2       # β-methylene hydrogen
+    - HB3       # β-methylene hydrogen
+
+    # γ-carbon (bridge to ring)
+    - CG        # γ-carbon
+
+    # Imidazole ring atoms (δ-protonated form) - reversed order
+    - CD2       # ring carbon
+    - HD2       # ring hydrogen on CD2
+    - NE2       # protonated ring nitrogen
+    - HE2       # hydrogen on NE2
+    - CE1       # ring carbon adjacent to ND1
+    - HE1       # ring hydrogen on CE1
+    - ND1       # ring nitrogen (not protonated)
+
+ILE:
+  standard:
+    # β-carbon group
+    - CB        # β-carbon
+    - HB        # β-methine hydrogen
+
+    # γ2-carbon group (methyl branch)
+    - CG2       # γ2-carbon (methyl)
+    - HG21      # hydrogen on CG2
+    - HG22      # hydrogen on CG2
+    - HG23      # hydrogen on CG2
+
+    # γ1-carbon group (secondary branch)
+    - CG1       # γ1-carbon (methylene)
+    - HG12      # hydrogen on CG1
+    - HG13      # hydrogen on CG1
+
+    # δ1-carbon group (methyl)
+    - CD1       # δ1-carbon (methyl)
+    - HD11      # hydrogen on CD1
+    - HD12      # hydrogen on CD1
+    - HD13      # hydrogen on CD1
+
+  branch_flip:
+    # β-carbon group
+    - CB        # β-carbon
+    - HB        # β-methine hydrogen
+
+    # γ1-carbon group (methylene)
+    - CG1       # γ1-carbon
+    - HG12      # hydrogen on CG1
+    - HG13      # hydrogen on CG1
+
+    # δ1-carbon group (methyl)
+    - CD1       # δ1-carbon
+    - HD11      # hydrogen on CD1
+    - HD12      # hydrogen on CD1
+    - HD13      # hydrogen on CD1
+
+    # γ2-carbon group (methyl)
+    - CG2       # γ2-carbon
+    - HG21      # hydrogen on CG2
+    - HG22      # hydrogen on CG2
+    - HG23      # hydrogen on CG2
+
+LEU:
+  standard:
+    # β-carbon group
+    - CB        # β-carbon
+    - HB2       # β-methylene hydrogen
+    - HB3       # β-methylene hydrogen
+
+    # γ-carbon group
+    - CG        # γ-carbon
+    - HG        # γ-methine hydrogen
+
+    # δ1-carbon group
+    - CD1       # δ1-carbon
+    - HD11      # δ1-methyl hydrogen
+    - HD12      # δ1-methyl hydrogen
+    - HD13      # δ1-methyl hydrogen
+
+    # δ2-carbon group
+    - CD2       # δ2-carbon
+    - HD21      # δ2-methyl hydrogen
+    - HD22      # δ2-methyl hydrogen
+    - HD23      # δ2-methyl hydrogen
+
+  branch_flip:
+    # β-carbon group
+    - CB        # β-carbon
+    - HB2       # β-methylene hydrogen
+    - HB3       # β-methylene hydrogen
+
+    # γ-carbon group
+    - CG        # γ-carbon
+    - HG        # γ-methine hydrogen
+
+    # δ2-carbon group
+    - CD2       # δ2-carbon
+    - HD21      # δ2-methyl hydrogen
+    - HD22      # δ2-methyl hydrogen
+    - HD23      # δ2-methyl hydrogen
+
+    # δ1-carbon group
+    - CD1       # δ1-carbon
+    - HD11      # δ1-methyl hydrogen
+    - HD12      # δ1-methyl hydrogen
+    - HD13      # δ1-methyl hydrogen
+
+LYS:
+  standard:
+    # β-carbon group
+    - CB        # β-carbon
+    - HB2       # β-methylene hydrogen
+    - HB3       # β-methylene hydrogen
+
+    # γ-carbon group
+    - CG        # γ-carbon
+    - HG2       # γ-methylene hydrogen
+    - HG3       # γ-methylene hydrogen
+
+    # δ-carbon group
+    - CD        # δ-carbon
+    - HD2       # δ-methylene hydrogen
+    - HD3       # δ-methylene hydrogen
+
+    # ε-carbon group
+    - CE        # ε-carbon
+    - HE2       # ε-methylene hydrogen
+    - HE3       # ε-methylene hydrogen
+
+    # Terminal amino group
+    - NZ        # terminal nitrogen (ζ-position)
+    - HZ1       # hydrogen on NZ
+    - HZ2       # hydrogen on NZ
+    - HZ3       # hydrogen on NZ
+
+MET:
+  standard:
+    # β-carbon group
+    - CB        # β-carbon
+    - HB2       # β-methylene hydrogen
+    - HB3       # β-methylene hydrogen
+
+    # γ-carbon group
+    - CG        # γ-carbon
+    - HG2       # γ-methylene hydrogen
+    - HG3       # γ-methylene hydrogen
+
+    # Sulfur atom
+    - SD        # thioether sulfur
+
+    # ε-carbon group
+    - CE        # ε-methyl carbon
+    - HE1       # hydrogen on CE
+    - HE2       # hydrogen on CE
+    - HE3       # hydrogen on CE
+
+PHE:
+  standard:
+    # β-carbon group
+    - CB        # β-carbon
+    - HB2       # β-methylene hydrogen
+    - HB3       # β-methylene hydrogen
+
+    # γ-carbon (bridge to aromatic ring)
+    - CG        # γ-carbon
+
+    # Aromatic ring (phenyl)
+    - CD1       # ring carbon
+    - HD1       # hydrogen on CD1
+    - CE1       # ring carbon
+    - HE1       # hydrogen on CE1
+    - CZ        # central ring carbon
+    - HZ        # hydrogen on CZ
+    - CE2       # ring carbon
+    - HE2       # hydrogen on CE2
+    - CD2       # ring carbon
+    - HD2       # hydrogen on CD2
+
+  ring_reverse:
+    # β-carbon group
+    - CB        # β-carbon
+    - HB2       # β-methylene hydrogen
+    - HB3       # β-methylene hydrogen
+
+    # γ-carbon (bridge to aromatic ring)
+    - CG        # γ-carbon
+
+    # Aromatic ring (phenyl), reverse traversal
+    - CD2       # ring carbon
+    - HD2       # hydrogen on CD2
+    - CE2       # ring carbon
+    - HE2       # hydrogen on CE2
+    - CZ        # central ring carbon
+    - HZ        # hydrogen on CZ
+    - CE1       # ring carbon
+    - HE1       # hydrogen on CE1
+    - CD1       # ring carbon
+    - HD1       # hydrogen on CD1
+
+PRO:
+  standard:
+    # β-carbon group
+    - CB        # β-carbon
+    - HB2       # β-methylene hydrogen
+    - HB3       # β-methylene hydrogen
+
+    # γ-carbon group
+    - CG        # γ-carbon
+    - HG2       # γ-methylene hydrogen
+    - HG3       # γ-methylene hydrogen
+
+    # δ-carbon group (ring-closure back to N)
+    - CD        # δ-carbon
+    - HD2       # δ-methylene hydrogen
+    - HD3       # δ-methylene hydrogen
+
+  ring_reverse:
+    # δ-carbon group (start of ring traversal)
+    - CD        # δ-carbon
+    - HD2       # δ-methylene hydrogen
+    - HD3       # δ-methylene hydrogen
+
+    # γ-carbon group
+    - CG        # γ-carbon
+    - HG2       # γ-methylene hydrogen
+    - HG3       # γ-methylene hydrogen
+
+    # β-carbon group (end of ring traversal)
+    - CB        # β-carbon
+    - HB2       # β-methylene hydrogen
+    - HB3       # β-methylene hydrogen
+
+SER:
+  standard:
+    # β-carbon group
+    - CB        # β-carbon
+    - HB2       # β-methylene hydrogen
+    - HB3       # β-methylene hydrogen
+
+    # Hydroxyl group
+    - OG        # hydroxyl oxygen
+    - HG        # hydroxyl hydrogen
+
+THR:
+  standard:
+    # β-carbon group
+    - CB        # β-carbon
+    - HB        # β-hydrogen
+
+    # Hydroxyl group
+    - OG1       # hydroxyl oxygen
+    - HG1       # hydroxyl hydrogen
+
+    # γ-carbon group (methyl side branch)
+    - CG2       # γ-methyl carbon
+    - HG21      # methyl hydrogen
+    - HG22      # methyl hydrogen
+    - HG23      # methyl hydrogen
+
+  branch_flip:
+    # β-carbon group
+    - CB        # β-carbon
+    - HB        # β-hydrogen
+
+    # γ-carbon group (methyl side branch)
+    - CG2       # γ-methyl carbon
+    - HG21      # methyl hydrogen
+    - HG22      # methyl hydrogen
+    - HG23      # methyl hydrogen
+
+    # Hydroxyl group
+    - OG1       # hydroxyl oxygen
+    - HG1       # hydroxyl hydrogen
+
+TRP:
+  standard:
+    # β-carbon group
+    - CB        # β-carbon
+    - HB2       # β-methylene hydrogen
+    - HB3       # β-methylene hydrogen
+
+    # γ-carbon (bridge to ring system)
+    - CG        # γ-carbon
+
+    # Indole ring system
+    - CD1       # ring carbon
+    - HD1       # hydrogen on CD1
+    - NE1       # nitrogen in five-membered ring
+    - HE1       # hydrogen on NE1
+    - CE2       # carbon between CD1 and CZ2
+    - CZ2       # aromatic carbon
+    - HZ2       # hydrogen on CZ2
+    - CH2       # methylene bridge connecting rings
+    - HH2       # hydrogen on CH2
+    - CZ3       # aromatic carbon
+    - HZ3       # hydrogen on CZ3
+    - CE3       # carbon adjacent to CZ3
+    - HE3       # hydrogen on CE3
+    - CD2       # ring carbon
+
+  ring_reverse:
+    # β-carbon group
+    - CB        # β-carbon
+    - HB2       # β-methylene hydrogen
+    - HB3       # β-methylene hydrogen
+
+    # γ-carbon (bridge to ring system)
+    - CG        # γ-carbon
+
+    # Indole ring system (reversed traversal)
+    - CD2       # ring carbon
+    - CE3       # ring carbon
+    - HE3       # hydrogen on CE3
+    - CZ3       # aromatic carbon
+    - HZ3       # hydrogen on CZ3
+    - CH2       # methylene bridge
+    - HH2       # hydrogen on CH2
+    - CZ2       # aromatic carbon
+    - HZ2       # hydrogen on CZ2
+    - CE2       # carbon between CD1 and CZ2
+    - NE1       # nitrogen in five-membered ring
+    - HE1       # hydrogen on NE1
+    - CD1       # ring carbon
+    - HD1       # hydrogen on CD1
+
+TYR:
+  standard:
+    # β-carbon group
+    - CB        # β-carbon
+    - HB2       # β-methylene hydrogen
+    - HB3       # β-methylene hydrogen
+
+    # γ-carbon (ring bridge)
+    - CG        # γ-carbon
+
+    # Aromatic ring with hydroxyl substitution
+    - CD1       # ring carbon
+    - HD1       # hydrogen on CD1
+    - CE1       # ring carbon
+    - HE1       # hydrogen on CE1
+    - CZ        # central aromatic carbon
+    - OH        # phenolic hydroxyl
+    - HH        # hydrogen on OH
+    - CE2       # ring carbon
+    - HE2       # hydrogen on CE2
+    - CD2       # ring carbon
+    - HD2       # hydrogen on CD2
+
+  ring_reverse:
+    # β-carbon group
+    - CB        # β-carbon
+    - HB2       # β-methylene hydrogen
+    - HB3       # β-methylene hydrogen
+
+    # γ-carbon (ring bridge)
+    - CG        # γ-carbon
+
+    # Aromatic ring (reversed traversal)
+    - CD2       # ring carbon
+    - HD2       # hydrogen on CD2
+    - CE2       # ring carbon
+    - HE2       # hydrogen on CE2
+    - CZ        # central aromatic carbon
+    - OH        # phenolic hydroxyl
+    - HH        # hydrogen on OH
+    - CE1       # ring carbon
+    - HE1       # hydrogen on CE1
+    - CD1       # ring carbon
+    - HD1       # hydrogen on CD1
+
+VAL:
+  standard:
+    # β-carbon group
+    - CB        # β-carbon
+    - HB        # β-hydrogen
+
+    # γ1-methyl group
+    - CG1       # γ1-carbon (methyl)
+    - HG11      # methyl hydrogen
+    - HG12      # methyl hydrogen
+    - HG13      # methyl hydrogen
+
+    # γ2-methyl group
+    - CG2       # γ2-carbon (methyl)
+    - HG21      # methyl hydrogen
+    - HG22      # methyl hydrogen
+    - HG23      # methyl hydrogen
+
+  branch_flip:
+    # β-carbon group
+    - CB        # β-carbon
+    - HB        # β-hydrogen
+
+    # γ2-methyl group (first)
+    - CG2       # γ2-carbon (methyl)
+    - HG21      # methyl hydrogen
+    - HG22      # methyl hydrogen
+    - HG23      # methyl hydrogen
+
+    # γ1-methyl group (second)
+    - CG1       # γ1-carbon (methyl)
+    - HG11      # methyl hydrogen
+    - HG12      # methyl hydrogen
+    - HG13      # methyl hydrogen
