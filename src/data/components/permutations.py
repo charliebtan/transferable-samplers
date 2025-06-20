@@ -12,7 +12,25 @@ def load_yaml_as_dict(path: str | Path) -> dict:
     with path.open("r") as f:
         return yaml.safe_load(f)
 
-# Generate a specific atom index permutation based on multiple ordering strategies
+def standardize_atom_name(atom_name: str, aa_name: str) -> str:
+    if atom_name[0] == "H" and atom_name[-1] in ("1", "2", "3"):
+        # For these AA the H-X-N atoms are not interchangable
+        if aa_name in ("HIS", "HIE", "PHE", "TRP", "TYR") and atom_name[:2] in (
+            "HE",
+            "HD",
+            "HZ",
+            "HH",
+        ):
+            pass
+        else:
+            atom_name = atom_name[:-1]
+
+    # Standarize side-chain O atom encoding
+    if atom_name[:2] == "OE" or atom_name[:2] == "OD":
+        atom_name = atom_name[:-1]
+
+    return atom_name
+
 def get_permutation(permutations_definition_dict, topology, sequence_ordering, global_type, sidechain_variant, heavy_type, residue_cache=None):
 
     # Validate input strategy options
@@ -25,9 +43,9 @@ def get_permutation(permutations_definition_dict, topology, sequence_ordering, g
     if sidechain_variant not in ["standard", "variant"]:
         raise ValueError(f"Unknown sidechain variant: {sidechain_variant}")
 
-    # Lists to hold atom index permutations for backbone and sidechain atoms
-    backbone_permutation = []
-    sidechain_permutation = []
+    # Lists to hold atom index permutations for backbone and sidechain atoms per residue
+    backbone_permutations = []
+    sidechain_permutations = []
 
     # Get residues in forward or reverse order
     residue_list = list(topology.residues)
@@ -41,90 +59,97 @@ def get_permutation(permutations_definition_dict, topology, sequence_ordering, g
     for i, residue in enumerate(residue_list):
 
         residue_name = residue.name if residue.name != "HIS" else "HIE"  # timewarp data has HIS labelled as HIE
-        residue_atoms = list(residue.atoms)
-
-        # Determine the residue name with terminal modifications based on its position in the sequence
-        if i == 0 and sequence_ordering == "n2c" or i == len(residue_list) - 1 and sequence_ordering == "c2n":
+        if (i == 0 and sequence_ordering == "n2c") or (i == len(residue_list) - 1 and sequence_ordering == "c2n"):
             residue_name_with_terminals = "N-" + residue_name
-        elif i == 0 and sequence_ordering == "c2n" or  i == len(residue_list) - 1 and sequence_ordering == "n2c":
+        elif (i == 0 and sequence_ordering == "c2n") or (i == len(residue_list) - 1 and sequence_ordering == "n2c"):
             residue_name_with_terminals = "C-" + residue_name
         else:
             residue_name_with_terminals = residue_name
 
-        if residue_cache is not None and residue_cache.get(residue_name_with_terminals) is not None:
-            # If residue is cached, use the cached backbone and sidechain permutations
-            residue_backbone_permutation = residue_cache[residue_name_with_terminals]["backbone"] + residue_atoms[0].index
-            residue_sidechain_permutation = residue_cache[residue_name_with_terminals]["sidechain"] + residue_atoms[0].index
+        input_atom_ordering = [standardize_atom_name(atom.name, residue_name) for atom in list(residue.atoms)]
+        first_atom_index = list(residue.atoms)[0].index
+        if residue_cache is not None:
+            cached = residue_cache.get(residue_name_with_terminals)
+            if cached is not None:
+                if input_atom_ordering != cached["input_atom_ordering"]:
+                    raise AssertionError(
+                        f"Inconsistent atom name order for {residue_name_with_terminals}.\n"
+                        f"Expected: {cached['input_atom_ordering']}\nFound:    {input_atom_ordering}"
+                    )
+                residue_backbone_permutation = cached["backbone"] + first_atom_index
+                residue_sidechain_permutation = cached["sidechain"] + first_atom_index
 
-            assert len(residue_backbone_permutation) + len(residue_sidechain_permutation) == len(residue_atoms), \
-                f"Cached permutation for {residue_name_with_terminals} has wrong length: {len(residue_backbone_permutation) + len(residue_sidechain_permutation)} != {len(residue_atoms)}" \
+                backbone_permutations.append(residue_backbone_permutation)
+                sidechain_permutations.append(residue_sidechain_permutation)
+                continue  # Skip recomputing
+       
+        # Otherwise, compute from scratch
+        residue_backbone_permutation = []
+        residue_sidechain_permutation = []
 
-        else:
+        # Get permutation rules for the residue's sidechain
+        sidechain_permutations_definition_dict = permutations_definition_dict["sidechain"][residue_name]
 
-            residue_backbone_permutation = []
-            residue_sidechain_permutation = []
-
-            # Get permutation rules for the residue's sidechain
-            sidechain_permutations_definition_dict = permutations_definition_dict["sidechain"][residue_name]
-
-            # Choose the appropriate variant strategy for sidechain atom ordering
-            if sidechain_variant == "variant":
-                if "ring_reverse" in sidechain_permutations_definition_dict:
-                    sidechain_permutation_definition = sidechain_permutations_definition_dict["ring_reverse"]
-                elif "branch_order_reverse" in sidechain_permutations_definition_dict:
-                    sidechain_permutation_definition = sidechain_permutations_definition_dict["branch_order_reverse"]
-                else:
-                    sidechain_permutation_definition = sidechain_permutations_definition_dict["standard"]
+        # Choose the appropriate variant strategy for sidechain atom ordering
+        if sidechain_variant == "variant":
+            if "ring_reverse" in sidechain_permutations_definition_dict:
+                sidechain_permutation_definition = sidechain_permutations_definition_dict["ring_reverse"]
+            elif "branch_order_reverse" in sidechain_permutations_definition_dict:
+                sidechain_permutation_definition = sidechain_permutations_definition_dict["branch_order_reverse"]
             else:
                 sidechain_permutation_definition = sidechain_permutations_definition_dict["standard"]
+        else:
+            sidechain_permutation_definition = sidechain_permutations_definition_dict["standard"]
 
-            # Check for overlap between backbone and sidechain definitions
-            overlap = set(backbone_permutation_definition) & set(sidechain_permutation_definition)
-            if overlap:
-                raise ValueError(f"Atom(s) {overlap} defined in both backbone and sidechain for residue {residue_name}")
+        # Check for overlap between backbone and sidechain definitions
+        overlap = set(backbone_permutation_definition) & set(sidechain_permutation_definition)
+        if overlap:
+            raise ValueError(f"Atom(s) {overlap} defined in both backbone and sidechain for residue {residue_name}")
 
-            # Assign each atom to backbone or sidechain permutation based on its name
-            for atom in residue.atoms:
-                if atom.name in backbone_permutation_definition:
-                    residue_backbone_permutation.append(atom.index)
-                elif atom.name in sidechain_permutation_definition:
-                    residue_sidechain_permutation.append(atom.index)
-                else:
-                    raise ValueError(f"Atom {atom.name} not found in any permutation definition for residue {residue_name}")
+        # Assign each atom to backbone or sidechain permutation based on its name
+        for atom in residue.atoms:
+            # Don't use standardized atom names here as not unique
+            if atom.name in backbone_permutation_definition:
+                residue_backbone_permutation.append(atom.index)
+            elif atom.name in sidechain_permutation_definition:
+                residue_sidechain_permutation.append(atom.index)
+            else:
+                raise ValueError(f"Atom {atom.name} not found in any permutation definition for residue {residue_name}")
 
-            # If required, sort sidechain atoms with heavy atoms first, then hydrogens
-            if heavy_type == "heavy-first":
-                residue_sidechain_permutation = [
-                    idx for idx in residue_sidechain_permutation if topology.atom(idx).element.symbol != "H"
-                ] + [
-                    idx for idx in residue_sidechain_permutation if topology.atom(idx).element.symbol == "H"
-                ]
+        # If required, sort sidechain atoms with heavy atoms first, then hydrogens
+        if heavy_type == "heavy-first":
+            residue_sidechain_permutation = [
+                idx for idx in residue_sidechain_permutation if topology.atom(idx).element.symbol != "H"
+            ] + [
+                idx for idx in residue_sidechain_permutation if topology.atom(idx).element.symbol == "H"
+            ]
 
-            residue_backbone_permutation = torch.tensor(residue_backbone_permutation, dtype=int)
-            residue_sidechain_permutation = torch.tensor(residue_sidechain_permutation, dtype=int)
+        residue_backbone_permutation = torch.tensor(residue_backbone_permutation, dtype=int)
+        residue_sidechain_permutation = torch.tensor(residue_sidechain_permutation, dtype=int)
 
-            if residue_cache is not None:
-                # Cache the backbone and sidechain permutations for this residue
-                residue_cache[residue_name_with_terminals] = {
-                    "backbone": residue_backbone_permutation - residue_atoms[0].index, # Normalize indices to start from 0
-                    "sidechain": residue_sidechain_permutation - residue_atoms[0].index, # Normalize indices to start from 0
-                }
+        if residue_cache is not None:
+            # Cache the backbone and sidechain permutations for this residue, as well as the atom names in order
+            residue_cache[residue_name_with_terminals] = {
+                "input_atom_ordering": input_atom_ordering,
+                "backbone": residue_backbone_permutation - first_atom_index,
+                "sidechain": residue_sidechain_permutation - first_atom_index,
+            }
 
-        # Save the permutations per residue
-        backbone_permutation.append(residue_backbone_permutation)
-        sidechain_permutation.append(residue_sidechain_permutation)
+        # Save the permutation per residue
+        backbone_permutations.append(residue_backbone_permutation)
+        sidechain_permutations.append(residue_sidechain_permutation)
 
     # Flatten the residue-wise permutations into a full permutation
     permutation = []
     if global_type == "residue-by-residue":
         for i in range(topology.n_residues): # Loop through residues once
-            permutation.append(backbone_permutation[i])
-            permutation.append(sidechain_permutation[i])
+            permutation.append(backbone_permutations[i])
+            permutation.append(sidechain_permutations[i])
     elif global_type == "backbone-first":
         for i in range(topology.n_residues): # Loop through residues once - taking backbone atoms
-            permutation.append(backbone_permutation[i])
+            permutation.append(backbone_permutations[i])
         for i in range(topology.n_residues): # Loop through residues again - taking sidechain atoms
-            permutation.append(sidechain_permutation[i])
+            permutation.append(sidechain_permutations[i])
     permutation = torch.cat(permutation)
 
     # Final integrity checks
@@ -144,10 +169,10 @@ def get_permutations_dict(topology_dict):
 
     permutations_dict = defaultdict(dict)
 
-    sequence_orderings = ["n2c"] #, "c2n"]
-    global_types = ["residue-by-residue"] # , "backbone-first"]
-    sidechain_variants = ["standard"] # , "variant"]
-    heavy_types = ["group-by-group"] # , "heavy-first"]
+    sequence_orderings = ["n2c", "c2n"]
+    global_types = ["residue-by-residue", "backbone-first"]
+    sidechain_variants = ["standard", "variant"]
+    heavy_types = ["group-by-group", "heavy-first"]
 
     # Generate all combinations of configuration settings
     configs = list(product(sequence_orderings, global_types, sidechain_variants, heavy_types))
