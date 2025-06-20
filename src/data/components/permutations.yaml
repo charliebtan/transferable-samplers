@@ -204,7 +204,7 @@ sidechain:
       - HD12
       - HD13
 
-    branch_flip:
+    branch_order_reverse:
       # β-carbon group
       - CB
       - HB
@@ -249,7 +249,7 @@ sidechain:
       - HD22
       - HD23
 
-    branch_flip:
+    branch_order_reverse:
       # β-carbon group (methylene)
       - CB
       - HB2
@@ -423,7 +423,7 @@ sidechain:
       - HG22
       - HG23
 
-    branch_flip:
+    branch_order_reverse:
       # β-carbon group (methine)
       - CB
       - HB
@@ -552,7 +552,7 @@ sidechain:
       - HG22
       - HG23
 
-    branch_flip:
+    branch_order_reverse:
       # β-carbon group (methine)
       - CB
       - HB

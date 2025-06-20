@@ -71,8 +71,8 @@ def get_permutation(permutations_definition_dict, topology, sequence_ordering, g
             if sidechain_variant == "variant":
                 if "ring_reverse" in sidechain_permutations_definition_dict:
                     sidechain_permutation_definition = sidechain_permutations_definition_dict["ring_reverse"]
-                elif "branch_flip" in sidechain_permutations_definition_dict:
-                    sidechain_permutation_definition = sidechain_permutations_definition_dict["branch_flip"]
+                elif "branch_order_reverse" in sidechain_permutations_definition_dict:
+                    sidechain_permutation_definition = sidechain_permutations_definition_dict["branch_order_reverse"]
                 else:
                     sidechain_permutation_definition = sidechain_permutations_definition_dict["standard"]
             else:
@@ -147,7 +147,7 @@ def get_permutations_dict(topology_dict):
     sequence_orderings = ["n2c"] #, "c2n"]
     global_types = ["residue-by-residue"] # , "backbone-first"]
     sidechain_variants = ["standard"] # , "variant"]
-    heavy_types = ["group-by-group", "heavy-first"]
+    heavy_types = ["group-by-group"] # , "heavy-first"]
 
     # Generate all combinations of configuration settings
     configs = list(product(sequence_orderings, global_types, sidechain_variants, heavy_types))
@@ -158,7 +158,7 @@ def get_permutations_dict(topology_dict):
             residue_cache = {} # New cache for each configuration
             for seq_name, topology in topology_dict.items():
                 key = f"{sequence_ordering}_{global_type}_{sidechain_variant}_{heavy_type}"
-                permutations_dict[seq_name][key] = get_permutation(
+                permutation = get_permutation(
                     permutations_definition_dict,
                     topology,
                     sequence_ordering,
@@ -167,6 +167,9 @@ def get_permutations_dict(topology_dict):
                     heavy_type,
                     residue_cache
                 )
+                permutations_dict[seq_name][key] = permutation
+                permutations_dict[seq_name][key + "_flip"] = torch.flip(permutation) # Also add flipped version of the permutation
+
                 pbar.update(1)
 
     return permutations_dict
