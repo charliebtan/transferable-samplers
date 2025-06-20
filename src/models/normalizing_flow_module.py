@@ -36,10 +36,11 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
         batch: torch.Tensor,
     ) -> torch.Tensor:
         x1 = batch["x"]
+        permutations = batch["permutations"]
         encoding = batch["encoding"]
         mask = batch.get("mask", None)
 
-        x0, dlogp = self.net(x1, encoding=encoding, mask=mask)
+        x0, dlogp = self.net(x1, permutations=permutations, encoding=encoding, mask=mask)
         loss = self.prior.energy(x0, mask=mask).mean() - dlogp.mean()
         self.log("train/mle_loss", loss.item(), prog_bar=True, sync_dist=True)
 
@@ -51,7 +52,7 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
                 _, self.eval_encoding, self.eval_energy = self.datamodule.prepare_eval(self.hparams.eval_seq_name)
 
             samples, log_q_theta, _ = self.generate_samples(
-                self.hparams.energy_kl_batch_size, encoding=self.eval_encoding
+                self.hparams.energy_kl_batch_size, encoding=self.eval_encoding, permutations=self.eval_permutations,
             )
 
             log_p = -self.eval_energy(samples)
@@ -114,6 +115,7 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
     def generate_samples(
         self,
         batch_size: int,
+        permutations: dict[str, torch.Tensor],
         encoding: Optional[dict[str, torch.Tensor]] = None,
         n_timesteps: int = None,
         dummy_ll=False,
@@ -136,14 +138,19 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
         # need to rescale to the "sum" of the log p (the prior returns the position-wise mean)
         prior_log_p = -self.prior.energy(prior_samples) * data_dim
 
+        permutations = {
+            key: tensor.unsqueeze(0).repeat(local_batch_size, 1).to(self.device)
+            for key, tensor in permutations.items()
+        }
+
         if encoding is not None:
             encoding = {
                 key: tensor.unsqueeze(0).repeat(local_batch_size, 1).to(self.device) for key, tensor in encoding.items()
             }
 
         with torch.no_grad():
-            x_pred = self.net.reverse(prior_samples, encoding=encoding)
-            x_recon, fwd_logdets = self.net(x_pred, encoding=encoding)
+            x_pred = self.net.reverse(prior_samples, permutations, encoding=encoding)
+            x_recon, fwd_logdets = self.net(x_pred, permutations, encoding=encoding)
             fwd_logdets = fwd_logdets * data_dim  # rescale from mean to sum
 
             # TODO refector these all into a metrics

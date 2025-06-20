@@ -403,18 +403,19 @@ class TransferablePeptideDataModule(BaseDataModule):
         # TODO can this be handle better? in the lmdb?
         # how to do nice plots? - i suppose plots will be a more rare occasion
         true_samples = true_samples[: self.hparams.num_eval_samples]
-
         true_samples = true_samples.reshape(
             true_samples.shape[0],
             -1,
         )
-
         true_samples = self.normalize(true_samples)
 
+        permutations = self.permutations_dict[eval_sequence]
         encoding = self.encoding_dict[eval_sequence]
+
         potential = self.setup_potential(eval_sequence)
         energy_fn = lambda x: potential.energy(self.unnormalize(x)).flatten()
-        return true_samples, encoding, energy_fn
+
+        return true_samples, permutations, encoding, energy_fn
 
     def metrics_and_plots(
         self,

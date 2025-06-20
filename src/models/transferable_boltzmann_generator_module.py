@@ -149,6 +149,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
     def batched_generate_samples(
         self,
         total_size: int,
+        permutations: Optional[dict[str, torch.Tensor]] = None,
         encoding: Optional[dict[str, torch.Tensor]] = None,
         batch_size: Optional[int] = None,
         dummy_ll: bool = False,
@@ -159,12 +160,12 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         log_ps = []
         prior_samples = []
         for _ in tqdm(range(total_size // batch_size)):
-            s, lp, ps = self.generate_samples(batch_size, encoding=encoding, dummy_ll=dummy_ll)
+            s, lp, ps = self.generate_samples(batch_size, permutations, encoding=encoding, dummy_ll=dummy_ll)
             samples.append(s)
             log_ps.append(lp)
             prior_samples.append(ps)
         if total_size % batch_size > 0:
-            s, lp, ps = self.generate_samples(total_size % batch_size, encoding=encoding, dummy_ll=dummy_ll)
+            s, lp, ps = self.generate_samples(total_size % batch_size, permutations, encoding=encoding, dummy_ll=dummy_ll)
             samples.append(s)
             log_ps.append(lp)
             prior_samples.append(ps)
@@ -281,12 +282,13 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
                 eval_seq_names = self.hparams.eval_seq_name
 
         for seq_name in eval_seq_names:
-            true_samples, encoding, energy_fn = self.datamodule.prepare_eval(seq_name)
+            true_samples, permutations, encoding, energy_fn = self.datamodule.prepare_eval(seq_name)
             logging.info(f"Evaluating {seq_name} samples")
             metrics.update(
                 self.evaluate(
                     seq_name,
                     true_samples,
+                    permutations,
                     encoding,
                     energy_fn,
                     prefix=f"{prefix}/{seq_name}",
@@ -306,7 +308,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
 
     @torch.no_grad()
     def evaluate(
-        self, sequence, true_samples, encoding, energy_fn, prefix: str = "val", proposal_generator=None, output_dir=None
+        self, sequence, true_samples, permutations, encoding, energy_fn, prefix: str = "val", proposal_generator=None, output_dir=None
     ) -> None:
         """Generates samples from the proposal and runs SMC if enabled.
         Also computes metrics, through the datamodule function "metrics_and_plots".
@@ -331,7 +333,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         # Generate samples and record time
         torch.cuda.synchronize()
         start_time = time.time()
-        proposal_samples, proposal_log_p, prior_samples = proposal_generator(num_proposal_samples, encoding)
+        proposal_samples, proposal_log_p, prior_samples = proposal_generator(num_proposal_samples, permutations, encoding)
         torch.cuda.synchronize()
         time_duration = time.time() - start_time
         self.log(f"{prefix}/samples_walltime", time_duration, sync_dist=True)

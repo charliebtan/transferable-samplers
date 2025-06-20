@@ -10,36 +10,26 @@ if __name__ == "__main__":
     from adaptive_blocks import AdaptiveAttnAndTransition
     from attention import Attention, AttentionBlock
     from embed import ConditionalEmbedder, SinusoidalEmbedding
-    from permutation import (
-        Permutation,
-        PermutationBackBone,
-        PermutationBackBoneFlip,
-        PermutationFlip,
-        PermutationIdentity,
-        PermutationRandom,
-        shift_pos,
-    )
-
-
 else:
     from src.models.components.tarflow.adaptive_blocks import AdaptiveAttnAndTransition
     from src.models.components.tarflow.attention import Attention, AttentionBlock
     from src.models.components.tarflow.embed import ConditionalEmbedder, SinusoidalEmbedding
-    from src.models.components.tarflow.permutation import (
-        Permutation,
-        PermutationBackBone,
-        PermutationBackBoneFlip,
-        PermutationFlip,
-        PermutationIdentity,
-        PermutationRandom,
-        shift_pos,
-    )
-
-PERM_SET = (PermutationIdentity, PermutationRandom, PermutationBackBone)
-PERM_FLIP_SET = (PermutationFlip, PermutationBackBoneFlip)
 
 MAX_SEQ_LEN = 512
 
+class PermutationFromDict(torch.nn.Module):
+    def __init__(self, permutation_key: str):
+        super().__init__()
+        self.permutation_key = permutation_key
+
+    def forward(self, data: torch.Tensor, data_permutations_dict: dict[str, torch.Tensor], inverse: bool = False):
+        assert self.permutation_key in data_permutations_dict, f"Permutation key {self.permutation_key} not found in data_permutations"
+        permutation = data_permutations_dict[self.permutation_key]
+        if inverse:
+            permutation = torch.argsort(permutation) # get inverse permutation
+        permutation = permutation.unsqueeze(-1).expand(-1, -1, data.shape[-1])
+        permuted_data = torch.gather(data, dim=1, index=permutation)
+        return permuted_data
 
 class MetaBlock(torch.nn.Module):
     attn_mask: torch.Tensor
@@ -49,7 +39,7 @@ class MetaBlock(torch.nn.Module):
         in_channels: int,
         channels: int,
         num_patches: int,
-        permutation: Permutation,
+        permutation: PermutationFromDict,
         num_layers: int = 1,
         head_dim: int = 64,
         expansion: int = 4,
@@ -133,32 +123,24 @@ class MetaBlock(torch.nn.Module):
     def forward(
         self,
         x: torch.Tensor,
+        permutations: dict[str, torch.Tensor],
         cond: torch.Tensor,
-        atom_type: torch.Tensor,
-        aa_type: torch.Tensor,
         mask: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        x_in = self.permutation(x, atom_type=atom_type, aa_type=aa_type, mask=mask)  # store permuted input for later
+
+        x_in = self.permutation(x, permutations)  # store permuted input for later
 
         x = self.proj_in(x)
-        x = self.permutation(x, atom_type=atom_type, aa_type=aa_type)
+        x = self.permutation(x, permutations)
 
         # no permutation on pos_embed - it encodes sequence position AFTER permutation
         pos_embed = self.pos_embed[: x.shape[1]]
         if self.pos_embed_type == "sinusoidal":
             pos_embed = pos_embed.to(x.device) * self.pos_embed_scale.to(x.device)  # learnable scale for sinusoid
-
-        # if it is a flip permutation the padding tokens are at the start of the sequence
-        # for perfect invertiblity we need to shift the position embeddings such that
-        # pos_emb[0] is on the first real token
-        if mask is not None and type(self.permutation) in PERM_FLIP_SET:
-            pos_embed = pos_embed[None, ...].repeat(x.shape[0], 1, 1)
-            pos_embed = shift_pos(pos_embed, mask)
-
         x = x + pos_embed
 
         if cond is not None:
-            cond = self.permutation(cond, atom_type=atom_type, aa_type=aa_type)
+            cond = self.permutation(cond, permutations)
             cond_emb = self.proj_cond(cond)
 
         pair_emb = None
@@ -174,15 +156,8 @@ class MetaBlock(torch.nn.Module):
                 f"First two dimensions of mask {mask.shape[:1]} and x {x.shape[:1]} do not match"
             )
 
-            mask = self.permutation(mask, atom_type=atom_type, aa_type=aa_type)
             attn_mask = attn_mask.unsqueeze(0)
-            if type(self.permutation) in PERM_SET:
-                # mask out final rows
-                attn_mask = attn_mask * mask[..., None]
-            else:
-                # mask out first columns
-                attn_mask = attn_mask * mask[..., None].permute(0, 2, 1)
-
+            attn_mask = attn_mask * mask[..., None]
             attn_mask = attn_mask.unsqueeze(1)
 
         attn_mask = attn_mask[..., : x.shape[1], : x.shape[1]]
@@ -192,11 +167,8 @@ class MetaBlock(torch.nn.Module):
                 assert x[torch.where(mask == 0)].sum() == 0, "Masked positions are nonzero"
 
         x = self.proj_out(x)
-
-        # hit with mask for the flip perms (no need for if statements)
-        x = x * mask[..., None] if mask is not None else x
         x = torch.cat([torch.zeros_like(x[:, :1]), x[:, :-1]], dim=1)  # shift one token w/ zero pad
-        x = x * mask[..., None] if mask is not None else x  # hit with mask for the non-flip perms
+        x = x * mask[..., None] if mask is not None else x  # apply mask if provided
 
         if self.nvp:
             xa, xb = x.chunk(2, dim=-1)
@@ -205,7 +177,7 @@ class MetaBlock(torch.nn.Module):
             xa = torch.zeros_like(x)
 
         scale = (-xa.float()).exp().type(xa.dtype)
-        x_out = self.permutation((x_in - xb) * scale, atom_type=atom_type, aa_type=aa_type, inverse=True)
+        x_out = self.permutation((x_in - xb) * scale, permutations, inverse=True)
 
         if mask is None:
             logdet = -xa.mean(dim=[1, 2])
@@ -263,11 +235,10 @@ class MetaBlock(torch.nn.Module):
     def reverse(
         self,
         x: torch.Tensor,
+        permutations: dict[str, torch.Tensor],
         cond: torch.Tensor | None = None,
-        atom_type: torch.Tensor | None = None,
-        aa_type: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        x = self.permutation(x, atom_type=atom_type, aa_type=aa_type)
+        x = self.permutation(x, permutations)
 
         # no permutation on pos_embed - it encodes sequence position AFTER permutation
         pos_embed = self.pos_embed[: x.shape[1]][None, ...]
@@ -275,7 +246,7 @@ class MetaBlock(torch.nn.Module):
             pos_embed = pos_embed.to(x.device) * self.pos_embed_scale.to(x.device)  # learnable scale for sinusoid
 
         if cond is not None:
-            cond = self.permutation(cond, atom_type=atom_type, aa_type=aa_type)
+            cond = self.permutation(cond, permutations)
 
         self.set_sample_mode(True)
         xs = [x[:, i] for i in range(x.size(1))]
@@ -286,10 +257,9 @@ class MetaBlock(torch.nn.Module):
             x = torch.stack(xs, dim=1)
 
         self.set_sample_mode(False)
-        x = self.permutation(x, atom_type=atom_type, aa_type=aa_type, inverse=True)
+        x = self.permutation(x, permutations, inverse=True)
 
         return x
-
 
 class TarFlow(torch.nn.Module):
     VAR_LR: float = 0.1
@@ -322,16 +292,9 @@ class TarFlow(torch.nn.Module):
         self.num_patches = img_size // patch_size // in_channels
 
         if perm_type == "standard":
-            permutations = [PermutationIdentity(), PermutationFlip()]
+            permutation_keys = ["n2c_residue-by-residue_standard_group-by-group", "n2c_residue-by-residue_standard_group-by-group_flip"] * (num_blocks // 2)
         elif perm_type == "globloc":  # this way the side chains go forwards and backwards alternating
-            permutations = [PermutationBackBone(), PermutationFlip(), PermutationBackBoneFlip(), PermutationIdentity()]
-        elif perm_type == "random":
-            permutations = [PermutationIdentity(), PermutationFlip()]
-            self.rand_permutation = PermutationRandom()
-
-        assert num_blocks >= len(permutations), "num_blocks must be greater than number of permutations"
-        assert num_blocks % len(permutations) == 0, "num_blocks must be divisible by number of permutations"
-        self.perm_type = perm_type
+            permutation_keys = ["n2c_backbone-first_standard_group-by-group", "n2c_residue-by-residue_standard_group-by-group_flip", "n2c_backbone-first_standard_group-by-group_flip", "n2c_residue-by-residue_standard_group-by-group"] * (num_blocks // 4)
 
         self.conditional = False if cond_embed is None else True
         self.cond_embed = cond_embed
@@ -340,11 +303,10 @@ class TarFlow(torch.nn.Module):
         for i in range(num_blocks):
             blocks.append(
                 MetaBlock(
-                    # in_channels * patch_size**2,
                     in_channels * patch_size,
                     channels,
                     self.num_patches,
-                    permutations[i % len(permutations)],
+                    PermutationFromDict(permutation_keys[i]),
                     layers_per_block,
                     head_dim=head_dim,
                     nvp=nvp,
@@ -377,12 +339,15 @@ class TarFlow(torch.nn.Module):
     def forward(
         self,
         x: torch.Tensor,
+        permutations: dict[str, torch.Tensor],
         encoding: dict[str, torch.Tensor] | None = None,
         mask: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor], torch.Tensor]:
-        batch_size = x.shape[0]
+
         # patchify
+        batch_size = x.shape[0]
         x = x.reshape(batch_size, -1, self.in_channels)
+
         if mask is not None:
             assert mask.ndim == 2, "Mask should be 2D"
             assert torch.all(x.sum(dim=-1)[mask == 0] == 0), "x is not zero where mask is zero"
@@ -409,41 +374,12 @@ class TarFlow(torch.nn.Module):
             )
 
         logdets = torch.zeros((), device=x.device)
-        perm = None
 
-        if self.debug and self.perm_type == "random":
-            np.random.seed(0)
-            perms = []
-            for i in range(len(self.blocks)):
-                perm_len = x.shape[1]
-                if mask is not None:
-                    # Need to ensure the pad tokens do not get mixed in with the perm
-                    pad_length = int((~mask.bool())[0].sum())
-                    perm = torch.tensor(np.random.permutation(perm_len - pad_length))
-                    pad = torch.arange(perm_len - pad_length, perm_len)
-                    perm = torch.concat([perm, pad])
-                else:
-                    perm = torch.tensor(np.random.permutation(perm_len))
-                perm = perm[None, ...].repeat(x.shape[0], 1).long()
-                perms.append(perm)
-
-        for i, block in enumerate(self.blocks):
-            if self.debug and self.perm_type == "random":
-                perm = perms[i]
-
-            # random perm -- pass in perm = None
-            if (not i % 2) and self.perm_type == "random":
-                x, perm = self.rand_permutation(x, mask=mask, perm=perm if self.debug else None)
-
-            # If perm_type == random, Id and IdFlip blocks will do RandomPermutation and RandomFlip
-            x, logdet = block(x, cond=cond, mask=mask, atom_type=encoding["atom_type"], aa_type=encoding["aa_type"])
+        for block in self.blocks:
+            x, logdet = block(x, permutations, cond=cond, mask=mask)
             logdets = logdets + logdet
 
-            # inverse the rand perm -- pass in perm
-            if (i % 2) and self.perm_type == "random":
-                x, perm = self.rand_permutation(x, mask=mask, perm=perm, inverse=True)
-
-        # un-patch
+        # un-patchify
         x_pred = x.reshape(batch_size, -1)
 
         return x_pred, logdets
@@ -451,6 +387,7 @@ class TarFlow(torch.nn.Module):
     def reverse(
         self,
         x: torch.Tensor,
+        permutations: dict[str, torch.Tensor],
         encoding: dict[str, torch.Tensor] | None = None,
         return_sequence: bool = False,
     ) -> torch.Tensor | list[torch.Tensor]:
@@ -481,33 +418,9 @@ class TarFlow(torch.nn.Module):
 
         seq = [x.reshape(batch_size, -1)]
         x = x * self.var.sqrt()[: x.shape[1]]
-        perm = None
 
-        if self.debug and self.perm_type == "random":
-            np.random.seed(0)
-            perms = []
-            for i in range(len(self.blocks)):
-                perm = torch.tensor(np.random.permutation(x.shape[1]))
-                perm = perm[None, ...].repeat(x.shape[0], 1).long()
-                perms.append(perm)
-
-            perms = list(reversed(perms))
-
-        for i, block in enumerate(reversed(self.blocks)):
-            if self.debug and self.perm_type == "random":
-                perm = perms[i]
-
-            # random perm -- pass in perm = None
-            if (not i % 2) and self.perm_type == "random":
-                x, perm = self.rand_permutation(x, mask=None, perm=perm if self.debug else None)
-
-            # If perm_type == random, Id and IdFlip blocks will do RandomPermutation and RandomFlip
-            x = block.reverse(x, cond=cond, atom_type=encoding["atom_type"], aa_type=encoding["aa_type"])
-
-            # inverse the rand perm -- pass in perm
-            if (i % 2) and self.perm_type == "random":
-                x, perm = self.rand_permutation(x, mask=None, perm=perm, inverse=True)
-
+        for block in reversed(self.blocks):
+            x = block.reverse(x, permutations, cond=cond)
             seq.append(x.reshape(batch_size, -1))
 
         # un-patch

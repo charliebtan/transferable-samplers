@@ -168,7 +168,7 @@ def get_permutations_dict(topology_dict):
                     residue_cache
                 )
                 permutations_dict[seq_name][key] = permutation
-                permutations_dict[seq_name][key + "_flip"] = torch.flip(permutation) # Also add flipped version of the permutation
+                permutations_dict[seq_name][key + "_flip"] = torch.flip(permutation, dims=[0]) # Also add flipped version of the permutation
 
                 pbar.update(1)
 
