@@ -59,6 +59,7 @@ def get_permutation(permutations_definition_dict, topology, sequence_ordering, g
     for i, residue in enumerate(residue_list):
 
         residue_name = residue.name if residue.name != "HIS" else "HIE"  # timewarp data has HIS labelled as HIE
+        assert residue_name in permutations_definition_dict["sidechain"], f"Residue {residue_name} not found in sidechain definitions"
         if (i == 0 and sequence_ordering == "n2c") or (i == len(residue_list) - 1 and sequence_ordering == "c2n"):
             residue_name_with_terminals = "N-" + residue_name
         elif (i == 0 and sequence_ordering == "c2n") or (i == len(residue_list) - 1 and sequence_ordering == "n2c"):
@@ -106,15 +107,17 @@ def get_permutation(permutations_definition_dict, topology, sequence_ordering, g
         if overlap:
             raise ValueError(f"Atom(s) {overlap} defined in both backbone and sidechain for residue {residue_name}")
 
-        # Assign each atom to backbone or sidechain permutation based on its name
-        for atom in residue.atoms:
-            # Don't use standardized atom names here as not unique
-            if atom.name in backbone_permutation_definition:
-                residue_backbone_permutation.append(atom.index)
-            elif atom.name in sidechain_permutation_definition:
-                residue_sidechain_permutation.append(atom.index)
-            else:
-                raise ValueError(f"Atom {atom.name} not found in any permutation definition for residue {residue_name}")
+        # Build name → atom index map once
+        atom_index_by_name = {atom.name: atom.index for atom in residue.atoms}
+
+        # Enforce exact ordering based on YAML definition
+        residue_backbone_permutation = [
+            atom_index_by_name[name] for name in backbone_permutation_definition
+            if name in atom_index_by_name # Backbone atoms may not be present in all residues
+        ]
+        residue_sidechain_permutation = [
+            atom_index_by_name[name] for name in sidechain_permutation_definition
+        ]
 
         # If required, sort sidechain atoms with heavy atoms first, then hydrogens
         if heavy_type == "heavy-first":
