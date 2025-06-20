@@ -11,6 +11,7 @@ import torchvision
 from src.data.base_datamodule import BaseDataModule
 from src.data.components.data_types import SamplesData
 from src.data.components.encoding import get_encoding_dict
+from src.data.components.permutations import get_permutations_dict
 from src.data.components.openmm import OpenMMBridge, OpenMMEnergy
 from src.data.components.peptide_dataset import PeptideDataset
 from src.data.components.prepare_data import (
@@ -29,6 +30,7 @@ from src.data.components.transforms.center_of_mass import CenterOfMassTransform
 from src.data.components.transforms.padding import PaddingTransform
 from src.data.components.transforms.rotation import Random3DRotationTransform
 from src.data.components.transforms.standardize import StandardizeTransform
+from src.data.components.transforms.add_permutations import AddPermutationsTransform
 from src.data.components.validation_subset import ALL_VALIDATION_SUBSET, VALIDATION_SUBSET_DICT
 from src.evaluation.metrics.evaluate_peptide_data import evaluate_peptide_data
 from src.evaluation.plots.plot_atom_distances import plot_atom_distances
@@ -272,6 +274,7 @@ class TransferablePeptideDataModule(BaseDataModule):
         ]
         self.pdb_dict, self.topology_dict = load_pdbs_and_topologies(pdb_paths, self.num_aa_range)
         self.encoding_dict = get_encoding_dict(self.topology_dict)
+        self.permutations_dict = get_permutations_dict(self.topology_dict)
 
         total_samples = 0
         weighted_vars = []
@@ -321,6 +324,7 @@ class TransferablePeptideDataModule(BaseDataModule):
             self.atom_noise_std = 0.0
         transform_list = transform_list + [
             AddEncodingTransform(self.encoding_dict),
+            AddPermutationsTransform(self.permutations_dict),
             PaddingTransform(self.hparams.num_particles, self.hparams.num_dimensions),
         ]
 
@@ -343,6 +347,7 @@ class TransferablePeptideDataModule(BaseDataModule):
         test_transform_list = [
             StandardizeTransform(self.std, self.hparams.num_dimensions),
             AddEncodingTransform(self.encoding_dict),
+            AddPermutationsTransform(self.permutations_dict),
             PaddingTransform(self.hparams.num_particles, self.hparams.num_dimensions),
         ]
 

@@ -1,260 +1,172 @@
-BACKBONE_PERMUTATIONS = {
-    "n2c": ["N", "H1", "H2", "H3", "CA", "HA", "HA3", "C", "O", "OXT"],
-    "c2n": ["OXT", "C", "O", "CA", "HA", "HA3", "N", "H1", "H2", "H3"]
-}
+import yaml
+from pathlib import Path
+from tqdm import tqdm
+from itertools import product
+import torch
+from collections import defaultdict
 
-SIDECHAIN_PERMUTATIONS = {
-    "ALA": {
-        "groupwise": ["CB", "HB1", "HB2", "HB3"],
-        "heavy_light": ["CB", "HB1", "HB2", "HB3"],
-    },
-    "ARG": {
-        "groupwise": ["CB", "HB2", "HB3", "CG", "HG2", "HG3", "CD", "HD2", "HD3", "NE", "HE", "CZ", "NH1", "HH11", "HH12", "NH2", "HH21", "HH22"],
-        "heavy_light": ["CB", "CG", "CD", "NE", "CZ", "NH1", "NH2", "HB2", "HB3", "HG2", "HG3", "HD2", "HD3", "HE", "HH11", "HH12", "HH21", "HH22"],
-    },
-    "ASN": {
-    "groupwise": ["CB", "HB2", "HB3", "CG", "OD1", "ND2", "HD21", "HD22"],
-    "heavy_light": ["CB", "CG", "OD1", "ND2", "HB2", "HB3", "HD21", "HD22"],
-    },
-    "ASP": {
-    "groupwise": ["CB", "HB2", "HB3", "CG", "OD1", "OD2"],
-    "heavy_light": ["CB", "CG", "OD1", "OD2", "HB2", "HB3"],
-    },
-    "CYS": {
-    "groupwise": ["CB", "HB2", "HB3", "SG", "HG"],
-    "heavy_light": ["CB", "SG", "HB2", "HB3", "HG"],
-    },
-    "GLN": {
-    "groupwise": ["CB", "HB2", "HB3", "CG", "HG2", "HG3", "CD", "OE1", "NE2", "HE21", "HE22"],
-    "heavy_light": ["CB", "CG", "CD", "OE1", "NE2", "HB2", "HB3", "HG2", "HG3", "HE21", "HE22"],
-    },
-    "GLU": {
-    "groupwise": ["CB", "HB2", "HB3", "CG", "HG2", "HG3", "CD", "OE1", "OE2"],
-    "heavy_light": ["CB", "CG", "CD", "OE1", "OE2", "HB2", "HB3", "HG2", "HG3"],
-    },
-    "GLY": {
-        "groupwise": [],
-        "heavy_light": [],
-    },
-    "HIE": {
-    "groupwise": ["CB", "HB2", "HB3", "CG", "ND1", "CE1", "HE1", "NE2", "HE2", "CD2", "HD2"],
-    "groupwise_ring_reverse": ["CB", "HB2", "HB3", "CG", "CD2", "HD2", "NE2", "HE2", "CE1", "HE1", "ND1"],
-    "heavy_light": ["CB", "CG", "ND1", "CE1", "NE2", "CD2", "HB2", "HB3", "HE1", "HE2", "HD2"],
-    "heavy_light_ring_reverse": ["CB", "CG", "CD2", "NE2", "CE1", "ND1", "HB2", "HB3", "HD2", "HE2", "HE1"],
-    },
-    "ILE": {
-    "groupwise": [
-        "CB", "HB",
-        "CG2", "HG21", "HG22", "HG23",
-        "CG1", "HG12", "HG13",
-        "CD1", "HD11", "HD12", "HD13"
-    ],
-    "groupwise_branch_flip": [
-        "CB", "HB",
-        "CG1", "HG12", "HG13",
-        "CD1", "HD11", "HD12", "HD13",
-        "CG2", "HG21", "HG22", "HG23",
-    ],
-    "heavy_light": [
-        "CB", "CG2", "CG1", "CD1",
-        "HB", "HG21", "HG22", "HG23", "HG12", "HG13", "HD11", "HD12", "HD13"
-    ],
-    "heavy_light_branch_flip": [
-        "CB", "CG1", "CD1", "CG2", 
-        "HB", "HG12", "HG13", "HD11", "HD12", "HD13", "HG21", "HG22", "HG23", 
-    ],
-    },
-    "LYS": {
-    "groupwise": [
-        "CB", "HB2", "HB3",
-        "CG", "HG2", "HG3",
-        "CD", "HD2", "HD3",
-        "CE", "HE2", "HE3",
-        "NZ", "HZ1", "HZ2", "HZ3"
-    ],
-    "heavy_light": [
-        "CB", "CG", "CD", "CE", "NZ",
-        "HB2", "HB3", "HG2", "HG3", "HD2", "HD3", "HE2", "HE3", "HZ1", "HZ2", "HZ3"
-    ],
-},
-"MET": {
-    "groupwise": [
-        "CB", "HB2", "HB3",
-        "CG", "HG2", "HG3",
-        "SD",
-        "CE", "HE1", "HE2", "HE3"
-    ],
-    "heavy_light": [
-        "CB", "CG", "SD", "CE",
-        "HB2", "HB3", "HG2", "HG3", "HE1", "HE2", "HE3"
-    ],
-},
-"PHE": {
-    "groupwise": [
-        "CB", "HB2", "HB3",
-        "CG",
-        "CD1", "HD1",
-        "CE1", "HE1",
-        "CZ", "HZ",
-        "CE2", "HE2",
-        "CD2", "HD2"
-    ],
-    "groupwise_ring_reverse": [
-        "CB", "HB2", "HB3",
-        "CG",
-        "CD2", "HD2",
-        "CE2", "HE2",
-        "CZ", "HZ",
-        "CE1", "HE1",
-        "CD1", "HD1"
-    ],
-    "heavy_light": [
-        "CB", "CG", "CD1", "CE1", "CZ", "CE2", "CD2",
-        "HB2", "HB3", "HD1", "HE1", "HZ", "HE2", "HD2"
-    ],
-    "heavy_light_ring_reverse": [
-        "CB", "CG", "CD2", "CE2", "CZ", "CE1", "CD1",
-        "HB2", "HB3", "HD2", "HE2", "HZ", "HE1", "HD1"
-    ],
-},
-"PRO": {
-    "groupwise": [
-        "CB", "HB2", "HB3",
-        "CG", "HG2", "HG3",
-        "CD", "HD2", "HD3"
-    ],
-    "groupwise_ring_reverse": [
-        "CD", "HD2", "HD3",
-        "CG", "HG2", "HG3",
-        "CB", "HB2", "HB3"
-    ],
-    "heavy_light": [
-        "CB", "CG", "CD",
-        "HB2", "HB3", "HG2", "HG3", "HD2", "HD3"
-    ],
-    "heavy_light_ring_reverse": [
-        "CD", "CG", "CB",
-        "HD2", "HD3", "HG2", "HG3", "HB2", "HB3"
-    ],
-},
-"SER": {
-    "groupwise": ["CB", "HB2", "HB3", "OG", "HG"],
-    "heavy_light": ["CB", "OG", "HB2", "HB3", "HG"],
-},
-"THR": {
-    "groupwise": [
-        "CB", "HB",
-        "OG1", "HG1",
-        "CG2", "HG21", "HG22", "HG23"
-    ],
-    "groupwise_branch_flip": [
-        "CB", "HB",
-        "CG2", "HG21", "HG22", "HG23",
-        "OG1", "HG1"
-    ],
-    "heavy_light": [
-        "CB", "OG1", "CG2",
-        "HB", "HG1", "HG21", "HG22", "HG23"
-    ],
-    "heavy_light_branch_flip": [
-        "CB", "CG2", "OG1",
-        "HB", "HG21", "HG22", "HG23", "HG1"
-    ],
-},
-"TRP": {
-    "groupwise": [
-        "CB", "HB2", "HB3",
-        "CG",
-        "CD1", "HD1",
-        "NE1", "HE1",
-        "CE2",
-        "CZ2", "HZ2",
-        "CH2", "HH2",
-        "CZ3", "HZ3",
-        "CE3", "HE3",
-        "CD2"
-    ],
-    "groupwise_ring_reverse": [
-        "CB", "HB2", "HB3",
-        "CG",
-        "CD2",
-        "CE3", "HE3",
-        "CZ3", "HZ3",
-        "CH2", "HH2",
-        "CZ2", "HZ2",
-        "CE2",
-        "NE1", "HE1",
-        "CD1", "HD1",
-    ],
-    "heavy_light": [
-        "CB", "CG", "CD1", "NE1", "CE2", "CD2", "CE3", "CZ3", "CH2", "CZ2",
-        "HB2", "HB3", "HD1", "HE1", "HE3", "HZ3", "HH2", "HZ2"
-    ],
-    "heavy_light_ring_reverse": [
-        "CB", "CG", "CD2", "CE3", "CZ3", "CH2", "CZ2", "CE2", "NE1", "CD1",
-        "HB2", "HB3", "HE3", "HZ3", "HH2", "HZ2", "HE1", "HD1"
-    ],
-},
-"TYR": {
-    "groupwise": [
-        "CB", "HB2", "HB3",
-        "CG",
-        "CD1", "HD1",
-        "CE1", "HE1",
-        "CZ",
-        "OH", "HH",
-        "CE2", "HE2",
-        "CD2", "HD2"
-    ],
-    "groupwise_ring_reverse": [
-        "CB", "HB2", "HB3",
-        "CG",
-        "CD2", "HD2",
-        "CE2", "HE2",
-        "CZ",
-        "OH", "HH",
-        "CE1", "HE1",
-        "CD1", "HD1"
-    ],
-    "heavy_light": [
-        "CB", "CG", "CD1", "CE1", "CZ", "OH", "CE2", "CD2",
-        "HB2", "HB3", "HD1", "HE1", "HH", "HE2", "HD2"
-    ],
-    "heavy_light_ring_reverse": [
-        "CB", "CG", "CD2", "CE2", "CZ", "OH", "CE1", "CD1",
-        "HB2", "HB3", "HD2", "HE2", "HH", "HE1", "HD1"
-    ],
-},
-"VAL": {
-    "groupwise": [
-        "CB", "HB",
-        "CG1", "HG11", "HG12", "HG13",
-        "CG2", "HG21", "HG22", "HG23"
-    ],
-    "groupwise_branch_flip": [
-        "CB", "HB",
-        "CG2", "HG21", "HG22", "HG23",
-        "CG1", "HG11", "HG12", "HG13"
-    ],
-    "heavy_light": [
-        "CB", "CG1", "CG2",
-        "HB", "HG11", "HG12", "HG13", "HG21", "HG22", "HG23"
-    ],
-    "heavy_light_branch_flip": [
-        "CB", "CG2", "CG1",
-        "HB", "HG21", "HG22", "HG23", "HG11", "HG12", "HG13"
-    ],
-}
-}
 
-def get_permutation(topology, backbone=False, heavy_light=False, structural_variant=False):
-    pass
+# Load a YAML file and return its contents as a dictionary
+def load_yaml_as_dict(path: str | Path) -> dict:
+    path = Path(path)
+    with path.open("r") as f:
+        return yaml.safe_load(f)
 
-def get_permutations(topology):
-    pass
+# Generate a specific atom index permutation based on multiple ordering strategies
+def get_permutation(permutations_definition_dict, topology, sequence_ordering, global_type, sidechain_variant, heavy_type, residue_cache=None):
+
+    # Validate input strategy options
+    if sequence_ordering not in ["n2c", "c2n"]:
+        raise ValueError(f"Unknown sequence ordering: {sequence_ordering}")
+    if global_type not in ["residue-by-residue", "backbone-first"]:
+        raise ValueError(f"Unknown global type: {global_type}")
+    if heavy_type not in ["group-by-group", "heavy-first"]:
+        raise ValueError(f"Unknown heavy type: {heavy_type}")
+    if sidechain_variant not in ["standard", "variant"]:
+        raise ValueError(f"Unknown sidechain variant: {sidechain_variant}")
+
+    # Lists to hold atom index permutations for backbone and sidechain atoms
+    backbone_permutation = []
+    sidechain_permutation = []
+
+    # Get residues in forward or reverse order
+    residue_list = list(topology.residues)
+    if sequence_ordering != "n2c":
+        residue_list = list(reversed(residue_list))
+
+    # Backbone atom names for this ordering (e.g., N2C or C2N)
+    backbone_permutation_definition = permutations_definition_dict["backbone"][sequence_ordering]
+
+    # Iterate through each residue to build permutations
+    for i, residue in enumerate(residue_list):
+
+        residue_name = residue.name if residue.name != "HIS" else "HIE"  # timewarp data has HIS labelled as HIE
+        residue_atoms = list(residue.atoms)
+
+        # Determine the residue name with terminal modifications based on its position in the sequence
+        if i == 0 and sequence_ordering == "n2c" or i == len(residue_list) - 1 and sequence_ordering == "c2n":
+            residue_name_with_terminals = "N-" + residue_name
+        elif i == 0 and sequence_ordering == "c2n" or  i == len(residue_list) - 1 and sequence_ordering == "n2c":
+            residue_name_with_terminals = "C-" + residue_name
+        else:
+            residue_name_with_terminals = residue_name
+
+        if residue_cache is not None and residue_cache.get(residue_name_with_terminals) is not None:
+            # If residue is cached, use the cached backbone and sidechain permutations
+            residue_backbone_permutation = residue_cache[residue_name_with_terminals]["backbone"] + residue_atoms[0].index
+            residue_sidechain_permutation = residue_cache[residue_name_with_terminals]["sidechain"] + residue_atoms[0].index
+
+            assert len(residue_backbone_permutation) + len(residue_sidechain_permutation) == len(residue_atoms), \
+                f"Cached permutation for {residue_name_with_terminals} has wrong length: {len(residue_backbone_permutation) + len(residue_sidechain_permutation)} != {len(residue_atoms)}" \
+
+        else:
+
+            residue_backbone_permutation = []
+            residue_sidechain_permutation = []
+
+            # Get permutation rules for the residue's sidechain
+            sidechain_permutations_definition_dict = permutations_definition_dict["sidechain"][residue_name]
+
+            # Choose the appropriate variant strategy for sidechain atom ordering
+            if sidechain_variant == "variant":
+                if "ring_reverse" in sidechain_permutations_definition_dict:
+                    sidechain_permutation_definition = sidechain_permutations_definition_dict["ring_reverse"]
+                elif "branch_flip" in sidechain_permutations_definition_dict:
+                    sidechain_permutation_definition = sidechain_permutations_definition_dict["branch_flip"]
+                else:
+                    sidechain_permutation_definition = sidechain_permutations_definition_dict["standard"]
+            else:
+                sidechain_permutation_definition = sidechain_permutations_definition_dict["standard"]
+
+            # Check for overlap between backbone and sidechain definitions
+            overlap = set(backbone_permutation_definition) & set(sidechain_permutation_definition)
+            if overlap:
+                raise ValueError(f"Atom(s) {overlap} defined in both backbone and sidechain for residue {residue_name}")
+
+            # Assign each atom to backbone or sidechain permutation based on its name
+            for atom in residue.atoms:
+                if atom.name in backbone_permutation_definition:
+                    residue_backbone_permutation.append(atom.index)
+                elif atom.name in sidechain_permutation_definition:
+                    residue_sidechain_permutation.append(atom.index)
+                else:
+                    raise ValueError(f"Atom {atom.name} not found in any permutation definition for residue {residue_name}")
+
+            # If required, sort sidechain atoms with heavy atoms first, then hydrogens
+            if heavy_type == "heavy-first":
+                residue_sidechain_permutation = [
+                    idx for idx in residue_sidechain_permutation if topology.atom(idx).element.symbol != "H"
+                ] + [
+                    idx for idx in residue_sidechain_permutation if topology.atom(idx).element.symbol == "H"
+                ]
+
+            residue_backbone_permutation = torch.tensor(residue_backbone_permutation, dtype=int)
+            residue_sidechain_permutation = torch.tensor(residue_sidechain_permutation, dtype=int)
+
+            if residue_cache is not None:
+                # Cache the backbone and sidechain permutations for this residue
+                residue_cache[residue_name_with_terminals] = {
+                    "backbone": residue_backbone_permutation - residue_atoms[0].index, # Normalize indices to start from 0
+                    "sidechain": residue_sidechain_permutation - residue_atoms[0].index, # Normalize indices to start from 0
+                }
+
+        # Save the permutations per residue
+        backbone_permutation.append(residue_backbone_permutation)
+        sidechain_permutation.append(residue_sidechain_permutation)
+
+    # Flatten the residue-wise permutations into a full permutation
+    permutation = []
+    if global_type == "residue-by-residue":
+        for i in range(topology.n_residues): # Loop through residues once
+            permutation.append(backbone_permutation[i])
+            permutation.append(sidechain_permutation[i])
+    elif global_type == "backbone-first":
+        for i in range(topology.n_residues): # Loop through residues once - taking backbone atoms
+            permutation.append(backbone_permutation[i])
+        for i in range(topology.n_residues): # Loop through residues again - taking sidechain atoms
+            permutation.append(sidechain_permutation[i])
+    permutation = torch.cat(permutation)
+
+    # Final integrity checks
+    assert len(permutation) == topology.n_atoms, f"Permutation length (must be {topology.n_atoms}, got {len(permutation)})"
+    assert max(permutation) == topology.n_atoms - 1, f"Permutation max index (must be {topology.n_atoms - 1}, got {max(permutation)})"
+    assert min(permutation) == 0, f"Permutation min index (must be 0, got {min(permutation)})"
+    unique, counts = permutation.unique(return_counts=True)
+    duplicates = unique[counts > 1]
+    assert len(duplicates) == 0, f"Permutation contains duplicate atom indices: {duplicates.tolist()}"
+
+    return permutation
 
 def get_permutations_dict(topology_dict):
-    permutations_dict = {}
-    for seq_name, topology in topology_dict.items():
-        permutations_dict[seq_name] = get_permutations(topology)
+
+    # Load the permutations definition from YAML file
+    permutations_definition_dict = load_yaml_as_dict("src/data/components/permutations.yaml")
+
+    permutations_dict = defaultdict(dict)
+
+    sequence_orderings = ["n2c"] #, "c2n"]
+    global_types = ["residue-by-residue"] # , "backbone-first"]
+    sidechain_variants = ["standard"] # , "variant"]
+    heavy_types = ["group-by-group", "heavy-first"]
+
+    # Generate all combinations of configuration settings
+    configs = list(product(sequence_orderings, global_types, sidechain_variants, heavy_types))
+    total = len(configs) * len(topology_dict) # total number of permutations to generate
+
+    with tqdm(total=total, desc="Generating permutations") as pbar: # progress bar for tracking progress
+        for sequence_ordering, global_type, sidechain_variant, heavy_type in configs:
+            residue_cache = {} # New cache for each configuration
+            for seq_name, topology in topology_dict.items():
+                key = f"{sequence_ordering}_{global_type}_{sidechain_variant}_{heavy_type}"
+                permutations_dict[seq_name][key] = get_permutation(
+                    permutations_definition_dict,
+                    topology,
+                    sequence_ordering,
+                    global_type,
+                    sidechain_variant,
+                    heavy_type,
+                    residue_cache
+                )
+                pbar.update(1)
+
     return permutations_dict
