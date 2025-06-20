@@ -50,7 +50,7 @@ class SinusoidalEmbedding(nn.Module):
 
 class ConditionalEmbedder(nn.Module):
     def __init__(
-        self, channels: int = 128, num_atom_emb: int = 54, num_residue_emb: int = 20, sinusoid_div_value: float = 0.0
+        self, channels: int = 128, num_atom_emb: int = 128, num_residue_emb: int = 64, sinusoid_div_value: float = 0.0
     ):
         """
         Input the value of the atom type, residue type, and residue position WITHOUT counting the padding token

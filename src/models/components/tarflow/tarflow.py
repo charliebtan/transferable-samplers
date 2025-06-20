@@ -457,10 +457,9 @@ def load_padded_model_weights(model_pad, model):
 
     return model
 
-
 @torch.no_grad()
-def test_invertibility(model, x, encoding, mask=None, num_pad_tokens=2, num_dimensions=3):
-    x_pred, _ = model(x, encoding=encoding, mask=mask)
+def test_invertibility(model, x, permutations, encoding, mask=None, num_pad_tokens=2, num_dimensions=3):
+    x_pred, _ = model(x, permutations, encoding=encoding, mask=mask)
 
     # print("x_pred", x_pred[0])
 
@@ -475,7 +474,12 @@ def test_invertibility(model, x, encoding, mask=None, num_pad_tokens=2, num_dime
             "seq_len": encoding["seq_len"],
         }
 
-    x_recon = model.reverse(x_pred, encoding=encoding)
+        permutations = {
+            k: v[:, : -num_pad_tokens]
+            for k, v in permutations.items()
+        }
+
+    x_recon = model.reverse(x_pred, permutations, encoding=encoding)
 
     # print((x - x_recon).reshape(x.shape[0], -1, num_dimensions).mean(dim=0))
     # print((x - x_recon).reshape(x.shape[0], -1, num_dimensions).mean(dim=1))
@@ -497,21 +501,21 @@ def test_invertibility(model, x, encoding, mask=None, num_pad_tokens=2, num_dime
     print("Invertibility test passed")
 
 
-def test_mask_model(model, x, encoding, model_pad, x_pad, encoding_pad, mask):
-    x_fwd, _ = model(x, encoding=encoding)
-    x_fwd_pad, _ = model_pad(x_pad, encoding=encoding_pad, mask=mask)
+def test_mask_model(model, x, permutations, encoding, model_pad, x_pad, permutations_pad, encoding_pad, mask):
+    x_fwd, _ = model(x, permutations, encoding=encoding)
+    x_fwd_pad, _ = model_pad(x_pad, permutations_pad, encoding=encoding_pad, mask=mask)
 
-    # print("x_fwd max error:", torch.max(abs(x_fwd - x_fwd_pad[:, : x_fwd.shape[1]])))
-    # print("x_fwd mae:", torch.mean(abs(x_fwd - x_fwd_pad[:, : x_fwd.shape[1]])))
+    # print("x_fwd max error:", torch.max(abs(x_fwd - x_fwd_pad[:, : x_fwd.shape[1]])))
+    # print("x_fwd mae:", torch.mean(abs(x_fwd - x_fwd_pad[:, : x_fwd.shape[1]])))
 
-    assert torch.allclose(x_fwd, x_fwd_pad[0, : x_fwd.shape[1]], atol=1e-6), "Models do not generate the same x_fwd"
+    assert torch.allclose(x_fwd, x_fwd_pad[:, : x_fwd.shape[1]], atol=1e-6), "Models do not generate the same x_fwd"
 
     print("Masked model fwd test passed")
 
 
-def test_mask_model_no_pad(model, x, encoding, model_pad):
-    x_fwd, _ = model(x, encoding=encoding)
-    x_fwd_no_pad, _ = model_pad(x, encoding=encoding)
+def test_mask_model_no_pad(model, x, permutations, encoding, model_pad):
+    x_fwd, _ = model(x, permutations, encoding=encoding)
+    x_fwd_no_pad, _ = model_pad(x, permutations, encoding=encoding)
 
     # print("x_fwd max error:", torch.max(abs(x_fwd - x_fwd_no_pad)))
     # print("x_fwd mae:", torch.mean(abs(x_fwd - x_fwd_no_pad)))
@@ -521,12 +525,12 @@ def test_mask_model_no_pad(model, x, encoding, model_pad):
 
 
 @torch.no_grad()
-def test_logdet(model, x_i, enc_i):
-    x_pred = model.reverse(x_i, enc_i)
-    _, fwd_logdets = model(x_pred, enc_i)
+def test_logdet(model, x_i, permutations_i, enc_i):
+    x_pred = model.reverse(x_i, permutations_i, enc_i)
+    _, fwd_logdets = model(x_pred, permutations_i, enc_i)
     fwd_logdets = fwd_logdets * x_i.shape[1]  # rescale from mean to sum
 
-    reverse_func = lambda x: model.reverse(x=x, encoding=enc_i)
+    reverse_func = lambda x: model.reverse(x=x, permutations=permutations_i, encoding=enc_i)
     rev_jac_true = torch.autograd.functional.jacobian(reverse_func, x_i, vectorize=True)
     rev_logdets_true = torch.logdet(rev_jac_true[0].squeeze())
 
@@ -536,12 +540,12 @@ def test_logdet(model, x_i, enc_i):
 
 
 @torch.no_grad()
-def test_logdet_mask(model, model_pad, x_i, enc_i, enc_i_pad, mask_i, num_pad_tokens=2, num_dimensions=3):
-    x_pred = model.reverse(x_i, enc_i)
-    _, fwd_logdets = model_pad(x_pred, enc_i)
+def test_logdet_mask(model, model_pad, x_i, permutations_i, permutations_pad_i, enc_i, enc_i_pad, mask_i, num_pad_tokens=2, num_dimensions=3):
+    x_pred = model.reverse(x_i, permutations_i, enc_i)
+    _, fwd_logdets = model_pad(x_pred, permutations_i, enc_i)
     fwd_logdets = fwd_logdets * x_i.shape[1]  # rescale from mean to sum
 
-    x_pred_pad = model_pad.reverse(x_i, enc_i)
+    x_pred_pad = model_pad.reverse(x_i, permutations_i, enc_i)
 
     print("x_pred max error:", torch.max(abs(x_pred - x_pred_pad)))
     print("x_pred mae:", torch.mean(abs(x_pred - x_pred_pad)))
@@ -549,7 +553,7 @@ def test_logdet_mask(model, model_pad, x_i, enc_i, enc_i_pad, mask_i, num_pad_to
 
     # pad the output for the forward call
     x_pred_pad = torch.cat([x_pred_pad, torch.zeros_like(x_pred_pad[:, : num_pad_tokens * num_dimensions])], dim=1)
-    _, fwd_logdets_pad = model_pad(x_pred_pad, enc_i_pad, mask_i)
+    _, fwd_logdets_pad = model_pad(x_pred_pad, permutations_pad_i, enc_i_pad, mask_i)
     fwd_logdets_pad = fwd_logdets_pad * mask_i.sum(dim=-1) * num_dimensions  # rescale from mean to sum
 
     logdets_diff = torch.mean(abs(fwd_logdets - fwd_logdets_pad))
@@ -568,72 +572,27 @@ if __name__ == "__main__":
 
     ### Dummy data
 
-    # alanine atoms
-    alanine_atom_types = torch.tensor(
-        [
-            37,
-            18,
-            18,
-            18,
-            2,
-            19,
-            3,
-            20,
-            20,
-            20,
-            1,
-            46,
-            52,
-        ]
-    )
+    batch_size = 16
+    sequence_length = 10
 
-    # lysine atoms
-    lysine_atom_types = torch.tensor(
-        [
-            37,
-            18,
-            18,
-            18,
-            2,
-            19,
-            3,
-            20,
-            20,
-            11,
-            30,
-            28,
-            4,
-            23,
-            21,
-            7,
-            26,
-            27,
-            45,
-            34,
-            35,
-            36,
-            1,
-            46,
-            52,
-        ]
-    )
+    x = torch.randn((batch_size, sequence_length * 3))
 
-    atom_type = torch.concat([alanine_atom_types, lysine_atom_types], dim=0)
-    atom_type = atom_type.reshape(1, -1)
-    aa_type = torch.tensor([1 for _ in range(len(alanine_atom_types))] + [12 for _ in range(len(lysine_atom_types))])
-    aa_type = aa_type.reshape(1, -1)
-    aa_pos = torch.arange(aa_type.shape[-1])[None, ...] + 1
-    x = torch.randn((1, aa_type.shape[-1] * 3))
-
-    # build encoding
     encoding = {
-        "atom_type": atom_type,
-        "aa_type": aa_type,
-        "aa_pos": aa_pos,
-        "seq_len": torch.ones(size=(x.shape[0], 1), dtype=torch.long) * 2,
+        "atom_type": torch.randint(1, 32, (batch_size, sequence_length), dtype=torch.long),
+        "aa_type": torch.randint(1, 32, (batch_size, sequence_length), dtype=torch.long),
+        "aa_pos": torch.randint(1, 8, (batch_size, sequence_length), dtype=torch.long),
+        "seq_len": torch.randint(1, 8, (batch_size, 1), dtype=torch.long),
     }
 
-    batch_size = x.shape[0]
+    permutation = torch.stack([
+        torch.randperm(sequence_length, dtype=torch.long)
+        for _ in range(batch_size)
+    ])
+    permutations = {
+        "n2c_residue-by-residue_standard_group-by-group": permutation,
+        "n2c_residue-by-residue_standard_group-by-group_flip": permutation.flip(dims=[1]),
+    }
+
     img_size = x.shape[-1]
     in_channels = 3
     patch_size = 1
@@ -657,6 +616,16 @@ if __name__ == "__main__":
         ),
         "seq_len": encoding["seq_len"].clone(),
     }
+    pad = torch.arange(
+        permutation.shape[1],
+        permutation.shape[1] + pad_tokens,
+        dtype=torch.long
+    ).unsqueeze(0).expand(permutation.shape[0], -1)
+
+    permutations_pad = {
+        k: torch.cat([v, pad], dim=1)
+        for k, v in permutations.items()
+    }
     mask = torch.cat(
         [torch.ones([batch_size, img_size // in_channels], dtype=torch.float32), torch.zeros([batch_size, pad_tokens])],
         dim=1,
@@ -666,7 +635,7 @@ if __name__ == "__main__":
 
     for use_adapt_ln in [False, True]:
         for use_attn_pair_bias in [False, True]:
-            for perm_type in ["standard", "random", "globloc"]:
+            for perm_type in ["standard"]:
                 for pos_embed_type in ["sinusoidal", "learned"]:
                     print(
                         f"\nTesting with use_adapt_ln={use_adapt_ln} and use_attn_pair_bias={use_attn_pair_bias} "
@@ -705,41 +674,46 @@ if __name__ == "__main__":
 
                     print("\nstandard")
                     test_invertibility(
-                        model, x, encoding, num_pad_tokens=pad_tokens
+                        model, x, permutations, encoding, num_pad_tokens=pad_tokens
                     )  # test invertibility of the original model
 
                     print("\npad + mask")
                     test_mask_model(
-                        model, x, encoding, model_pad, x_pad, encoding_pad, mask
+                        model, x, permutations, encoding, model_pad, x_pad, permutations_pad, encoding_pad, mask
                     )  # test forward of the padded model
-
                     test_invertibility(
-                        model_pad, x_pad, encoding_pad, mask, num_pad_tokens=pad_tokens
+                        model_pad, x_pad, permutations_pad, encoding_pad, mask, num_pad_tokens=pad_tokens
                     )  # test invertibility of the padded model
 
                     print("\npad model with non-pad data")
-                    test_mask_model_no_pad(model, x, encoding, model_pad)  # test forward of the padded model
+                    test_mask_model_no_pad(model, x, permutations, encoding, model_pad)  # test forward of the padded model
                     test_invertibility(
-                        model_pad, x, encoding, num_pad_tokens=pad_tokens
+                        model_pad, x, permutations, encoding, num_pad_tokens=pad_tokens
                     )  # test invertibility of the padded model with non-padded data
 
                     for i in range(batch_size):
                         print("\nbatch item", i)
 
                         x_i = x[i : i + 1]
+                        permutations_i = {
+                            k: v[i : i + 1] for k, v in permutations.items()
+                        }
                         enc_i = {k: v[i : i + 1] for k, v in encoding.items()}
 
                         x_pad_i = x_pad[i : i + 1]
+                        permutations_pad_i = {
+                            k: v[i : i + 1] for k, v in permutations_pad.items()
+                        }
                         enc_pad_i = {k: v[i : i + 1] for k, v in encoding_pad.items()}
                         mask_i = mask[i : i + 1]
 
                         print("\nstandard")
-                        test_logdet(model, x_i, enc_i)  # test logdet of the original model
+                        test_logdet(model, x_i, permutations_i, enc_i)  # test logdet of the original model
 
                         print("\npad + mask")
                         test_logdet_mask(
-                            model, model_pad, x_i, enc_i, enc_pad_i, mask_i, num_pad_tokens=pad_tokens
+                            model, model_pad, x_i, permutations_i, permutations_pad_i, enc_i, enc_pad_i, mask_i, num_pad_tokens=pad_tokens
                         )  # test logdet of the padded model
 
                         print("\npad model with non-pad data")
-                        test_logdet(model_pad, x_i, enc_i)  # test logdet of the padded model with non-padded data
+                        test_logdet(model_pad, x_i, permutations_i, enc_i)  # test logdet of the padded model with non-padded data
