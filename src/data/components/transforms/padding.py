@@ -46,6 +46,16 @@ class PaddingTransform(torch.nn.Module):
         false_mask = torch.zeros(self.max_num_particles - num_particles)
         return torch.cat([true_mask, false_mask]).bool()
 
+    def pad_residue_tokenization(self, residue_tokenization: torch.Tensor) -> torch.Tensor:
+        assert not residue_tokenization.shape[0] > 4 # TODO hardcoded to 4
+        if residue_tokenization.shape[0] < 4:
+            pad_len = 4 - residue_tokenization.shape[0]
+            single_pad_tensor = torch.ones_like(residue_tokenization[0:1]) * -1  # padding with -1
+            pad_tensor = single_pad_tensor.repeat(pad_len, 1)
+            return torch.cat([residue_tokenization, pad_tensor])
+        else:
+            return residue_tokenization
+
     def forward(self, data: dict[str, Any]) -> dict[str, Any]:
         """
         Args:
@@ -58,6 +68,7 @@ class PaddingTransform(torch.nn.Module):
         x = data["x"]
         encoding = data["encoding"]    
         permutations = data["permutations"]
+        residue_tokenization = data["residue_tokenization"]
 
         assert len(x.shape) == 2, f"only process single molecules, got shape of {x.shape}"
         assert x.shape[1] == self.num_dimensions, f"expected {self.num_dimensions} dimensions, got {x.shape[1]}"
@@ -67,11 +78,13 @@ class PaddingTransform(torch.nn.Module):
         x = self.pad_data(x)
         encoding = self.pad_encoding(encoding)
         permutations = self.pad_permutations(permutations)
+        residue_tokenization = self.pad_residue_tokenization(residue_tokenization)
 
         return {
             **data,
             "x": x,
             "encoding": encoding,
             "permutations": permutations,   
+            "residue_tokenization": residue_tokenization,
             "mask": mask,
         }

@@ -1,7 +1,7 @@
 backbone:
   n2c:
     - N 
-    - H
+    - H # not on Proline
     - H2 # only on N-terminal
     - H3 # only on N-terminal
     - CA
@@ -21,7 +21,7 @@ backbone:
     - HA2 # only on Glycine
     - HA3 # only on Glycine
     - N
-    - H
+    - H # not on Proline
     - H2 # only on N-terminal
     - H3 # only on N-terminal
 

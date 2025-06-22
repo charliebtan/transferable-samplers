@@ -12,6 +12,7 @@ from src.data.base_datamodule import BaseDataModule
 from src.data.components.data_types import SamplesData
 from src.data.components.encoding import get_encoding_dict
 from src.data.components.permutations import get_permutations_dict
+from src.data.components.residue_tokenization import get_residue_tokenization_dict
 from src.data.components.openmm import OpenMMBridge, OpenMMEnergy
 from src.data.components.peptide_dataset import PeptideDataset
 from src.data.components.prepare_data import (
@@ -26,6 +27,7 @@ from src.data.components.symmetry import resolve_chirality
 from src.data.components.test_subset import ALL_TEST_SUBSET, SCALING_SUBSET, TEST_SUBSET_DICT
 from src.data.components.transforms.add_encoding import AddEncodingTransform
 from src.data.components.transforms.atom_noise import AtomNoiseTransform
+from src.data.components.transforms.add_residue_tokenization import AddResidueTokenizationTransform
 from src.data.components.transforms.center_of_mass import CenterOfMassTransform
 from src.data.components.transforms.padding import PaddingTransform
 from src.data.components.transforms.rotation import Random3DRotationTransform
@@ -275,6 +277,7 @@ class TransferablePeptideDataModule(BaseDataModule):
         self.pdb_dict, self.topology_dict = load_pdbs_and_topologies(pdb_paths, self.num_aa_range)
         self.encoding_dict = get_encoding_dict(self.topology_dict)
         self.permutations_dict = get_permutations_dict(self.topology_dict)
+        self.residue_tokenization_dict = get_residue_tokenization_dict(self.topology_dict)
 
         total_samples = 0
         weighted_vars = []
@@ -325,6 +328,7 @@ class TransferablePeptideDataModule(BaseDataModule):
         transform_list = transform_list + [
             AddEncodingTransform(self.encoding_dict),
             AddPermutationsTransform(self.permutations_dict),
+            AddResidueTokenizationTransform(self.residue_tokenization_dict),
             PaddingTransform(self.hparams.num_particles, self.hparams.num_dimensions),
         ]
 
@@ -348,6 +352,7 @@ class TransferablePeptideDataModule(BaseDataModule):
             StandardizeTransform(self.std, self.hparams.num_dimensions),
             AddEncodingTransform(self.encoding_dict),
             AddPermutationsTransform(self.permutations_dict),
+            AddResidueTokenizationTransform(self.residue_tokenization_dict),
             PaddingTransform(self.hparams.num_particles, self.hparams.num_dimensions),
         ]
 
@@ -408,14 +413,14 @@ class TransferablePeptideDataModule(BaseDataModule):
             -1,
         )
         true_samples = self.normalize(true_samples)
-
-        permutations = self.permutations_dict[eval_sequence]
         encoding = self.encoding_dict[eval_sequence]
+        permutations = self.permutations_dict[eval_sequence]
+        residue_tokenization = self.residue_tokenization_dict[eval_sequence]
 
         potential = self.setup_potential(eval_sequence)
         energy_fn = lambda x: potential.energy(self.unnormalize(x)).flatten()
 
-        return true_samples, permutations, encoding, energy_fn
+        return true_samples, encoding, permutations, residue_tokenization, energy_fn
 
     def metrics_and_plots(
         self,

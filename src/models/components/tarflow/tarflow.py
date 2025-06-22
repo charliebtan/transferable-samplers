@@ -261,6 +261,87 @@ class MetaBlock(torch.nn.Module):
 
         return x
 
+def atoms_to_residue_tokens(atom_tokens: torch.Tensor, residue_tokenization: torch.Tensor):
+    """
+    Args:
+        atom_tokens: [B, Seq_len, 3]
+        residue_tokenization: [B, Num_AA, max_atoms_per_residue], with -1 for padding
+
+    Returns:
+        residue_tokens: [B, Num_AA, 3 * max_atoms_per_residue]
+        residue_mask:   [B, Num_AA, max_atoms_per_residue], 1 for real atom, 0 for padding
+    """
+    B, N, D = atom_tokens.shape
+    B_check, num_residues, max_atoms_per_residue = residue_tokenization.shape
+    assert B == B_check, "Batch size mismatch"
+
+    # Mask for valid (non-padding) atoms
+    mask = (residue_tokenization != -1).float()  # [B, Num_AA, max_atoms_per_residue]
+
+    # Replace -1 with 0 for safe gather
+    safe_indices = residue_tokenization.clone()
+    safe_indices[safe_indices == -1] = 0  # dummy placeholder, will be masked
+
+    # Gather atom positions: [B, Num_AA, max_atoms_per_residue, 3]
+    gathered = torch.gather(
+        atom_tokens.unsqueeze(1).expand(-1, num_residues, -1, -1),  # [B, Num_AA, Seq_len, 3]
+        dim=2,
+        index=safe_indices.unsqueeze(-1).expand(-1, -1, -1, D)      # [B, Num_AA, max_atoms_per_residue, 3]
+    )
+
+    # Mask out padding tokens
+    gathered = gathered * mask.unsqueeze(-1)
+
+    # Flatten: [B, Num_AA, 3 * max_atoms_per_residue]
+    residue_tokens = gathered.view(B, num_residues, D * max_atoms_per_residue)
+
+    return residue_tokens
+
+def residue_to_atom_tokens(
+    residue_tokens: torch.Tensor,
+    residue_tokenization: torch.Tensor,
+    max_sequence_length: int
+) -> torch.Tensor:
+    """
+    Vectorized inversion of atoms_to_residue_tokens with support for padded MAX_SEQUENCE_LENGTH.
+
+    Args:
+        residue_tokens: [B, Num_AA, 3 * max_atoms_per_residue]
+        residue_tokenization: [B, Num_AA, max_atoms_per_residue], with -1 for padding
+        max_sequence_length: int, length of original padded atom sequence (e.g., MAX_SEQUENCE_LENGTH)
+
+    Returns:
+        atom_tokens: [B, MAX_SEQUENCE_LENGTH, 3], with padded zeros where original input had no atoms
+    """
+    B, Num_AA, flat_dim = residue_tokens.shape
+    D = 3
+    max_atoms_per_residue = flat_dim // D
+
+    # Unflatten residue tokens
+    residue_tokens = residue_tokens.view(B, Num_AA, max_atoms_per_residue, D)  # [B, R, A, 3]
+
+    # Valid atom mask
+    mask = (residue_tokenization != -1)  # [B, R, A]
+
+    # Sanitize indices for scatter
+    safe_indices = residue_tokenization.clone()
+    safe_indices[~mask] = 0  # dummy for scatter (will be masked)
+
+    # Prepare output tensor with zeros (padded)
+    atom_tokens = torch.zeros(B, max_sequence_length, D, device=residue_tokens.device)
+
+    # Flatten for scatter
+    scatter_idx = safe_indices.view(B, -1)              # [B, R*A]
+    scatter_vals = residue_tokens.view(B, -1, D)        # [B, R*A, 3]
+    scatter_mask = mask.view(B, -1)                     # [B, R*A]
+
+    for b in range(B):
+        valid_indices = scatter_idx[b][scatter_mask[b]]  # [#valid_atoms]
+        valid_values = scatter_vals[b][scatter_mask[b]]  # [#valid_atoms, 3]
+        atom_tokens[b].index_copy_(0, valid_indices, valid_values)
+
+    return atom_tokens
+
 class TarFlow(torch.nn.Module):
     VAR_LR: float = 0.1
     var: torch.Tensor
@@ -340,6 +421,7 @@ class TarFlow(torch.nn.Module):
         self,
         x: torch.Tensor,
         permutations: dict[str, torch.Tensor],
+        residue_tokenization: dict[str, torch.Tensor] | None = None,
         encoding: dict[str, torch.Tensor] | None = None,
         mask: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor], torch.Tensor]:
@@ -376,6 +458,10 @@ class TarFlow(torch.nn.Module):
         logdets = torch.zeros((), device=x.device)
 
         for block in self.blocks:
+            x_original = x.clone()  # save original x for permutation
+            x = atoms_to_residue_tokens(x, residue_tokenization)
+            x = residue_to_atom_tokens(x, residue_tokenization, max_sequence_length=x_original.shape[1])
+            assert torch.allclose(x, x_original), "Reshape from residue to atom tokens did not preserve original x"
             x, logdet = block(x, permutations, cond=cond, mask=mask)
             logdets = logdets + logdet
 
