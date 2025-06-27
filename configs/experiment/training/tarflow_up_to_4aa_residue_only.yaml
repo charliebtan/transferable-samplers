@@ -8,8 +8,6 @@ defaults:
 
 tarflow: &tarflow
   _target_: src.models.components.tarflow.tarflow.TarFlow
-  num_blocks: 8
-  layers_per_block: 8
   use_adapt_ln: True
   use_transition: True
   use_qkln: True
@@ -23,32 +21,16 @@ model:
         _target_: src.models.components.tarflow.tarflow.ResidueTarFlow
         input_dimension: 246 # 82 * 3 atom types
         max_num_tokens: ${data.num_aa_max}
-        channels: 512
+        channels: 2048
+        num_blocks: 16
+        layers_per_block: 16
         permutation_keys:
         - "n2c"
         - "c2n"
         cond_embed:
           _target_: src.models.components.tarflow.embed.ResidueConditionalEmbedder
-          hidden_dim: ${model.net.models[0].channels}
+          hidden_dim: 128
           output_dim: ${model.net.models[0].channels}
-      - <<: *tarflow
-        _target_: src.models.components.tarflow.tarflow.AtomTarFlow
-        input_dimension: 3 # 3D coordinates
-        max_num_tokens: ${data.num_particles}
-        channels: 384
-        permutation_keys:
-        - "n2c_backbone-first_variant_group-by-group"
-        - "n2c_backbone-first_variant_group-by-group_flip"
-        - "c2n_residue-by-residue_standard_heavy-first"
-        - "c2n_residue-by-residue_standard_heavy-first_flip"
-        - "c2n_backbone-first_standard_group-by-group"
-        - "c2n_backbone-first_standard_group-by-group_flip"
-        - "n2c_residue-by-residue_variant_heavy-first"
-        - "n2c_residue-by-residue_variant_heavy-first_flip"
-        cond_embed:
-          _target_: src.models.components.tarflow.embed.AtomConditionalEmbedder
-          hidden_dim: ${model.net.models[1].channels}
-          output_dim: ${model.net.models[1].channels}
 
   sampling_config:
     num_proposal_samples: 5_000

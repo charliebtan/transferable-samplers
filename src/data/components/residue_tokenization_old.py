@@ -4,10 +4,13 @@ from tqdm import tqdm
 from itertools import product
 import torch
 from collections import defaultdict
-from src.data.components.encoding import ATOM_TYPE_ENCODING_DICT
 import logging
 
-ATOM_TYPES_LIST = ['C', 'CA', 'CB', 'CD', 'CD1', 'CD2', 'CE', 'CE1', 'CE2', 'CE3', 'CG', 'CG1', 'CG2', 'CH2', 'CZ', 'CZ2', 'CZ3', 'H', 'H2', 'H3', 'HA', 'HA2', 'HA3', 'HB', 'HB1', 'HB2', 'HB3', 'HD1', 'HD11', 'HD12', 'HD13', 'HD2', 'HD21', 'HD22', 'HD23', 'HD3', 'HE', 'HE1', 'HE2', 'HE21', 'HE22', 'HE3', 'HG', 'HG1', 'HG11', 'HG12', 'HG13', 'HG2', 'HG21', 'HG22', 'HG23', 'HG3', 'HH', 'HH11', 'HH12', 'HH2', 'HH21', 'HH22', 'HZ', 'HZ1', 'HZ2', 'HZ3', 'N', 'ND1', 'ND2', 'NE', 'NE1', 'NE2', 'NH1', 'NH2', 'NZ', 'O', 'OD1', 'OD2', 'OE1', 'OE2', 'OG', 'OG1', 'OH', 'OXT', 'SD', 'SG']
+# Load a YAML file and return its contents as a dictionary
+def load_yaml_as_dict(path: str | Path) -> dict:
+    path = Path(path)
+    with path.open("r") as f:
+        return yaml.safe_load(f)
 
 def standardize_atom_name(atom_name: str, aa_name: str) -> str:
     if atom_name[0] == "H" and atom_name[-1] in ("1", "2", "3"):
@@ -29,8 +32,10 @@ def standardize_atom_name(atom_name: str, aa_name: str) -> str:
     return atom_name
 
 def get_residue_tokenization(
-    topology, residue_cache=None, max_atoms_per_residue=82 # TODO load from ATOM_TYPES_LIST
+    permutations_definition_dict, topology, residue_cache=None, max_atoms_per_residue=32
 ):
+
+    backbone_order = permutations_definition_dict["backbone"]["n2c"]
 
     residue_list = list(topology.residues)
     residue_tokenization = []
@@ -44,6 +49,9 @@ def get_residue_tokenization(
             residue_name_with_terminals = "C-" + residue_name
         else:
             residue_name_with_terminals = residue_name
+
+        assert residue_name in permutations_definition_dict["sidechain"], \
+            f"Residue {residue_name} not in sidechain definitions"
 
         atoms = list(residue.atoms)
         input_atom_ordering = [standardize_atom_name(atom.name, residue_name) for atom in atoms]
@@ -69,10 +77,35 @@ def get_residue_tokenization(
         # Build name → atom index map once
         atom_index_by_name = {atom.name: atom.index for atom in residue.atoms}
 
-        # Create a list of indices for the residue's atoms based on the standard atom names
-        index_list = [atom_index_by_name.get(name, -1) for name in ATOM_TYPES_LIST]
+        # === Canonical ordering ===
 
-        # assert len(index_list) <= max_atoms_per_residue
+        # 1. Backbone atoms always in fixed order (including optional terminal atoms)
+        backbone_indices = []
+        for name in backbone_order:
+            if residue_name == "GLY" and name in ["HA", "HA2", "HA3"]:
+                if name == "HA2":
+                    # For glycine residue token, we only consider HA2 as part of the backbone
+                    backbone_indices.append(atom_index_by_name["HA2"])
+                else:
+                    pass
+            elif name in ["HA2", "HA3"]:
+                pass
+            else:
+                backbone_indices.append(atom_index_by_name.get(name, -1))
+
+        assert len(backbone_indices) == 9 # some jazzy logic so just making sure the correct number of backbone atoms are present
+            
+        if residue_name == "GLY":
+            # Add the second HA for glycine residues
+            sidechain_indices = [atom_index_by_name["HA3"]]
+        else:
+            # 2. Sidechain atoms (from permutation definition)
+            sidechain_atoms = permutations_definition_dict["sidechain"][residue_name]["standard"]
+            sidechain_indices = [atom_index_by_name[name] for name in sidechain_atoms] # do not allow sidechain atoms to be missing from atom_index_by_name
+
+        # 3. Combine and pad
+        index_list = backbone_indices + sidechain_indices
+        assert len(index_list) <= max_atoms_per_residue
         index_list += [-1] * (max_atoms_per_residue - len(index_list))
 
         index_list = torch.tensor(index_list, dtype=torch.long)
@@ -99,26 +132,24 @@ def get_residue_tokenization(
     unique, counts = used_atom_indices.unique(return_counts=True)
     duplicates = unique[counts > 1]
     assert len(duplicates) == 0, f"used_atom_indices contains duplicate atom indices: {duplicates.tolist()}"
-
-    tokenization = torch.stack(residue_tokenization, dim=0)
-    n2c_permutation = torch.arange(tokenization.shape[0], dtype=torch.long)
         
-    return {
-        "tokenization_map": tokenization,
-        "permutations": {
-            "n2c": n2c_permutation,
-            "c2n": n2c_permutation.flip(0),
-        }
-    }
+    return torch.stack(residue_tokenization, dim=0)
+
 
 def get_residue_tokenization_dict(topology_dict):
+
+    # Load the permutations definition from YAML file
+    permutations_definition_dict = load_yaml_as_dict("src/data/components/permutations.yaml")
 
     residue_tokenization_dict = defaultdict(dict)
     residue_cache = {}  # Cache for residue permutations
 
     for seq_name, topology in tqdm(topology_dict.items(), desc="Generating residue tokenizations"):
+        # Initialize the dictionary for this sequence
         residue_tokenization_dict[seq_name] = get_residue_tokenization(
+            permutations_definition_dict,
             topology,
-            residue_cache)
+            residue_cache,
+        )
 
     return residue_tokenization_dict

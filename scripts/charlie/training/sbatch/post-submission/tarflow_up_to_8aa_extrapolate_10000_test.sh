@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -J extrapolate_1000                 # Job name
+#SBATCH -J extrapolate_10000                 # Job name
 #SBATCH -o watch_folder/%x_%j.out     # output file (%j expands to jobID)
 #SBATCH -N 2                          # Total number of nodes requested
 #SBATCH --mem=256G                     # server memory requested (per node)
@@ -21,19 +21,22 @@ source $HOME/envs/$env/bin/activate
 wandb online
 
 echo $SLURM_NNODES
-RUN_NAME="tarflow_up_to_8aa_extrapolate_1000_v5"
+RUN_NAME="tarflow_up_to_8aa_extrapolate_10000_TEST2"
 
 srun python -u src/train.py \
 experiment=training/tarflow_up_to_8aa logger=wandb \
 trainer=ddp \
 data.data_dir='/project/aip-necludov/shared/self-consume-bg/data/new' \
 data.batch_size=512 \
-trainer.limit_train_batches=1000 \
+trainer.limit_train_batches=100 \
+trainer.check_val_every_n_epoch=1 \
++trainer.accumulate_grad_batches=1 \
+model.sampling_config.num_proposal_samples=1000 \
 model.net.use_adapt_ln=True \
 model.net.use_transition=True \
 model.net.use_attn_pair_bias=False \
-model.net.perm_type=new \
-+model.net.cond_embed.sinusoid_div_value=1000 \
+model.net.perm_type=globloc \
++model.net.cond_embed.sinusoid_div_value=10000 \
 trainer.num_nodes=$SLURM_NNODES \
 tags=[up_to_8aa,ddp,full,extrapolate] \
 hydra.run.dir='${paths.log_dir}/${task_name}/runs/'${RUN_NAME} \

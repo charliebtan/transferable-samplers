@@ -567,7 +567,7 @@ if __name__ == "__main__":
         dim=1,
     )
 
-    cond_embed = ConditionalEmbedder(channels=channels)
+    cond_embed = ConditionalEmbedder(hidden_dim=channels)
 
     for use_adapt_ln in [False, True]:
         for use_attn_pair_bias in [False, True]:

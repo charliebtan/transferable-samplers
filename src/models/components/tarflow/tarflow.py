@@ -4,16 +4,17 @@
 #
 import numpy as np
 import torch
+import torch.nn as nn
 
 if __name__ == "__main__":
     # This is when we run the script directly to test model
     from adaptive_blocks import AdaptiveAttnAndTransition
     from attention import Attention, AttentionBlock
-    from embed import ConditionalEmbedder, SinusoidalEmbedding
+    from embed import SinusoidalEmbedding
 else:
     from src.models.components.tarflow.adaptive_blocks import AdaptiveAttnAndTransition
     from src.models.components.tarflow.attention import Attention, AttentionBlock
-    from src.models.components.tarflow.embed import ConditionalEmbedder, SinusoidalEmbedding
+    from src.models.components.tarflow.embed import SinusoidalEmbedding # TODO instantiate
 
 MAX_SEQ_LEN = 512
 
@@ -142,6 +143,8 @@ class MetaBlock(torch.nn.Module):
         if cond is not None:
             cond = self.permutation(cond, permutations)
             cond_emb = self.proj_cond(cond)
+        else:
+            cond_emb = None
 
         pair_emb = None
         if self.use_attn_pair_bias:
@@ -176,13 +179,15 @@ class MetaBlock(torch.nn.Module):
             xb = x
             xa = torch.zeros_like(x)
 
+        tokenization_map = permutations.get("tokenization_map", None)
+        if tokenization_map is not None:
+            tokenization_mask = (tokenization_map != -1).float().repeat_interleave(3, dim=-1) # TODO hardcode
+            xb = xb * tokenization_mask
+            xa = xa * tokenization_mask
         scale = (-xa.float()).exp().type(xa.dtype)
         x_out = self.permutation((x_in - xb) * scale, permutations, inverse=True)
 
-        if mask is None:
-            logdet = -xa.mean(dim=[1, 2])
-        else:
-            logdet = -xa.sum(dim=[1, 2]) / (mask.sum(dim=-1) * self.in_channels)
+        logdet = -xa.mean(dim=[1, 2])
 
         return x_out, logdet
 
@@ -300,7 +305,7 @@ def atoms_to_residue_tokens(atom_tokens: torch.Tensor, residue_tokenization: tor
 def residue_to_atom_tokens(
     residue_tokens: torch.Tensor,
     residue_tokenization: torch.Tensor,
-    max_sequence_length: int
+    max_seq_len: int
 ) -> torch.Tensor:
     """
     Vectorized inversion of atoms_to_residue_tokens with support for padded MAX_SEQUENCE_LENGTH.
@@ -328,7 +333,7 @@ def residue_to_atom_tokens(
     safe_indices[~mask] = 0  # dummy for scatter (will be masked)
 
     # Prepare output tensor with zeros (padded)
-    atom_tokens = torch.zeros(B, max_sequence_length, D, device=residue_tokens.device)
+    atom_tokens = torch.zeros(B, max_seq_len, D, device=residue_tokens.device)
 
     # Flatten for scatter
     scatter_idx = safe_indices.view(B, -1)              # [B, R*A]
@@ -342,15 +347,19 @@ def residue_to_atom_tokens(
 
     return atom_tokens
 
-class TarFlow(torch.nn.Module):
-    VAR_LR: float = 0.1
-    var: torch.Tensor
+def atom_to_residue_encoding(encoding: torch.Tensor, tokenization_map: torch.Tensor):
+    c_index_per_residue = tokenization_map[:, :, 0] # get index of "C" atom in each residue
+    c_index_per_residue_mask = c_index_per_residue != -1 # mask for valid residues
+    c_index_per_residue[c_index_per_residue_mask == 0] = 0 # set invalid residues to 0
+    B, R = c_index_per_residue.shape
+    batch_indices = torch.arange(B, device=c_index_per_residue.device).unsqueeze(1).expand(B, R)
+    return encoding[batch_indices, c_index_per_residue] * c_index_per_residue_mask
 
+class TarFlow(torch.nn.Module): # rename to AtomTarFlow?
     def __init__(
         self,
-        in_channels: int,
-        img_size: int,
-        patch_size: int,
+        input_dimension: int,
+        max_num_tokens: int,
         channels: int,
         num_blocks: int,
         layers_per_block: int,
@@ -361,32 +370,27 @@ class TarFlow(torch.nn.Module):
         use_transition: bool = False,
         use_qkln: bool = False,
         dropout: float = 0.0,
-        perm_type: str = "standard",  # standard, globloc, random
-        cond_embed: ConditionalEmbedder | None = None,
+        permutation_keys: list[str] = ["n2c_residue-by-residue_standard_group-by-group", "n2c_residue-by-residue_standard_group-by-group_flip"], # defaults to SBG
+        cond_embed: nn.Module | None = None, # TODO don't like name, could make a proper subclass 
         pos_embed_type: str = "learned",  # learned, sinusoidal
         nvp: bool = True,
         debug: bool = False,  # stops the weight initialization from being zero so tokens are not all the same
     ):
         super().__init__()
-        self.img_size = img_size
-        self.patch_size = patch_size
-        self.num_patches = img_size // patch_size // in_channels
 
-        if perm_type == "standard":
-            permutation_keys = ["n2c_residue-by-residue_standard_group-by-group", "n2c_residue-by-residue_standard_group-by-group_flip"] * (num_blocks // 2)
-        elif perm_type == "globloc":  # this way the side chains go forwards and backwards alternating
-            permutation_keys = ["n2c_backbone-first_standard_group-by-group", "n2c_residue-by-residue_standard_group-by-group_flip", "n2c_backbone-first_standard_group-by-group_flip", "n2c_residue-by-residue_standard_group-by-group"] * (num_blocks // 4)
-
+        self.input_dimension = input_dimension
+        permutation_keys = list(permutation_keys) * (num_blocks // len(permutation_keys))  # repeat to match num_blocks
         self.conditional = False if cond_embed is None else True
         self.cond_embed = cond_embed
+        self.debug = debug
 
         blocks = []
         for i in range(num_blocks):
             blocks.append(
                 MetaBlock(
-                    in_channels * patch_size,
+                    input_dimension,
                     channels,
-                    self.num_patches,
+                    max_num_tokens,
                     PermutationFromDict(permutation_keys[i]),
                     layers_per_block,
                     head_dim=head_dim,
@@ -403,72 +407,88 @@ class TarFlow(torch.nn.Module):
                 )
             )
         self.blocks = torch.nn.ModuleList(blocks)
-        # prior for nvp mode should be all ones, but needs to be learnd for the vp mode
-        self.register_buffer("var", torch.ones(self.num_patches, in_channels * patch_size**2))
-        self.in_channels = in_channels
-        self.channels = channels
-        self.img_size = img_size
-        self.conditional = self.conditional
-        if self.in_channels != 1:
-            if self.img_size % self.in_channels != 0:
-                raise ValueError(
-                    f"img_size ({self.img_size}) must be divisible by in_channels ({self.in_channels}). "
-                    "Ensure that the input dimensions are compatible."
-                )
-        self.debug = debug
+
 
     def forward(
         self,
         x: torch.Tensor,
         permutations: dict[str, torch.Tensor],
-        residue_tokenization: dict[str, torch.Tensor] | None = None,
         encoding: dict[str, torch.Tensor] | None = None,
-        mask: torch.Tensor | None = None,
-    ) -> tuple[torch.Tensor, list[torch.Tensor], torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
 
-        # patchify
-        batch_size = x.shape[0]
-        x = x.reshape(batch_size, -1, self.in_channels)
+        mask = permutations.get("mask", None)
 
         if mask is not None:
             assert mask.ndim == 2, "Mask should be 2D"
             assert torch.all(x.sum(dim=-1)[mask == 0] == 0), "x is not zero where mask is zero"
-            assert torch.all(encoding["atom_type"][mask == 0] == 0), "atom_type is not zero where mask is zero"
-            assert torch.all(encoding["aa_type"][mask == 0] == 0), "aa_type is not zero where mask is zero"
-            assert torch.all(encoding["aa_pos"][mask == 0] == 0), "aa_pos is not zero where mask is zero"
-
             mask = mask.view(x.shape[0], -1)  # needs to be this shape for embedder
 
-        cond = None
-        if encoding is not None:
-            assert self.conditional, (
-                f"Passed in encoding for transferrability, but conditional={self.conditional}."
-                + " Set conditional attribute to True"
-            )
-
+        if self.conditional:
+            assert encoding is not None, "Encoding must be provided for conditional model."
+            if mask is not None:
+                for key in encoding.keys():
+                    if not key == "seq_len":  # seq_len is not a tensor, so we don't check it
+                        assert torch.all(encoding[key][mask == 0] == 0), f"{key} is not zero where mask is zero"
             # (batch_size, seq_len, channels)
-            cond = self.cond_embed(
-                atom_type=encoding["atom_type"],
-                aa_type=encoding["aa_type"],
-                aa_pos=encoding["aa_pos"],
-                seq_len=encoding["seq_len"],
-                mask=mask,
-            )
+            cond = self.cond_embed(**encoding, mask=mask)
+        else:
+            cond = None
 
         logdets = torch.zeros((), device=x.device)
 
         for block in self.blocks:
-            x_original = x.clone()  # save original x for permutation
-            x = atoms_to_residue_tokens(x, residue_tokenization)
-            x = residue_to_atom_tokens(x, residue_tokenization, max_sequence_length=x_original.shape[1])
-            assert torch.allclose(x, x_original), "Reshape from residue to atom tokens did not preserve original x"
             x, logdet = block(x, permutations, cond=cond, mask=mask)
             logdets = logdets + logdet
 
-        # un-patchify
-        x_pred = x.reshape(batch_size, -1)
+        return x, logdets
 
-        return x_pred, logdets
+    def reverse(
+        self,
+        x: torch.Tensor,
+        permutations: dict[str, torch.Tensor],
+        encoding: dict[str, torch.Tensor] | None = None,
+    ) -> torch.Tensor:
+        """No masking in reverse since we assume the model generates a single peptide system as a time."""
+
+        if self.conditional:
+            assert encoding is not None, "Encoding must be provided for conditional model."
+            assert x.shape[1] == encoding["aa_type"].shape[1] * self.in_channels, "x and encoding do not match"
+
+            for key in ["atom_type", "aa_type", "aa_pos"]:
+                if key in encoding:
+                    if not key == "seq_len":  # seq_len is not a tensor, so we don't check it
+                        assert not torch.any(encoding[key] == 0), f"{key} has padding zeros, padding not supports in reverse"
+            # (batch_size, seq_len, channels)
+            cond = self.cond_embed(**encoding, mask=mask)
+        else:
+            cond = None
+
+        for block in reversed(self.blocks):
+            x = block.reverse(x, permutations, cond=cond)
+
+        return x
+
+
+class AtomTarFlow(TarFlow):
+    def forward(
+        self,
+        x: torch.Tensor,
+        permutations: dict[str, torch.Tensor],
+        encoding: dict[str, torch.Tensor] | None = None,
+    ) -> tuple[torch.Tensor, list[torch.Tensor], torch.Tensor]:
+
+        batch_size = x.shape[0]
+        permutations = permutations["atom"]
+
+        # patichy to (batch_size, num_atoms, input_dimension)
+        x = x.reshape(batch_size, -1, self.input_dimension)
+
+        x, logdets = super().forward(x, permutations, encoding)
+
+        # un-patchify
+        x = x.reshape(batch_size, -1)
+
+        return x, logdets
 
     def reverse(
         self,
@@ -480,43 +500,110 @@ class TarFlow(torch.nn.Module):
         """No masking in reverse since we assume the model generates a single peptide system as a time."""
 
         batch_size = x.shape[0]
+        permutations = permutations["atom"]
 
-        assert x.shape[1] == encoding["atom_type"].shape[1] * self.in_channels, "x and encoding do not match"
-        assert not torch.any(encoding["atom_type"] == 0), "atom_type has padding zeros, padding not supports in reverse"
-        assert not torch.any(encoding["aa_type"] == 0), "aa_type has padding zeros, padding not supports in reverse"
-        assert not torch.any(encoding["aa_pos"] == 0), "aa_pos has padding zeros, padding not supports in reverse"
+        # patchify to (batch_size, num_atoms, input_dimension)
+        x = x.reshape(batch_size, -1, self.input_dimension)
 
-        # patchify
-        x = x.reshape(batch_size, -1, self.in_channels)
+        x = super().reverse(x, permutations, encoding, return_sequence)
 
-        cond = None
-        if encoding is not None:
-            assert self.conditional, (
-                f"Passed in encoding for transferrability, but conditional={self.conditional}."
-                + " Set conditional attribute to True"
-            )
-            cond = self.cond_embed(
-                atom_type=encoding["atom_type"],
-                aa_type=encoding["aa_type"],
-                aa_pos=encoding["aa_pos"],
-                seq_len=encoding["seq_len"],
-            )
-
-        seq = [x.reshape(batch_size, -1)]
-        x = x * self.var.sqrt()[: x.shape[1]]
-
-        for block in reversed(self.blocks):
-            x = block.reverse(x, permutations, cond=cond)
-            seq.append(x.reshape(batch_size, -1))
-
-        # un-patch
+        # un-patchify
         x = x.reshape(batch_size, -1)
 
-        if not return_sequence:
-            return x
-        else:
-            return seq
+        return x
 
+class ResidueTarFlow(TarFlow):
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        permutations: dict[str, torch.Tensor],
+        encoding: dict[str, torch.Tensor] | None = None,
+    ) -> tuple[torch.Tensor, list[torch.Tensor], torch.Tensor]:
+
+        batch_size = x.shape[0]
+        x = x.reshape(batch_size, -1, 3) # TODO remove
+        atom_seq_len = x.shape[1]
+
+        permutations = permutations["residue"]
+
+        # patichy to (batch_size, max_residues, max_atoms_per_residue)
+        x_start = x.clone()
+        x = atoms_to_residue_tokens(x, permutations["tokenization_map"])
+        x_new = residue_to_atom_tokens(x, permutations["tokenization_map"], max_seq_len=x_start.shape[1])
+        assert torch.allclose(x_new, x_start), "Reshape from residue to atom tokens did not preserve original x"
+
+        residue_encoding = {
+            "aa_type": atom_to_residue_encoding(encoding["aa_type"], permutations["tokenization_map"]),
+            "seq_len": encoding["seq_len"],
+        }
+
+        x, logdets = super().forward(x, permutations, residue_encoding)
+
+        # un-patchify
+        x = residue_to_atom_tokens(
+            x, permutations["tokenization_map"], max_seq_len=atom_seq_len
+        )
+
+        x = x.reshape(batch_size, -1) # TODO remove
+
+        return x, logdets
+
+    def reverse(
+        self,
+        x: torch.Tensor,
+        permutations: dict[str, torch.Tensor],
+        encoding: dict[str, torch.Tensor] | None = None,
+    ) -> torch.Tensor | list[torch.Tensor]:
+        """No masking in reverse since we assume the model generates a single peptide system as a time."""
+
+        batch_size = x.shape[0]
+        x = x.reshape(batch_size, -1, 3) # TODO remove
+        atom_seq_len = x.shape[1]
+
+        permutations = permutations["residue"]
+
+        # patichy to (batch_size, max_residues, max_atoms_per_residue)
+        x_start = x.clone()
+        x = atoms_to_residue_tokens(x, permutations["tokenization_map"])
+        x_new = residue_to_atom_tokens(x, permutations["tokenization_map"], max_seq_len=x_start.shape[1])
+        assert torch.allclose(x_new, x_start), "Reshape from residue to atom tokens did not preserve original x"
+
+        x = super().reverse(x, permutations, encoding)
+
+        # un-patchify
+        x = residue_to_atom_tokens(
+            x, permutations["tokenization_map"], max_seq_len=atom_seq_len
+        )
+
+        x = x.reshape(batch_size, -1) # TODO remove
+
+        return x 
+
+class MultiTarFlow(torch.nn.Module):
+    """
+    """
+
+    def __init__(self, models: list[TarFlow]):
+        super().__init__()
+        self.models = torch.nn.ModuleList(models)
+
+    def forward(self, x: torch.Tensor, permutations: dict[str, torch.Tensor], encoding: dict[str, torch.Tensor] | None = None):
+        logdets = torch.zeros((x.shape[0]), device=x.device)
+        for model in self.models:
+            x, logdet = model(x, permutations, encoding)
+            logdets += logdet
+
+        atom_mask = permutations["atom"].get("mask", None) # TODO remove
+        if atom_mask is not None: 
+            logdets = logdets / (atom_mask.sum(dim=-1) * 3)
+
+        return x, logdets
+
+    def reverse(self, x: torch.Tensor, permutations: dict[str, torch.Tensor], encoding: dict[str, torch.Tensor] | None = None):
+        for model in reversed(self.models):
+            x = model.reverse(x, permutations, encoding)
+        return x
 
 ########################################################
 """ Below are helper functions for testing the model """

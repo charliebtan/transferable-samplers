@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH -J extrapolate_100                 # Job name
 #SBATCH -o watch_folder/%x_%j.out     # output file (%j expands to jobID)
-#SBATCH -N 1                          # Total number of nodes requested
+#SBATCH -N 2                          # Total number of nodes requested
 #SBATCH --mem=256G                     # server memory requested (per node)
 #SBATCH -t 3:00:00                  # Time limit (hh:mm:ss)
 #SBATCH --account=aip-necludov               
@@ -21,19 +21,18 @@ source $HOME/envs/$env/bin/activate
 wandb online
 
 echo $SLURM_NNODES
-RUN_NAME="tarflow_up_to_8aa_extrapolate_100_v2"
+RUN_NAME="tarflow_up_to_8aa_extrapolate_100_v5"
 
 srun python -u src/train.py \
 experiment=training/tarflow_up_to_8aa logger=wandb \
 trainer=ddp \
 data.data_dir='/project/aip-necludov/shared/self-consume-bg/data/new' \
-data.batch_size=256 \
-trainer.limit_train_batches=2000 \
-+trainer.accumulate_grad_batches=2 \
+data.batch_size=512 \
+trainer.limit_train_batches=1000 \
 model.net.use_adapt_ln=True \
 model.net.use_transition=True \
 model.net.use_attn_pair_bias=False \
-model.net.perm_type=globloc \
+model.net.perm_type=new \
 +model.net.cond_embed.sinusoid_div_value=100 \
 trainer.num_nodes=$SLURM_NNODES \
 tags=[up_to_8aa,ddp,full,extrapolate] \

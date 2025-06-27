@@ -165,12 +165,15 @@ def get_permutation(permutations_definition_dict, topology, sequence_ordering, g
 
     return permutation
 
+def nested_defaultdict(): # TODO yuck
+    return defaultdict(dict)
+
 def get_permutations_dict(topology_dict):
 
     # Load the permutations definition from YAML file
     permutations_definition_dict = load_yaml_as_dict("src/data/components/permutations.yaml")
 
-    permutations_dict = defaultdict(dict)
+    permutations_dict = defaultdict(nested_defaultdict)
 
     sequence_orderings = ["n2c", "c2n"]
     global_types = ["residue-by-residue", "backbone-first"]
@@ -195,8 +198,9 @@ def get_permutations_dict(topology_dict):
                     heavy_type,
                     residue_cache
                 )
-                permutations_dict[seq_name][key] = permutation
-                permutations_dict[seq_name][key + "_flip"] = torch.flip(permutation, dims=[0]) # Also add flipped version of the permutation
+                permutations_dict[seq_name]["permutations"][key] = permutation
+                permutations_dict[seq_name]["permutations"][key + "_flip"] = torch.flip(permutation, dims=[0]) # Also add flipped version of the permutation
+                permutations_dict[seq_name]["tokenization_map"] = None
 
                 pbar.update(1)
 

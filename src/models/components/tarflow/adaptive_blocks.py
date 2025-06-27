@@ -302,7 +302,7 @@ if __name__ == "__main__":
     aa_pos = torch.randint(0, 2, (batch_size, num_atoms))
     mask = torch.ones((batch_size, num_atoms), dtype=torch.bool)
 
-    embedder = ConditionalEmbedder(channels=channels)
+    embedder = ConditionalEmbedder(hidden_dim=channels)
     cond = embedder(atom_type, aa_type, aa_pos, mask)
 
     adapt_layernorm = AdaptiveAttnAndTransition(in_channels=channels, head_channels=64)

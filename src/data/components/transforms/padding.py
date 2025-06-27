@@ -1,13 +1,13 @@
 from itertools import permutations
 from typing import Any
 
+from src.data.components import residue_tokenization
 import torch
-
 
 class PaddingTransform(torch.nn.Module):
     """Pads the input data to a fixed size and creates a mask for the padded elements."""
 
-    def __init__(self, max_num_particles: int, num_dimensions: int) -> None:
+    def __init__(self, max_num_particles: int, num_dimensions: int, max_num_residues: int) -> None:
         """
         Args:
             max_num_particles (int): Max number of particles to pad to.
@@ -16,6 +16,7 @@ class PaddingTransform(torch.nn.Module):
         super().__init__()
         self.max_num_particles = max_num_particles
         self.num_dimensions = num_dimensions
+        self.max_num_residues = max_num_residues
 
     def pad_data(self, x: torch.Tensor) -> torch.Tensor:
         assert len(x.shape) == 2
@@ -24,37 +25,46 @@ class PaddingTransform(torch.nn.Module):
         return torch.cat([x, pad_tensor])
 
     def pad_encoding(self, encoding: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        padded_encoding = {}
         for key, value in encoding.items():
             if not key == "seq_len":  # don't pad seq_len - is single value per sample
-                encoding[key] = torch.cat(
+                padded_encoding[key] = torch.cat(
                     [value, torch.zeros(self.max_num_particles - value.shape[0], dtype=torch.int64)]
                 )
-        return encoding
+            else:
+                padded_encoding[key] = value
+        return padded_encoding
 
-    def pad_permutations(self, permutations: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-        for key, value in permutations.items():
-            pad_len = self.max_num_particles - value.shape[0]
-            if pad_len > 0:
+    def create_permutation_mask(self, permutations: dict[str, torch.Tensor], padded_seq_len: int) -> dict[str, torch.Tensor]:
+        num_tokens = next(iter(permutations.values())).shape[0]
+        assert all(len(v) == num_tokens for v in permutations.values()), "All permutations must have same length"
+        true_mask = torch.ones(num_tokens, dtype=torch.bool)
+        false_mask = torch.zeros(padded_seq_len - num_tokens, dtype=torch.bool)
+        return torch.cat([true_mask, false_mask])
+
+    def pad_permutations(self, permutations: dict[str, torch.Tensor], padded_seq_len: int) -> dict[str, torch.Tensor]:
+        num_tokens = next(iter(permutations.values())).shape[0]
+        assert all(len(v) == num_tokens for v in permutations.values()), "All permutations must have same length"
+        pad_len = padded_seq_len - num_tokens
+        if not pad_len:
+            return permutations.copy()
+        else:
+            padded_permutations = {}
+            for key, value in permutations.items():
                 pad_start = torch.max(value).item() + 1
                 pad_values = torch.arange(pad_start, pad_start + pad_len, dtype=torch.int64)
-                permutations[key] = torch.cat([value, pad_values])
-        return permutations
+                padded_permutations[key] = torch.cat([value, pad_values])
+            return padded_permutations
 
-    def create_mask(self, x: torch.Tensor) -> torch.Tensor:
-        num_particles = x.shape[0]
-        true_mask = torch.ones(num_particles)
-        false_mask = torch.zeros(self.max_num_particles - num_particles)
-        return torch.cat([true_mask, false_mask]).bool()
-
-    def pad_residue_tokenization(self, residue_tokenization: torch.Tensor) -> torch.Tensor:
-        assert not residue_tokenization.shape[0] > 4 # TODO hardcoded to 4
-        if residue_tokenization.shape[0] < 4:
-            pad_len = 4 - residue_tokenization.shape[0]
-            single_pad_tensor = torch.ones_like(residue_tokenization[0:1]) * -1  # padding with -1
-            pad_tensor = single_pad_tensor.repeat(pad_len, 1)
-            return torch.cat([residue_tokenization, pad_tensor])
+    def pad_tokenization_map(self, tokenization_map: torch.Tensor, padded_seq_len: int) -> dict[str, torch.Tensor]:
+        num_tokens = tokenization_map.shape[0]
+        pad_len = padded_seq_len - num_tokens
+        if not pad_len:
+            return tokenization_map.clone()
         else:
-            return residue_tokenization
+            single_pad_tensor = torch.ones_like(tokenization_map[0:1]) * -1  # padding with -1
+            pad_tensor = single_pad_tensor.repeat(pad_len, 1)
+            return torch.cat([tokenization_map, pad_tensor])
 
     def forward(self, data: dict[str, Any]) -> dict[str, Any]:
         """
@@ -66,25 +76,33 @@ class PaddingTransform(torch.nn.Module):
         assert "mask" not in data, "data already has a mask, cannot pad again"
 
         x = data["x"]
-        encoding = data["encoding"]    
+        encoding = data["encoding"]
         permutations = data["permutations"]
-        residue_tokenization = data["residue_tokenization"]
 
         assert len(x.shape) == 2, f"only process single molecules, got shape of {x.shape}"
         assert x.shape[1] == self.num_dimensions, f"expected {self.num_dimensions} dimensions, got {x.shape[1]}"
 
-        mask = self.create_mask(x)  # must make mask before padding!
-
         x = self.pad_data(x)
+
+        atom_mask = self.create_permutation_mask(permutations["atom"]["permutations"], padded_seq_len=self.max_num_particles)
+        residue_mask = self.create_permutation_mask(permutations["residue"]["permutations"], padded_seq_len=self.max_num_residues)
+
         encoding = self.pad_encoding(encoding)
-        permutations = self.pad_permutations(permutations)
-        residue_tokenization = self.pad_residue_tokenization(residue_tokenization)
+
+        atom_permutations = self.pad_permutations(permutations["atom"]["permutations"], padded_seq_len=self.max_num_particles)
+        residue_permutations = self.pad_permutations(permutations["residue"]["permutations"], padded_seq_len=self.max_num_residues)
+        residue_tokenization_map = self.pad_tokenization_map(permutations["residue"]["tokenization_map"], padded_seq_len=self.max_num_residues)
 
         return {
             **data,
             "x": x,
             "encoding": encoding,
-            "permutations": permutations,   
-            "residue_tokenization": residue_tokenization,
-            "mask": mask,
+            "permutations": {
+                "atom": {**atom_permutations, 
+                         "mask": atom_mask},
+                "residue": {**residue_permutations,
+                            "mask": residue_mask,
+                            "tokenization_map": residue_tokenization_map
+                            },
+            },
         }

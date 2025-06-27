@@ -27,7 +27,6 @@ from src.data.components.symmetry import resolve_chirality
 from src.data.components.test_subset import ALL_TEST_SUBSET, SCALING_SUBSET, TEST_SUBSET_DICT
 from src.data.components.transforms.add_encoding import AddEncodingTransform
 from src.data.components.transforms.atom_noise import AtomNoiseTransform
-from src.data.components.transforms.add_residue_tokenization import AddResidueTokenizationTransform
 from src.data.components.transforms.center_of_mass import CenterOfMassTransform
 from src.data.components.transforms.padding import PaddingTransform
 from src.data.components.transforms.rotation import Random3DRotationTransform
@@ -263,10 +262,10 @@ class TransferablePeptideDataModule(BaseDataModule):
             "Train largest system must be greater than or equal to test largest system for pos_embed learning."
         )
         # Need to check here so TarFlow is correctly initalized for data
-        assert self.hparams.num_particles > train_max_num_particles, (
-            "TarFlow num_particles must be greater than the largest system size. "
+        assert self.hparams.num_particles >= train_max_num_particles, (
+            "TarFlow num_particles must be greater or equal to the largest system size. "
             + f"Max num particles={train_max_num_particles}. Set num_particles in data config "
-            + f"to {train_max_num_particles + 1}."
+            + f"to {train_max_num_particles}."
         )
 
         pdb_paths = [
@@ -327,9 +326,8 @@ class TransferablePeptideDataModule(BaseDataModule):
             self.atom_noise_std = 0.0
         transform_list = transform_list + [
             AddEncodingTransform(self.encoding_dict),
-            AddPermutationsTransform(self.permutations_dict),
-            AddResidueTokenizationTransform(self.residue_tokenization_dict),
-            PaddingTransform(self.hparams.num_particles, self.hparams.num_dimensions),
+            AddPermutationsTransform(self.permutations_dict, self.residue_tokenization_dict),
+            PaddingTransform(self.hparams.num_particles, self.hparams.num_dimensions, self.hparams.num_aa_max),
         ]
 
         transforms = torchvision.transforms.Compose(transform_list)
@@ -351,9 +349,8 @@ class TransferablePeptideDataModule(BaseDataModule):
         test_transform_list = [
             StandardizeTransform(self.std, self.hparams.num_dimensions),
             AddEncodingTransform(self.encoding_dict),
-            AddPermutationsTransform(self.permutations_dict),
-            AddResidueTokenizationTransform(self.residue_tokenization_dict),
-            PaddingTransform(self.hparams.num_particles, self.hparams.num_dimensions),
+            AddPermutationsTransform(self.permutations_dict, self.residue_tokenization_dict),
+            PaddingTransform(self.hparams.num_particles, self.hparams.num_dimensions, self.hparams.num_aa_max), 
         ]
 
         test_transforms = torchvision.transforms.Compose(test_transform_list)
@@ -420,7 +417,7 @@ class TransferablePeptideDataModule(BaseDataModule):
         potential = self.setup_potential(eval_sequence)
         energy_fn = lambda x: potential.energy(self.unnormalize(x)).flatten()
 
-        return true_samples, encoding, permutations, residue_tokenization, energy_fn
+        return true_samples, permutations, encoding, energy_fn
 
     def metrics_and_plots(
         self,
@@ -493,7 +490,7 @@ class TransferablePeptideDataModule(BaseDataModule):
                         compute_distribution_distances=False,
                     )
                 )
-                if self.hparams.do_plots:
+                if self.hparams.do_plots and len(data) > 32:
                     plot_ramachandran(log_image_fn, data.samples, self.topology_dict[sequence], prefix=prefix + name)
                     plot_tica(
                         log_image_fn,

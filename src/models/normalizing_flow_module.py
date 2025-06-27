@@ -38,11 +38,12 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
         x1 = batch["x"]
         encoding = batch["encoding"]
         permutations = batch["permutations"]
-        residue_tokenization = batch["residue_tokenization"]
-        mask = batch.get("mask", None)
 
-        x0, dlogp = self.net(x1, encoding=encoding, permutations=permutations, residue_tokenization = residue_tokenization, mask=mask)
+        x0, dlogp = self.net(x1, permutations=permutations, encoding=encoding)
+
+        mask = batch["permutations"]["atom"].get("mask", None)
         loss = self.prior.energy(x0, mask=mask).mean() - dlogp.mean()
+
         self.log("train/mle_loss", loss.item(), prog_bar=True, sync_dist=True)
 
         if self.hparams.energy_kl_weight:
