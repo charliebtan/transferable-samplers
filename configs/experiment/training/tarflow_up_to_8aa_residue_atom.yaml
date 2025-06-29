@@ -18,11 +18,25 @@ model:
     _target_: src.models.components.tarflow.tarflow.MultiTarFlow
     models:
       - <<: *tarflow
+        _target_: src.models.components.tarflow.tarflow.ResidueTarFlow
+        input_dimension: 246 # 82 * 3 atom types
+        channels: 768
+        max_num_tokens: ${data.num_aa_max}
+        num_blocks: 4
+        layers_per_block: 4
+        permutation_keys:
+        - "n2c"
+        - "c2n"
+        cond_embed:
+          _target_: src.models.components.tarflow.embed.ResidueConditionalEmbedder
+          hidden_dim: 384
+          output_dim: ${model.net.models[0].channels}
+      - <<: *tarflow
         _target_: src.models.components.tarflow.tarflow.AtomTarFlow
         input_dimension: 3 # 3D coordinates
         channels: 384
         max_num_tokens: ${data.num_particles}
-        num_blocks: 10
+        num_blocks: 8
         layers_per_block: 8
         permutation_keys:
         - "n2c_backbone-first_variant_group-by-group"
@@ -35,8 +49,8 @@ model:
         - "n2c_residue-by-residue_variant_heavy-first_flip"
         cond_embed:
           _target_: src.models.components.tarflow.embed.AtomConditionalEmbedder
-          hidden_dim: 384
-          output_dim: 384
+          hidden_dim: ${model.net.models[1].channels}
+          output_dim: ${model.net.models[1].channels}
 
   sampling_config:
     num_proposal_samples: 5_000
