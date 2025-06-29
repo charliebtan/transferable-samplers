@@ -379,7 +379,7 @@ class TarFlow(torch.nn.Module): # rename to AtomTarFlow?
         super().__init__()
 
         self.input_dimension = input_dimension
-        permutation_keys = list(permutation_keys) * (num_blocks // len(permutation_keys))  # repeat to match num_blocks
+        permutation_keys = list(permutation_keys) * (num_blocks // len(permutation_keys) + 1)  # repeat to match num_blocks
         self.conditional = False if cond_embed is None else True
         self.cond_embed = cond_embed
         self.debug = debug
