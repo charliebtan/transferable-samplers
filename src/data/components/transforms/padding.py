@@ -46,10 +46,10 @@ class PaddingTransform(torch.nn.Module):
         false_mask = torch.zeros(self.max_num_particles - num_particles)
         return torch.cat([true_mask, false_mask]).bool()
 
-    def pad_residue_tokenization(self, residue_tokenization: torch.Tensor) -> torch.Tensor:
-        assert not residue_tokenization.shape[0] > 4 # TODO hardcoded to 4
-        if residue_tokenization.shape[0] < 4:
-            pad_len = 4 - residue_tokenization.shape[0]
+    def pad_residue_tokenization(self, residue_tokenization: torch.Tensor, max_residues: int = 10) -> torch.Tensor:
+        assert not residue_tokenization.shape[0] > max_residues
+        if residue_tokenization.shape[0] < max_residues:
+            pad_len = max_residues - residue_tokenization.shape[0]
             single_pad_tensor = torch.ones_like(residue_tokenization[0:1]) * -1  # padding with -1
             pad_tensor = single_pad_tensor.repeat(pad_len, 1)
             return torch.cat([residue_tokenization, pad_tensor])
