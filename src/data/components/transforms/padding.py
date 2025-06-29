@@ -58,6 +58,7 @@ class PaddingTransform(torch.nn.Module):
 
     def pad_tokenization_map(self, tokenization_map: torch.Tensor, padded_seq_len: int) -> dict[str, torch.Tensor]:
         num_tokens = tokenization_map.shape[0]
+        assert not num_tokens > padded_seq_len, "tokenization map has more tokens than padded sequence length"
         pad_len = padded_seq_len - num_tokens
         if not pad_len:
             return tokenization_map.clone()
