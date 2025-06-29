@@ -2,6 +2,7 @@ import logging
 import math
 import os
 from typing import Callable, Optional
+import pickle
 
 import openmm
 import openmm.app
@@ -275,8 +276,29 @@ class TransferablePeptideDataModule(BaseDataModule):
         ]
         self.pdb_dict, self.topology_dict = load_pdbs_and_topologies(pdb_paths, self.num_aa_range)
         self.encoding_dict = get_encoding_dict(self.topology_dict)
-        self.permutations_dict = get_permutations_dict(self.topology_dict)
-        self.residue_tokenization_dict = get_residue_tokenization_dict(self.topology_dict)
+
+        permutation_pkl_path = "permutations.pkl"
+        if os.path.exists(permutation_pkl_path):
+            logging.info("Loading permutations from existing pickle file.")
+            with open(permutation_pkl_path, "rb") as f:
+                self.permutations_dict = pickle.load(f)
+        else:
+            self.permutations_dict = get_permutations_dict(self.topology_dict)
+            if self.trainer.local_rank == 0:
+                with open(permutation_pkl_path, "wb") as permutation_pkl_file:
+                    pickle.dump(self.permutations_dict, permutation_pkl_file)
+
+        residue_tokenization_pkl_path = "residue_tokenization.pkl"
+        if os.path.exists(residue_tokenization_pkl_path):
+            logging.info("Loading residue tokenization from existing pickle file.")
+            with open(residue_tokenization_pkl_path, "rb") as f:
+                self.residue_tokenization_dict = pickle.load(f)
+        else:
+            logging.info("Creating residue tokenization dictionary.")
+            self.residue_tokenization_dict = get_residue_tokenization_dict(self.topology_dict)
+            if self.trainer.local_rank == 0:
+                with open(residue_tokenization_pkl_path, "wb") as f:
+                    pickle.dump(self.residue_tokenization_dict, f)
 
         total_samples = 0
         weighted_vars = []

@@ -159,6 +159,7 @@ class MetaBlock(torch.nn.Module):
                 f"First two dimensions of mask {mask.shape[:1]} and x {x.shape[:1]} do not match"
             )
 
+            # WARNING there was a permutation of mask here but i can't see what it would do TODO
             attn_mask = attn_mask.unsqueeze(0)
             attn_mask = attn_mask * mask[..., None]
             attn_mask = attn_mask.unsqueeze(1)
@@ -197,8 +198,8 @@ class MetaBlock(torch.nn.Module):
         cond: torch.Tensor,
         pos_embed: torch.Tensor,
         i: int,
-        attn_temp: float = 1.0,
-        which_cache: str = "cond",
+        attn_temp: float = 1.0, # TODO remove?
+        which_cache: str = "cond", # TODO remove?
     ) -> tuple[torch.Tensor, torch.Tensor]:
         x_in = x.clone()
         x = self.proj_in(x_in[:, i : i + 1]) + pos_embed[:, i : i + 1]
@@ -377,6 +378,73 @@ class TarFlow(torch.nn.Module): # rename to AtomTarFlow?
         debug: bool = False,  # stops the weight initialization from being zero so tokens are not all the same
     ):
         super().__init__()
+        self.input_dimension = input_dimension
+
+        if perm_type == "standard":
+            permutation_keys = ["n2c_residue-by-residue_standard_group-by-group", "n2c_residue-by-residue_standard_group-by-group_flip"] * (num_blocks // 2)
+        elif perm_type == "globloc":  # this way the side chains go forwards and backwards alternating
+            permutation_keys = [
+                "n2c_backbone-first_standard_group-by-group",
+                "n2c_residue-by-residue_standard_group-by-group_flip",
+                "n2c_backbone-first_standard_group-by-group_flip",
+                "n2c_residue-by-residue_standard_group-by-group"
+                ] * (num_blocks // 4)
+        elif perm_type == "globloc+c2n":  # this way the side chains go forwards and backwards alternating
+            permutation_keys = [
+                "n2c_backbone-first_standard_group-by-group",
+                "n2c_backbone-first_standard_group-by-group_flip",
+                "c2n_residue-by-residue_standard_group-by-group",
+                "c2n_residue-by-residue_standard_group-by-group_flip",
+                "c2n_backbone-first_standard_group-by-group",
+                "c2n_backbone-first_standard_group-by-group_flip",
+                "n2c_residue-by-residue_standard_group-by-group",
+                "n2c_residue-by-residue_standard_group-by-group_flip",
+                ] * (num_blocks // 4)
+        elif perm_type == "globloc+variant":
+            permutation_keys = [
+                "n2c_backbone-first_variant_group-by-group",
+                "n2c_residue-by-residue_standard_group-by-group_flip",
+                "n2c_backbone-first_variant_group-by-group_flip",
+                "n2c_residue-by-residue_standard_group-by-group",
+                "n2c_backbone-first_standard_group-by-group",
+                "n2c_residue-by-residue_variant_group-by-group_flip",
+                "n2c_backbone-first_standard_group-by-group_flip",
+                "n2c_residue-by-residue_variant_group-by-group"
+                ] * (num_blocks // 4)
+        elif perm_type == "globloc+hf":
+            permutation_keys = [
+                "n2c_backbone-first_standard_heavy-first",
+                "n2c_residue-by-residue_standard_group-by-group_flip",
+                "n2c_backbone-first_standard_heavy-first_flip",
+                "n2c_residue-by-residue_standard_group-by-group",
+                "n2c_backbone-first_standard_group-by-group",
+                "n2c_residue-by-residue_standard_heavy-first_flip",
+                "n2c_backbone-first_standard_group-by-group_flip",
+                "n2c_residue-by-residue_standard_heavy-first"
+                ] * (num_blocks // 4)
+        elif perm_type == "new":
+            permutation_keys = [
+                "n2c_backbone-first_variant_group-by-group",
+                "n2c_backbone-first_variant_group-by-group_flip",
+                "c2n_residue-by-residue_standard_heavy-first",
+                "c2n_residue-by-residue_standard_heavy-first_flip",
+                "c2n_backbone-first_standard_group-by-group",
+                "c2n_backbone-first_standard_group-by-group_flip",
+                "n2c_residue-by-residue_variant_heavy-first",
+                "n2c_residue-by-residue_variant_heavy-first_flip",
+                ]  * (num_blocks // 8)
+        elif perm_type == "new-2":
+            permutation_keys = [
+                "n2c_backbone-first_standard_group-by-group",
+                "n2c_backbone-first_standard_group-by-group_flip",
+                "c2n_residue-by-residue_standard_group-by-group",
+                "c2n_residue-by-residue_standard_flip",
+                "c2n_backbone-first_standard_group-by-group",
+                "c2n_backbone-first_standard_group-by-group_flip",
+                "n2c_residue-by-residue_standard_group-by-group",
+                "n2c_residue-by-residue_standard_group-by-group_flip",
+                ]  * (num_blocks // 8)
+
 
         self.input_dimension = input_dimension
         permutation_keys = list(permutation_keys) * (num_blocks // len(permutation_keys) + 1)  # repeat to match num_blocks
@@ -699,8 +767,8 @@ def test_mask_model_no_pad(model, x, permutations, encoding, model_pad):
 
 @torch.no_grad()
 def test_logdet(model, x_i, permutations_i, enc_i):
-    x_pred = model.reverse(x_i, permutations_i, enc_i)
-    _, fwd_logdets = model(x_pred, permutations_i, enc_i)
+    x_pred = model.reverse(x_i, permutations_i, encoding=enc_i)
+    _, fwd_logdets = model(x_pred, permutations_i, encoding=enc_i)
     fwd_logdets = fwd_logdets * x_i.shape[1]  # rescale from mean to sum
 
     reverse_func = lambda x: model.reverse(x=x, permutations=permutations_i, encoding=enc_i)
@@ -714,19 +782,20 @@ def test_logdet(model, x_i, permutations_i, enc_i):
 
 @torch.no_grad()
 def test_logdet_mask(model, model_pad, x_i, permutations_i, permutations_pad_i, enc_i, enc_i_pad, mask_i, num_pad_tokens=2, num_dimensions=3):
-    x_pred = model.reverse(x_i, permutations_i, enc_i)
-    _, fwd_logdets = model_pad(x_pred, permutations_i, enc_i)
-    fwd_logdets = fwd_logdets * x_i.shape[1]  # rescale from mean to sum
-
-    x_pred_pad = model_pad.reverse(x_i, permutations_i, enc_i)
+    # TODO i don't think you need the non-pad model in this function
+    x_pred = model.reverse(x_i, permutations_i, encoding=enc_i)
+    x_pred_pad = model_pad.reverse(x_i, permutations_i, encoding=enc_i)
 
     print("x_pred max error:", torch.max(abs(x_pred - x_pred_pad)))
     print("x_pred mae:", torch.mean(abs(x_pred - x_pred_pad)))
     assert torch.allclose(x_pred, x_pred_pad, atol=1e-6), "Models do not generate the same x_pred"
 
+    _, fwd_logdets = model_pad(x_pred, permutations_i, encoding=enc_i)
+    fwd_logdets = fwd_logdets * x_i.shape[1]  # rescale from mean to sum
+
     # pad the output for the forward call
     x_pred_pad = torch.cat([x_pred_pad, torch.zeros_like(x_pred_pad[:, : num_pad_tokens * num_dimensions])], dim=1)
-    _, fwd_logdets_pad = model_pad(x_pred_pad, permutations_pad_i, enc_i_pad, mask_i)
+    _, fwd_logdets_pad = model_pad(x_pred_pad, permutations_pad_i, encoding=enc_i_pad, mask=mask_i)
     fwd_logdets_pad = fwd_logdets_pad * mask_i.sum(dim=-1) * num_dimensions  # rescale from mean to sum
 
     logdets_diff = torch.mean(abs(fwd_logdets - fwd_logdets_pad))

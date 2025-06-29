@@ -22,7 +22,6 @@ from src.models.components.utils import resample
 
 logger = logging.getLogger(__name__)
 
-
 class TransferableBoltzmannGeneratorLitModule(LightningModule):
     def __init__(
         self,
@@ -236,7 +235,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
 
         # Parse and aggregate metrics along peptide sequences
         for key, value in metrics.items():
-            if key.startswith(prefix):
+            if key.startswith(prefix): # TODO not sure this is needed here
                 # Extract sequence and metric name
                 parts = key.split("/")
                 metric_name = "/".join(parts[2:])
@@ -269,6 +268,22 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         metrics.update(count_dict)
         return metrics
 
+    def detach_and_cpu(self, obj): # TODO hack to have this here? at all? you could just be more careful to detach / cpu?
+        """
+        Recursively detach and move all tensors to CPU within a nested structure.
+        Works with dicts, lists, tuples, and tensors.
+        """
+        if isinstance(obj, torch.Tensor):
+            return obj.detach().cpu()
+        elif isinstance(obj, dict):
+            return {k: self.detach_and_cpu(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [self.detach_and_cpu(v) for v in obj]
+        elif isinstance(obj, tuple):
+            return tuple(self.detach_and_cpu(v) for v in obj)
+        else:
+            return obj  # Leave other data types (int, float, str, etc.) as-is
+
     def evaluate_all(self, prefix):
         metrics = {}
         eval_seq_names = self.datamodule.val_seq_names if prefix.startswith("val") else self.datamodule.test_seq_names
@@ -298,6 +313,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
 
         # Aggregate metrics across all sequences
         if self.local_rank == 0:
+            metrics = self.detach_and_cpu(metrics)  # Ensure all tensors are detached and on CPU
             metric_object_list = [self.add_aggregate_metrics(metrics, prefix=prefix)]
         else:
             metric_object_list = [None]  # List must have same length for broadcast
