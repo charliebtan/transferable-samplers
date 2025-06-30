@@ -10,7 +10,7 @@ if __name__ == "__main__":
     # This is when we run the script directly to test model
     from adaptive_blocks import AdaptiveAttnAndTransition
     from attention import Attention, AttentionBlock
-    from embed import SinusoidalEmbedding
+    from embed import SinusoidalEmbedding, ResidueConditionalEmbedder, AtomConditionalEmbedder
 else:
     from src.models.components.tarflow.adaptive_blocks import AdaptiveAttnAndTransition
     from src.models.components.tarflow.attention import Attention, AttentionBlock
@@ -24,6 +24,7 @@ class PermutationFromDict(torch.nn.Module):
         self.permutation_key = permutation_key
 
     def forward(self, data: torch.Tensor, data_permutations_dict: dict[str, torch.Tensor], inverse: bool = False):
+        data_permutations_dict = data_permutations_dict["permutations"] # TODO refactor out
         assert self.permutation_key in data_permutations_dict, f"Permutation key {self.permutation_key} not found in data_permutations"
         permutation = data_permutations_dict[self.permutation_key]
         if inverse:
@@ -183,12 +184,20 @@ class MetaBlock(torch.nn.Module):
         tokenization_map = permutations.get("tokenization_map", None)
         if tokenization_map is not None:
             tokenization_mask = (tokenization_map != -1).float().repeat_interleave(3, dim=-1) # TODO hardcode
+            tokenization_mask = self.permutation(tokenization_mask, permutations)
             xb = xb * tokenization_mask
             xa = xa * tokenization_mask
         scale = (-xa.float()).exp().type(xa.dtype)
         x_out = self.permutation((x_in - xb) * scale, permutations, inverse=True)
 
-        logdet = -xa.mean(dim=[1, 2])
+        if tokenization_map is not None:
+            data_dim = (tokenization_map != -1).int().sum(dim=[1, 2]) * 3 # this will inherently account for full padded residue tokens # TODO could be better
+        elif mask is not None:
+            data_dim = mask.sum(dim=-1) * 3 # TODO ugly and makes assumptions
+        else:
+            data_dim = x.shape[1] * 3  # assume all tokens are valid
+
+        logdet = -xa.sum(dim=[1, 2]) / data_dim
 
         return x_out, logdet
 
@@ -256,8 +265,16 @@ class MetaBlock(torch.nn.Module):
 
         self.set_sample_mode(True)
         xs = [x[:, i] for i in range(x.size(1))]
+        tokenization_map = permutations.get("tokenization_map", None)
+        if tokenization_map is not None:
+            tokenization_mask = (tokenization_map != -1).float().repeat_interleave(3, dim=-1) # TODO hardcode
+            tokenization_mask = self.permutation(tokenization_mask, permutations)
+            tokenization_masks = [tokenization_mask[:, i] for i in range(tokenization_mask.size(1))]
         for i in range(x.size(1) - 1):
             za, zb = self.reverse_step(x, cond, pos_embed, i, which_cache="cond")
+            if tokenization_map is not None:
+                zb = zb * tokenization_masks[i+1]
+                za = za * tokenization_masks[i+1]
             scale = za[:, 0].float().exp().type(za.dtype)  # get rid of the sequence dimension
             xs[i + 1] = xs[i + 1] * scale + zb[:, 0]
             x = torch.stack(xs, dim=1)
@@ -452,14 +469,13 @@ class TarFlow(torch.nn.Module): # rename to AtomTarFlow?
 
         if self.conditional:
             assert encoding is not None, "Encoding must be provided for conditional model."
-            assert x.shape[1] == encoding["aa_type"].shape[1] * self.in_channels, "x and encoding do not match"
+            assert x.shape[1] == encoding["aa_type"].shape[1], "x and encoding do not match"
 
             for key in ["atom_type", "aa_type", "aa_pos"]:
                 if key in encoding:
-                    if not key == "seq_len":  # seq_len is not a tensor, so we don't check it
-                        assert not torch.any(encoding[key] == 0), f"{key} has padding zeros, padding not supports in reverse"
-            # (batch_size, seq_len, channels)
-            cond = self.cond_embed(**encoding, mask=mask)
+                    if not key == "seq_len":  # seq_len is single value for each batch item, so we don't check it
+                        assert not torch.any(encoding[key] == 0), f"{key} has padding zeros, padding not supported in reverse"
+            cond = self.cond_embed(**encoding)
         else:
             cond = None
 
@@ -495,7 +511,6 @@ class AtomTarFlow(TarFlow):
         x: torch.Tensor,
         permutations: dict[str, torch.Tensor],
         encoding: dict[str, torch.Tensor] | None = None,
-        return_sequence: bool = False,
     ) -> torch.Tensor | list[torch.Tensor]:
         """No masking in reverse since we assume the model generates a single peptide system as a time."""
 
@@ -505,7 +520,7 @@ class AtomTarFlow(TarFlow):
         # patchify to (batch_size, num_atoms, input_dimension)
         x = x.reshape(batch_size, -1, self.input_dimension)
 
-        x = super().reverse(x, permutations, encoding, return_sequence)
+        x = super().reverse(x, permutations, encoding)
 
         # un-patchify
         x = x.reshape(batch_size, -1)
@@ -530,8 +545,8 @@ class ResidueTarFlow(TarFlow):
         # patichy to (batch_size, max_residues, max_atoms_per_residue)
         x_start = x.clone()
         x = atoms_to_residue_tokens(x, permutations["tokenization_map"])
-        x_new = residue_to_atom_tokens(x, permutations["tokenization_map"], max_seq_len=x_start.shape[1])
-        assert torch.allclose(x_new, x_start), "Reshape from residue to atom tokens did not preserve original x"
+        # x_new = residue_to_atom_tokens(x, permutations["tokenization_map"], max_seq_len=atom_seq_len)
+        # assert torch.allclose(x_new, x_start), "Reshape from residue to atom tokens did not preserve original x"
 
         residue_encoding = {
             "aa_type": atom_to_residue_encoding(encoding["aa_type"], permutations["tokenization_map"]),
@@ -566,10 +581,15 @@ class ResidueTarFlow(TarFlow):
         # patichy to (batch_size, max_residues, max_atoms_per_residue)
         x_start = x.clone()
         x = atoms_to_residue_tokens(x, permutations["tokenization_map"])
-        x_new = residue_to_atom_tokens(x, permutations["tokenization_map"], max_seq_len=x_start.shape[1])
-        assert torch.allclose(x_new, x_start), "Reshape from residue to atom tokens did not preserve original x"
+        # x_new = residue_to_atom_tokens(x, permutations["tokenization_map"], max_seq_len=atom_seq_len)
+        # assert torch.allclose(x_new, x_start), "Reshape from residue to atom tokens did not preserve original x"
 
-        x = super().reverse(x, permutations, encoding)
+        residue_encoding = {
+            "aa_type": atom_to_residue_encoding(encoding["aa_type"], permutations["tokenization_map"]),
+            "seq_len": encoding["seq_len"],
+        }
+
+        x = super().reverse(x, permutations, encoding=residue_encoding)
 
         # un-patchify
         x = residue_to_atom_tokens(
@@ -632,7 +652,7 @@ def load_padded_model_weights(model_pad, model):
 
 @torch.no_grad()
 def test_invertibility(model, x, permutations, encoding, mask=None, num_pad_tokens=2, num_dimensions=3):
-    x_pred, _ = model(x, permutations, encoding=encoding, mask=mask)
+    x_pred, _ = model(x, permutations, encoding=encoding)
 
     # print("x_pred", x_pred[0])
 
@@ -654,6 +674,20 @@ def test_invertibility(model, x, permutations, encoding, mask=None, num_pad_toke
 
     x_recon = model.reverse(x_pred, permutations, encoding=encoding)
 
+    x = x[0:8]
+    x_recon = x_recon[0:8]
+    x_pred = x_pred[0:8]
+
+    print(torch.abs(x - x_recon).mean(dim=0).reshape(8, -1, 3))
+    print("mae:", torch.abs(x - x_recon).mean())
+
+    # print(torch.abs(x - x_pred).mean(dim=0).reshape(8, -1, 3))
+    # print("mae:", torch.abs(x - x_pred).mean())
+    # x = x[0]
+    # x_recon = x_recon[0]
+    # print(torch.abs(x - x_recon).reshape(-1, 3))
+
+
     # print((x - x_recon).reshape(x.shape[0], -1, num_dimensions).mean(dim=0))
     # print((x - x_recon).reshape(x.shape[0], -1, num_dimensions).mean(dim=1))
     # print((x - x_recon).reshape(x.shape[0], -1, num_dimensions).mean(dim=2))
@@ -662,13 +696,12 @@ def test_invertibility(model, x, permutations, encoding, mask=None, num_pad_toke
     # Helpful prints for debugging
     # I often found it's clear that source of error is a few token positions
 
-    # print()
-    # print(x[0, 0:8])
-    # print(x_recon[0, 0:8])
-    # print("mae:", torch.abs(x - x_recon).mean())
-    # print("mse:", torch.mean((x - x_recon) ** 2))
-    # print("max abs:", torch.max(abs(x - x_recon)))
-    # print("position wise MAE", torch.abs(x - x_recon).mean(dim=0))
+    # print(x[0, 0:8])
+    # print(x_recon[0, 0:8])
+    # print("mae:", torch.abs(x - x_recon).mean())
+    # print("mse:", torch.mean((x - x_recon) ** 2))
+    # print("max abs:", torch.max(abs(x - x_recon)))
+    # print("position wise MAE", torch.abs(x - x_recon).mean(dim=0))
 
     assert torch.allclose(x, x_recon, atol=1e-4), "Invertibility test failed"
     print("Invertibility test passed")
@@ -738,156 +771,82 @@ def test_logdet_mask(model, model_pad, x_i, permutations_i, permutations_pad_i, 
 
 
 if __name__ == "__main__":
-    torch.use_deterministic_algorithms(True)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+    # torch.use_deterministic_algorithms(True)
+    # torch.backends.cudnn.deterministic = True
+    # torch.backends.cudnn.benchmark = False
     torch.set_printoptions(sci_mode=True, precision=2)
     torch.manual_seed(1)
 
-    ### Dummy data
+    x = torch.load("debug_prior_samples.pt")
+    permutations = torch.load("debug_permutations.pt")
+    encoding = torch.load("debug_encoding.pt")  
 
-    batch_size = 16
-    sequence_length = 10
 
-    x = torch.randn((batch_size, sequence_length * 3))
 
-    encoding = {
-        "atom_type": torch.randint(1, 32, (batch_size, sequence_length), dtype=torch.long),
-        "aa_type": torch.randint(1, 32, (batch_size, sequence_length), dtype=torch.long),
-        "aa_pos": torch.randint(1, 8, (batch_size, sequence_length), dtype=torch.long),
-        "seq_len": torch.randint(1, 8, (batch_size, 1), dtype=torch.long),
-    }
-
-    permutation = torch.stack([
-        torch.randperm(sequence_length, dtype=torch.long)
-        for _ in range(batch_size)
-    ])
-    permutations = {
-        "n2c_residue-by-residue_standard_group-by-group": permutation,
-        "n2c_residue-by-residue_standard_group-by-group_flip": permutation.flip(dims=[1]),
-    }
-
-    img_size = x.shape[-1]
-    in_channels = 3
-    patch_size = 1
-    channels = 64
-    num_blocks = 4
-    layers_per_block = 1
-
-    pad_tokens = 2
-    pad_dim = pad_tokens * in_channels
-
-    x_pad = torch.cat([x, torch.zeros([batch_size, pad_dim])], dim=1)
-    encoding_pad = {
-        "atom_type": torch.cat(
-            [encoding["atom_type"].clone(), torch.zeros([batch_size, pad_tokens], dtype=torch.long)], dim=1
+    model = ResidueTarFlow(
+        input_dimension=246,  # 82 * 3 atom types
+        channels=768,
+        max_num_tokens=8,
+        num_blocks=4,
+        layers_per_block=4,
+        permutation_keys=["n2c", "c2n"],
+        cond_embed=ResidueConditionalEmbedder(
+            hidden_dim=384,
+            output_dim=768,
         ),
-        "aa_type": torch.cat(
-            [encoding["aa_type"].clone(), torch.zeros([batch_size, pad_tokens], dtype=torch.long)], dim=1
-        ),
-        "aa_pos": torch.cat(
-            [encoding["aa_pos"].clone(), torch.zeros([batch_size, pad_tokens], dtype=torch.long)], dim=1
-        ),
-        "seq_len": encoding["seq_len"].clone(),
-    }
-    pad = torch.arange(
-        permutation.shape[1],
-        permutation.shape[1] + pad_tokens,
-        dtype=torch.long
-    ).unsqueeze(0).expand(permutation.shape[0], -1)
-
-    permutations_pad = {
-        k: torch.cat([v, pad], dim=1)
-        for k, v in permutations.items()
-    }
-    mask = torch.cat(
-        [torch.ones([batch_size, img_size // in_channels], dtype=torch.float32), torch.zeros([batch_size, pad_tokens])],
-        dim=1,
+        use_adapt_ln=True,
+        use_transition=True,
+        use_qkln=True,
+        pos_embed_type="sinusoidal",
+        debug=True,
     )
 
-    cond_embed = ConditionalEmbedder(channels=channels)
+    model = model.cuda()
 
-    for use_adapt_ln in [False, True]:
-        for use_attn_pair_bias in [False, True]:
-            for perm_type in ["standard"]:
-                for pos_embed_type in ["sinusoidal", "learned"]:
-                    print(
-                        f"\nTesting with use_adapt_ln={use_adapt_ln} and use_attn_pair_bias={use_attn_pair_bias} "
-                        f"and perm_type={perm_type} and pos_embed_type={pos_embed_type} \n"
-                    )
+    print("\nstandard")
+    test_invertibility(
+        model, x, permutations, encoding,
+    )
 
-                    model_pad = TarFlow(
-                        in_channels,
-                        img_size + pad_dim,
-                        patch_size,
-                        channels,
-                        num_blocks,
-                        layers_per_block,
-                        cond_embed=cond_embed,
-                        use_adapt_ln=use_adapt_ln,
-                        use_attn_pair_bias=use_attn_pair_bias,
-                        perm_type=perm_type,
-                        pos_embed_type=pos_embed_type,
-                        debug=True,
-                    )
-                    model = TarFlow(
-                        in_channels,
-                        img_size,
-                        patch_size,
-                        channels,
-                        num_blocks,
-                        layers_per_block,
-                        cond_embed=cond_embed,
-                        use_adapt_ln=use_adapt_ln,
-                        use_attn_pair_bias=use_attn_pair_bias,
-                        perm_type=perm_type,
-                        pos_embed_type=pos_embed_type,
-                        debug=True,
-                    )
-                    model = load_padded_model_weights(model_pad, model)
+    for i in range(16):
+        print("\nbatch item", i)
 
-                    print("\nstandard")
-                    test_invertibility(
-                        model, x, permutations, encoding, num_pad_tokens=pad_tokens
-                    )  # test invertibility of the original model
+        x_i = x[i : i + 1]
 
-                    print("\npad + mask")
-                    test_mask_model(
-                        model, x, permutations, encoding, model_pad, x_pad, permutations_pad, encoding_pad, mask
-                    )  # test forward of the padded model
-                    test_invertibility(
-                        model_pad, x_pad, permutations_pad, encoding_pad, mask, num_pad_tokens=pad_tokens
-                    )  # test invertibility of the padded model
+        permutations_i = {
+            "atom": {
+                "permutations": {k: v[i : i + 1] for k, v in permutations["atom"]["permutations"].items()}
+            },
+            "residue": {
+                "permutations": {k: v[i : i + 1] for k, v in permutations["residue"]["permutations"].items()},
+                "tokenization_map": permutations["residue"]["tokenization_map"][i : i + 1],
+            },
+        }
 
-                    print("\npad model with non-pad data")
-                    test_mask_model_no_pad(model, x, permutations, encoding, model_pad)  # test forward of the padded model
-                    test_invertibility(
-                        model_pad, x, permutations, encoding, num_pad_tokens=pad_tokens
-                    )  # test invertibility of the padded model with non-padded data
+        enc_i = {k: v[i : i + 1] for k, v in encoding.items()}
 
-                    for i in range(batch_size):
-                        print("\nbatch item", i)
+        test_logdet(model, x_i, permutations_i, enc_i)  # test logdet of the original model
 
-                        x_i = x[i : i + 1]
-                        permutations_i = {
-                            k: v[i : i + 1] for k, v in permutations.items()
-                        }
-                        enc_i = {k: v[i : i + 1] for k, v in encoding.items()}
 
-                        x_pad_i = x_pad[i : i + 1]
-                        permutations_pad_i = {
-                            k: v[i : i + 1] for k, v in permutations_pad.items()
-                        }
-                        enc_pad_i = {k: v[i : i + 1] for k, v in encoding_pad.items()}
-                        mask_i = mask[i : i + 1]
 
-                        print("\nstandard")
-                        test_logdet(model, x_i, permutations_i, enc_i)  # test logdet of the original model
+    #                print("\npad + mask")
+    #                test_mask_model(
+    #                    model, x, permutations, encoding, model_pad, x_pad, permutations_pad, encoding_pad, mask
+    #                )  # test forward of the padded model
+    #                test_invertibility(
+    #                    model_pad, x_pad, permutations_pad, encoding_pad, mask, num_pad_tokens=pad_tokens
+    #                )  # test invertibility of the padded model
 
-                        print("\npad + mask")
-                        test_logdet_mask(
-                            model, model_pad, x_i, permutations_i, permutations_pad_i, enc_i, enc_pad_i, mask_i, num_pad_tokens=pad_tokens
-                        )  # test logdet of the padded model
+    #                print("\npad model with non-pad data")
+    #                test_mask_model_no_pad(model, x, permutations, encoding, model_pad)  # test forward of the padded model
+    #                test_invertibility(
+    #                    model_pad, x, permutations, encoding, num_pad_tokens=pad_tokens
+    #                )  # test invertibility of the padded model with non-padded data
 
-                        print("\npad model with non-pad data")
-                        test_logdet(model_pad, x_i, permutations_i, enc_i)  # test logdet of the padded model with non-padded data
+    #                    print("\npad + mask")
+    #                    test_logdet_mask(
+    #                        model, model_pad, x_i, permutations_i, permutations_pad_i, enc_i, enc_pad_i, mask_i, num_pad_tokens=pad_tokens
+    #                    )  # test logdet of the padded model
+
+    #                    print("\npad model with non-pad data")
+    #                    test_logdet(model_pad, x_i, permutations_i, enc_i)  # test logdet of the padded model with non-padded data

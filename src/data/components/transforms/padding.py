@@ -99,9 +99,9 @@ class PaddingTransform(torch.nn.Module):
             "x": x,
             "encoding": encoding,
             "permutations": {
-                "atom": {**atom_permutations, 
+                "atom": {"permutations": atom_permutations, 
                          "mask": atom_mask},
-                "residue": {**residue_permutations,
+                "residue": {"permutations": residue_permutations,
                             "mask": residue_mask,
                             "tokenization_map": residue_tokenization_map
                             },

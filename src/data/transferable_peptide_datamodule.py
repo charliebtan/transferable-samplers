@@ -274,7 +274,23 @@ class TransferablePeptideDataModule(BaseDataModule):
             *val_metadata["pdb_paths"].values(),
             *test_metadata["pdb_paths"].values(),
         ]
-        self.pdb_dict, self.topology_dict = load_pdbs_and_topologies(pdb_paths, self.num_aa_range)
+
+        pdb_pkl_path = "pdb.pkl"
+        topology_pkl_path = "topology.pkl"
+        if os.path.exists(pdb_pkl_path):
+            logging.info("Loading pdb dict from existing pickle file.")
+            with open(pdb_pkl_path, "rb") as f:
+                self.pdb_dict = pickle.load(f)
+            with open(topology_pkl_path, "rb") as f:
+                self.topology_dict = pickle.load(f)
+        else:
+            self.pdb_dict, self.topology_dict = load_pdbs_and_topologies(pdb_paths, self.num_aa_range)
+            if self.trainer.local_rank == 0:
+                with open(pdb_pkl_path, "wb") as f:
+                    pickle.dump(self.pdb_dict, f)
+                with open(topology_pkl_path, "wb") as f:
+                    pickle.dump(self.topology_dict, f)
+
         self.encoding_dict = get_encoding_dict(self.topology_dict)
 
         permutation_pkl_path = "permutations.pkl"
@@ -433,8 +449,10 @@ class TransferablePeptideDataModule(BaseDataModule):
         )
         true_samples = self.normalize(true_samples)
         encoding = self.encoding_dict[eval_sequence]
-        permutations = self.permutations_dict[eval_sequence]
-        residue_tokenization = self.residue_tokenization_dict[eval_sequence]
+        permutations = {
+            "atom": self.permutations_dict[eval_sequence],
+            "residue": self.residue_tokenization_dict[eval_sequence],
+        }   
 
         potential = self.setup_potential(eval_sequence)
         energy_fn = lambda x: potential.energy(self.unnormalize(x)).flatten()
