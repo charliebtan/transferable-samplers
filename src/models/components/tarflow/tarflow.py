@@ -55,12 +55,21 @@ class MetaBlock(torch.nn.Module):
         dropout: float = 0.0,
         pos_embed_type: str = "learned",  # learned, sinusoidal
         debug: bool = False,
+        lookahead_conditioning: bool = False,
     ):
         super().__init__()
         self.proj_in = torch.nn.Linear(in_channels, channels)
+        self.lookahead_conditioning = lookahead_conditioning
 
         if conditional:
-            self.proj_cond = torch.nn.Linear(channels, channels)
+            if not lookahead_conditioning:
+                self.proj_cond = torch.nn.Linear(channels, channels)
+            else:
+                self.proj_cond = torch.nn.Sequential(
+                    torch.nn.Linear(channels * 2, channels),
+                    torch.nn.GELU(),
+                    torch.nn.Linear(channels, channels),
+                )
 
         if use_attn_pair_bias:
             num_heads = channels // head_dim
@@ -143,6 +152,9 @@ class MetaBlock(torch.nn.Module):
 
         if cond is not None:
             cond = self.permutation(cond, permutations)
+            if self.lookahead_conditioning:
+                lookahead_cond = torch.cat([cond[:, 1:], torch.zeros_like(cond[:, :1])], dim=1)  # shift back one token w/ zero pad
+                cond = torch.cat([cond, lookahead_cond], dim=-1)  # concatenate the two
             cond_emb = self.proj_cond(cond)
         else:
             cond_emb = None
@@ -214,8 +226,13 @@ class MetaBlock(torch.nn.Module):
         x = self.proj_in(x_in[:, i : i + 1]) + pos_embed[:, i : i + 1]
 
         if cond is not None:
+            if self.lookahead_conditioning:
+                lookahead_cond = torch.cat([cond[:, 1:], torch.zeros_like(cond[:, :1])], dim=1)  # shift back one token w/ zero pad
+                cond = torch.cat([cond, lookahead_cond], dim=-1)  # concatenate the two
             cond_in = cond[:, i : i + 1]
             cond_emb = self.proj_cond(cond_in)
+        else:
+            cond_emb = None
 
         pair_emb = None
         if self.use_attn_pair_bias:
@@ -393,6 +410,7 @@ class TarFlow(torch.nn.Module): # rename to AtomTarFlow?
         pos_embed_type: str = "learned",  # learned, sinusoidal
         nvp: bool = True,
         debug: bool = False,  # stops the weight initialization from being zero so tokens are not all the same
+        lookahead_conditioning: bool = False,
     ):
         super().__init__()
         self.input_dimension = input_dimension
@@ -421,6 +439,7 @@ class TarFlow(torch.nn.Module): # rename to AtomTarFlow?
                     conditional=self.conditional,
                     pos_embed_type=pos_embed_type,
                     debug=debug,
+                    lookahead_conditioning=lookahead_conditioning,
                 )
             )
         self.blocks = torch.nn.ModuleList(blocks)
@@ -799,6 +818,7 @@ if __name__ == "__main__":
         use_qkln=True,
         pos_embed_type="sinusoidal",
         debug=True,
+        lookahead_conditioning=True, 
     )
 
     model = model.cuda()
