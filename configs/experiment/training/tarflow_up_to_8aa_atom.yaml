@@ -30,24 +30,6 @@ model:
       use_transition: True
       use_qkln: True
       pos_embed_type: "sinusoidal"
-    residue_model:
-      _target_: src.models.components.tarflow.tarflow.ResidueTarFlow
-      input_dimension: 246 # 82 * 3 atom types
-      channels: 768
-      max_num_tokens: ${data.num_aa_max}
-      num_blocks: 4
-      layers_per_block: 4
-      permutation_keys:
-      - "n2c"
-      - "c2n"
-      cond_embed:
-        _target_: src.models.components.tarflow.embed.ResidueConditionalEmbedder
-        hidden_dim: 384
-        output_dim: ${model.net.residue_model.channels}
-      use_adapt_ln: True
-      use_transition: True
-      use_qkln: True
-      pos_embed_type: "sinusoidal"
 
   sampling_config:
     num_proposal_samples: 5_000

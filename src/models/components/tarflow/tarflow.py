@@ -623,8 +623,15 @@ class MultiTarFlow(torch.nn.Module):
     """
     """
 
-    def __init__(self, models: list[TarFlow]):
+    def __init__(self, atom_model=None, residue_model=None):
         super().__init__()
+
+        models = []
+        if atom_model is not None:
+            models.append(atom_model)
+        if residue_model is not None:
+            models.append(residue_model)
+
         self.models = torch.nn.ModuleList(models)
 
     def forward(self, x: torch.Tensor, permutations: dict[str, torch.Tensor], encoding: dict[str, torch.Tensor] | None = None):
