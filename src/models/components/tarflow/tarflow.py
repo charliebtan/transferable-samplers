@@ -843,6 +843,7 @@ if __name__ == "__main__":
     USE_QKLN = True
 
     for seq in all_padded_data.keys():
+        # for i in range(1):  # repeat for multiple runs
 
         padded_data = all_padded_data[seq]
         unpadded_data = all_unpadded_data[seq]
@@ -852,14 +853,16 @@ if __name__ == "__main__":
 
         noise = torch.randn_like(x_pad)
         x = x + noise[:, : x.shape[1]]  # ensure noise is same shape as x
-        x_pad = x_pad + noise
 
-        model_pad = ResidueTarFlow(
+        mask = permutations_pad["atom"]["mask"]
+        x_pad = x_pad + noise * mask[..., None]
+
+        model_pad_residues = ResidueTarFlow(
             input_dimension=246,  # 82 * 3 atom types
             channels=256,
             max_num_tokens=8,
-            num_blocks=1,
-            layers_per_block=1,
+            num_blocks=2,
+            layers_per_block=2,
             permutation_keys=["n2c", "c2n"],
             cond_embed=ResidueConditionalEmbedder(
                 hidden_dim=256,
@@ -872,12 +875,38 @@ if __name__ == "__main__":
             debug=True,
             lookahead_conditioning=USE_LOOKAHEAD,
         )
-        model = ResidueTarFlow(
+        model_pad_atoms = AtomTarFlow(
+            input_dimension=3,  # 82 * 3 atom types
+            channels=256,
+            max_num_tokens=178,
+            num_blocks=2,
+            layers_per_block=2,
+            permutation_keys=[
+                "n2c_backbone-first_standard_group-by-group",
+                "n2c_residue-by-residue_standard_group-by-group_flip",
+                "n2c_backbone-first_standard_group-by-group_flip",
+                "n2c_residue-by-residue_standard_group-by-group",
+            ],
+            cond_embed=AtomConditionalEmbedder(
+                hidden_dim=256,
+                output_dim=256,
+            ),
+            use_adapt_ln=USE_ADAPT_LN,
+            use_transition=USE_TRANSITION,
+            use_qkln=USE_QKLN,
+            pos_embed_type="sinusoidal",
+            debug=True,
+            lookahead_conditioning=USE_LOOKAHEAD,
+        )
+        model_pad = MultiTarFlow(atom_model=model_pad_atoms, residue_model=model_pad_residues)
+        model_pad = model_pad.to(device)
+
+        model_residues = ResidueTarFlow(
             input_dimension=246,  # 82 * 3 atom types
             channels=256,
             max_num_tokens=len(unpadded_data["seq_name"]),
-            num_blocks=1,
-            layers_per_block=1,
+            num_blocks=2,
+            layers_per_block=2,
             permutation_keys=["n2c", "c2n"],
             cond_embed=ResidueConditionalEmbedder(
                 hidden_dim=256,
@@ -890,12 +919,32 @@ if __name__ == "__main__":
             debug=True,
             lookahead_conditioning=USE_LOOKAHEAD,
         )
+        model_atoms = AtomTarFlow(
+            input_dimension=3,  # 82 * 3 atom types
+            channels=256,
+            max_num_tokens=x.shape[1],
+            num_blocks=2,
+            layers_per_block=2,
+            permutation_keys=[
+                "n2c_backbone-first_standard_group-by-group",
+                "n2c_residue-by-residue_standard_group-by-group_flip",
+                "n2c_backbone-first_standard_group-by-group_flip",
+                "n2c_residue-by-residue_standard_group-by-group",
+            ],
+            cond_embed=AtomConditionalEmbedder(
+                hidden_dim=256,
+                output_dim=256,
+            ),
+            use_adapt_ln=USE_ADAPT_LN,
+            use_transition=USE_TRANSITION,
+            use_qkln=USE_QKLN,
+            pos_embed_type="sinusoidal",
+            debug=True,
+            lookahead_conditioning=USE_LOOKAHEAD,
+        )
+        model = MultiTarFlow(atom_model=model_atoms, residue_model=model_residues)
+        model = model_pad.to(device)
         model = load_padded_model_weights(model_pad, model)
-
-        model_pad = MultiTarFlow(residue_model=model_pad)
-        model_pad = model_pad.to(device)
-        model = MultiTarFlow(residue_model=model)
-        model = model.to(device)
 
         print(f"sequence:", unpadded_data["seq_name"])
 
