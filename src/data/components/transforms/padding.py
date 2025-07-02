@@ -4,6 +4,11 @@ from typing import Any
 from src.data.components import residue_tokenization
 import torch
 
+DONE_SEQUENCES = []
+UNPADDED_DICT = {}
+PADDED_DICT = {}
+COLLECT_SEQUENCES = False
+
 class PaddingTransform(torch.nn.Module):
     """Pads the input data to a fixed size and creates a mask for the padded elements."""
 
@@ -76,6 +81,15 @@ class PaddingTransform(torch.nn.Module):
         """
         assert "mask" not in data, "data already has a mask, cannot pad again"
 
+        if not data["seq_name"] in DONE_SEQUENCES and COLLECT_SEQUENCES:
+            print(len(DONE_SEQUENCES), "sequences done, processing", data["seq_name"])
+            TODO = True
+            DONE_SEQUENCES.append(data["seq_name"])
+            UNPADDED_DICT[data["seq_name"]] = data
+        else:
+            TODO = False
+            return None
+
         x = data["x"]
         encoding = data["encoding"]
         permutations = data["permutations"]
@@ -94,7 +108,7 @@ class PaddingTransform(torch.nn.Module):
         residue_permutations = self.pad_permutations(permutations["residue"]["permutations"], padded_seq_len=self.max_num_residues)
         residue_tokenization_map = self.pad_tokenization_map(permutations["residue"]["tokenization_map"], padded_seq_len=self.max_num_residues)
 
-        return {
+        padded_batch =  {
             **data,
             "x": x,
             "encoding": encoding,
@@ -107,3 +121,15 @@ class PaddingTransform(torch.nn.Module):
                             },
             },
         }
+
+        if TODO:
+            PADDED_DICT[data["seq_name"]] = padded_batch
+
+        if len(DONE_SEQUENCES) == 16800 and COLLECT_SEQUENCES
+            import pickle
+            with open("src/data/components/transforms/padded_dict.pkl", "wb") as f:
+                pickle.dump(PADDED_DICT, f)
+            with open("src/data/components/transforms/unpadded_dict.pkl", "wb") as f:
+                pickle.dump(UNPADDED_DICT, f)
+
+        return padded_batch
