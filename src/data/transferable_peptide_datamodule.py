@@ -48,7 +48,7 @@ class TransferablePeptideDataModule(BaseDataModule):
         num_aa_max: int,
         num_aa_min: int,
         num_dimensions: int,
-        num_particles: int,
+        num_atoms: int,
         dim: int,  # dim of largest system
         com_augmentation: bool = False,
         atom_noise_augmentation_factor: float = 0.0,
@@ -63,7 +63,7 @@ class TransferablePeptideDataModule(BaseDataModule):
     ):
         super().__init__(batch_size=batch_size, num_workers=num_workers, pin_memory=pin_memory)
 
-        assert dim == num_dimensions * num_particles, "dim must be equal to num_dimensions * num_particles"
+        assert dim == num_dimensions * num_atoms, "dim must be equal to num_dimensions * num_atoms"
         assert num_workers < 2, "need a copy of lmdb for each worker, use at most 1 worker"
 
         self.train_data_path = f"{data_dir}/train"
@@ -241,9 +241,9 @@ class TransferablePeptideDataModule(BaseDataModule):
         self.val_seq_names = val_seq_names
         self.test_seq_names = test_seq_names
 
-        train_max_num_particles = max(list(train_metadata["num_particles"].values()))
-        val_max_num_particles = max(list(val_metadata["num_particles"].values()))
-        test_max_num_particles = max(list(test_metadata["num_particles"].values()))
+        train_max_num_atoms = max(list(train_metadata["num_atoms"].values()))
+        val_max_num_atoms = max(list(val_metadata["num_atoms"].values()))
+        test_max_num_atoms = max(list(test_metadata["num_atoms"].values()))
 
         tica_model_files = os.listdir(self.tica_models_path)
 
@@ -252,17 +252,17 @@ class TransferablePeptideDataModule(BaseDataModule):
             for tica_model_file in tica_model_files
         }
 
-        assert train_max_num_particles >= val_max_num_particles, (
+        assert train_max_num_atoms >= val_max_num_atoms, (
             "Train largest system must be greater than or equal to val largest system for pos_embed learning."
         )
-        assert train_max_num_particles >= test_max_num_particles, (
+        assert train_max_num_atoms >= test_max_num_atoms, (
             "Train largest system must be greater than or equal to test largest system for pos_embed learning."
         )
         # Need to check here so TarFlow is correctly initalized for data
-        assert self.hparams.num_particles > train_max_num_particles, (
-            "TarFlow num_particles must be greater than the largest system size. "
-            + f"Max num particles={train_max_num_particles}. Set num_particles in data config "
-            + f"to {train_max_num_particles + 1}."
+        assert self.hparams.num_atoms > train_max_num_atoms, (
+            "TarFlow num_atoms must be greater than the largest system size. "
+            + f"Max num atoms={train_max_num_atoms}. Set num_atoms in data config "
+            + f"to {train_max_num_atoms + 1}."
         )
 
         pdb_paths = [
@@ -290,21 +290,21 @@ class TransferablePeptideDataModule(BaseDataModule):
             # Center of mass augmentation has std 1/sqrt(N) where N is the mean number of atoms
             # in the system. This is the same center of mass std deviation as the prior.
 
-            # Compute the mean number of particles per system in the training set
-            weighted_num_particles = []
+            # Compute the mean number of atoms per system in the training set
+            weighted_num_atoms = []
             total_num_samples = 0
             for seq_name in self.train_seq_names:
                 num_samples = train_metadata["num_samples"][seq_name]
-                num_particles = train_metadata["num_particles"][seq_name]
-                weighted_num_particles.append(num_samples * num_particles)
+                num_atoms = train_metadata["num_atoms"][seq_name]
+                weighted_num_atoms.append(num_samples * num_atoms)
                 total_num_samples += num_samples
-            mean_num_particles = sum(weighted_num_particles) / total_num_samples
+            mean_num_atoms = sum(weighted_num_atoms) / total_num_samples
 
-            logging.info(f"Mean number of training particles: {mean_num_particles}")
+            logging.info(f"Mean number of training atoms: {mean_num_atoms}")
 
             transform_list.append(
                 CenterOfMassTransform(
-                    1 / math.sqrt(mean_num_particles),
+                    1 / math.sqrt(mean_num_atoms),
                     self.hparams.num_dimensions,
                 )
             )
@@ -321,7 +321,7 @@ class TransferablePeptideDataModule(BaseDataModule):
             self.atom_noise_std = 0.0
         transform_list = transform_list + [
             AddEncodingTransform(self.encoding_dict),
-            PaddingTransform(self.hparams.num_particles, self.hparams.num_dimensions),
+            PaddingTransform(self.hparams.num_atoms, self.hparams.num_dimensions),
         ]
 
         transforms = torchvision.transforms.Compose(transform_list)
@@ -343,7 +343,7 @@ class TransferablePeptideDataModule(BaseDataModule):
         test_transform_list = [
             StandardizeTransform(self.std, self.hparams.num_dimensions),
             AddEncodingTransform(self.encoding_dict),
-            PaddingTransform(self.hparams.num_particles, self.hparams.num_dimensions),
+            PaddingTransform(self.hparams.num_atoms, self.hparams.num_dimensions),
         ]
 
         test_transforms = torchvision.transforms.Compose(test_transform_list)

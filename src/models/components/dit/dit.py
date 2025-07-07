@@ -524,7 +524,7 @@ class DIT3D(nn.Module, huggingface_hub.PyTorchModelHubMixin):
         dropout,
         scale_by_sigma,
         n_blocks,
-        num_particles,
+        num_atoms,
         vocab_size: int,
     ):
         super().__init__()
@@ -538,7 +538,7 @@ class DIT3D(nn.Module, huggingface_hub.PyTorchModelHubMixin):
         config.model.dropout = dropout
         config.model.scale_by_sigma = scale_by_sigma
 
-        self.num_particles = num_particles
+        self.num_atoms = num_atoms
         self.vocab_size = vocab_size
         self.vocab_embed = torch.nn.Linear(vocab_size, config.model.hidden_size)
         self.sigma_map = TimestepEmbedder(config.model.cond_dim)
@@ -570,7 +570,7 @@ class DIT3D(nn.Module, huggingface_hub.PyTorchModelHubMixin):
         t = t.squeeze()
         if t.ndim == 0:
             t = t.unsqueeze(0).repeat(x.shape[0])
-        x = x.reshape(-1, self.num_particles, self.vocab_size)
+        x = x.reshape(-1, self.num_atoms, self.vocab_size)
         x = self.vocab_embed(x)
         c = F.silu(self.sigma_map(t))
         rotary_cos_sin = self.rotary_emb(x)

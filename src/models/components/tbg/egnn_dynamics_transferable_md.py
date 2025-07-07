@@ -17,7 +17,7 @@ def remove_mean_with_mask(x, node_mask):
 class EGNNDynamicsTransferableMD(nn.Module):
     def __init__(
         self,
-        num_particles,
+        num_atoms,
         num_dimensions,
         encoding_dim,
         channels,
@@ -41,8 +41,8 @@ class EGNNDynamicsTransferableMD(nn.Module):
             agg=agg,
         )
 
-        # maximum number of possible particles
-        self.num_particles = num_particles
+        # maximum number of possible atoms
+        self.num_atoms = num_atoms
         self.num_dimensions = num_dimensions
         self.edges_dict = {}
 
@@ -50,12 +50,12 @@ class EGNNDynamicsTransferableMD(nn.Module):
         self.counter = 0
 
     def forward(self, t, x, encoding=None, node_mask=None):
-        assert not x.shape[1] % self.num_dimensions, "x should be divisible by num_particles"
-        num_particles = x.shape[1] // self.num_dimensions
+        assert not x.shape[1] % self.num_dimensions, "x should be divisible by num_atoms"
+        num_atoms = x.shape[1] // self.num_dimensions
 
         if node_mask is not None:
             assert node_mask.ndim == 2, "Mask should be 2D"
-            assert torch.all(x.view(-1, num_particles, self.num_dimensions).sum(dim=-1)[node_mask == 0] == 0), (
+            assert torch.all(x.view(-1, num_atoms, self.num_dimensions).sum(dim=-1)[node_mask == 0] == 0), (
                 "x is not zero where mask is zero"
             )
             assert torch.all(encoding["atom_type"][node_mask == 0] == 0), "atom_type is not zero where mask is zero"
@@ -63,7 +63,7 @@ class EGNNDynamicsTransferableMD(nn.Module):
             assert torch.all(encoding["aa_pos"][node_mask == 0] == 0), "aa_pos is not zero where mask is zero"
 
         if node_mask is None:
-            node_mask = torch.ones(x.shape[0], num_particles, device=x.device, dtype=torch.float)
+            node_mask = torch.ones(x.shape[0], num_atoms, device=x.device, dtype=torch.float)
         else:
             node_mask = node_mask.float()
 
@@ -77,22 +77,22 @@ class EGNNDynamicsTransferableMD(nn.Module):
         batch_size = x.shape[0]
 
         # Prepare edges
-        edges = self.get_adj_matrix(num_particles, batch_size, device=x.device)
+        edges = self.get_adj_matrix(num_atoms, batch_size, device=x.device)
         edges = [edges[0], edges[1]]
 
         # Reshape masks
-        node_mask = node_mask.view(batch_size * num_particles, 1)
-        edge_mask = edge_mask.view(batch_size * num_particles**2, 1)
+        node_mask = node_mask.view(batch_size * num_atoms, 1)
+        edge_mask = edge_mask.view(batch_size * num_atoms**2, 1)
 
         # Reshape x - apply node_mask
-        x = x.reshape(batch_size * num_particles, self.num_dimensions).clone() * node_mask
+        x = x.reshape(batch_size * num_atoms, self.num_dimensions).clone() * node_mask
 
         # Prepare time embedding
         t = t.to(x)
         if t.shape != (batch_size, 1):
             t = t.repeat(batch_size)
-        t = t.repeat(1, num_particles)
-        t = t.reshape(batch_size * num_particles, 1) * node_mask
+        t = t.repeat(1, num_atoms)
+        t = t.reshape(batch_size * num_atoms, 1) * node_mask
 
         # build 'h' node features
         h = torch.stack(
@@ -107,25 +107,25 @@ class EGNNDynamicsTransferableMD(nn.Module):
             h = torch.cat(
                 [
                     h,
-                    encoding["seq_len"].expand(-1, num_particles)[..., None],
+                    encoding["seq_len"].expand(-1, num_atoms)[..., None],
                 ],
                 dim=-1,
             )
         h = h[:batch_size]  # TODO this is ugly but it's just how it's passed in currently
 
-        h = h.reshape(batch_size * num_particles, -1).to(x.device) * node_mask
+        h = h.reshape(batch_size * num_atoms, -1).to(x.device) * node_mask
         h = torch.cat([h, t], dim=-1)
-        h = h.reshape(batch_size * num_particles, -1)
+        h = h.reshape(batch_size * num_atoms, -1)
 
         edge_attr = torch.sum((x[edges[0]] - x[edges[1]]) ** 2, dim=1, keepdim=True)
         _, x_final = self.egnn(h, x, edges, edge_attr=edge_attr, node_mask=node_mask, edge_mask=edge_mask)
         vel = (x_final - x) * node_mask  # This masking operation is redundant but just in case
 
-        vel = vel.view(batch_size, num_particles, self.num_dimensions)
-        vel = remove_mean_with_mask(vel, node_mask.view(batch_size, num_particles, 1))
+        vel = vel.view(batch_size, num_atoms, self.num_dimensions)
+        vel = remove_mean_with_mask(vel, node_mask.view(batch_size, num_atoms, 1))
 
         self.counter += 1
-        return vel.view(batch_size, num_particles * self.num_dimensions)
+        return vel.view(batch_size, num_atoms * self.num_dimensions)
 
     def get_adj_matrix(self, n_nodes, batch_size, device):
         if n_nodes in self.edges_dict:

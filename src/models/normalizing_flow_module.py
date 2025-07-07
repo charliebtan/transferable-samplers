@@ -62,8 +62,8 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
             self.log("train/log_q_theta_mean", log_q_theta.mean(), prog_bar=True, sync_dist=True)
             self.log("train/log_q_theta_median", log_q_theta.median(), prog_bar=True, sync_dist=True)
 
-            num_particles = self.eval_encoding["atom_type"].size(0)
-            data_dim = num_particles * self.datamodule.hparams.num_dimensions
+            num_atoms = self.eval_encoding["atom_type"].size(0)
+            data_dim = num_atoms * self.datamodule.hparams.num_dimensions
             energy_loss = (log_q_theta - log_p).mean() / data_dim
 
             loss = loss + self.hparams.energy_kl_weight * energy_loss
@@ -87,7 +87,7 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
         return com_energy
 
     def proposal_energy(self, x: torch.Tensor, encoding: dict[str, torch.Tensor]) -> torch.Tensor:
-        data_dim = x.shape[1]  # is the product num_particles * num_dimensions
+        data_dim = x.shape[1]  # is the product num_atoms * num_dimensions
         _encoding = {}
         for k, v in encoding.items():
             # ensure encoding is broadcasted to batch if we pass
@@ -127,11 +127,11 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
             probability.
         """
 
-        num_particles = encoding["atom_type"].size(0)
-        data_dim = num_particles * self.datamodule.hparams.num_dimensions
+        num_atoms = encoding["atom_type"].size(0)
+        data_dim = num_atoms * self.datamodule.hparams.num_dimensions
 
         local_batch_size = batch_size // self.trainer.world_size
-        prior_samples = self.prior.sample(local_batch_size, num_particles, device=self.device)
+        prior_samples = self.prior.sample(local_batch_size, num_atoms, device=self.device)
 
         # need to rescale to the "sum" of the log p (the prior returns the position-wise mean)
         prior_log_p = -self.prior.energy(prior_samples) * data_dim

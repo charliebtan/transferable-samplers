@@ -13,14 +13,14 @@ matplotlib.rcParams["font.family"] = "STIXGeneral"
 def interatomic_dist(x, flatten=True):
     assert len(x.shape) == 3, f"Expected 3D array, got {x.shape}"
 
-    num_particles = x.shape[1]
+    num_atoms = x.shape[1]
 
     # Compute the pairwise interatomic distances
     # removes duplicates and diagonal
     distances = x[:, None, :, :] - x[:, :, None, :]
     distances = distances[
         :,
-        torch.triu(torch.ones((num_particles, num_particles)), diagonal=1) == 1,
+        torch.triu(torch.ones((num_atoms, num_atoms)), diagonal=1) == 1,
     ]
     dist = torch.linalg.norm(distances, dim=-1)
 

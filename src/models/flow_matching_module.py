@@ -258,11 +258,11 @@ class FlowMatchLitModule(TransferableBoltzmannGeneratorLitModule):
             probability.
         """
 
-        num_particles = encoding["atom_type"].size(0)
-        data_dim = num_particles * self.datamodule.hparams.num_dimensions
+        num_atoms = encoding["atom_type"].size(0)
+        data_dim = num_atoms * self.datamodule.hparams.num_dimensions
 
         local_batch_size = batch_size // self.trainer.world_size
-        prior_samples = self.prior.sample(local_batch_size, num_particles, device=self.device)
+        prior_samples = self.prior.sample(local_batch_size, num_atoms, device=self.device)
 
         # need to rescale to the "sum" of the log p (the prior returns the position-wise mean)
         prior_log_p = -self.prior.energy(prior_samples) * data_dim
