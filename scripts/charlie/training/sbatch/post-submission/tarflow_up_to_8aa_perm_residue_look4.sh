@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -J globloc_look                 # Job name
+#SBATCH -J residue_look4                 # Job name
 #SBATCH -o watch_folder/%x_%j.out     # output file (%j expands to jobID)
 #SBATCH -N 2                          # Total number of nodes requested
 #SBATCH --mem=256G                     # server memory requested (per node)
@@ -21,10 +21,10 @@ source $HOME/envs/$env/bin/activate
 wandb online
 
 echo $SLURM_NNODES
-RUN_NAME="tarflow_up_to_8aa_globloc_look_v2"
+RUN_NAME="tarflow_up_to_8aa_residue_look4_v4"
 
 srun python -u src/train.py \
-experiment=training/tarflow_up_to_8aa_atom logger=wandb \
+experiment=training/tarflow_up_to_8aa_residue logger=wandb \
 trainer=ddp \
 data.data_dir='/project/aip-necludov/shared/self-consume-bg/data/new' \
 data.batch_size=512 \
@@ -33,8 +33,9 @@ trainer.num_nodes=$SLURM_NNODES \
 trainer.check_val_every_n_epoch=50 \
 model.sampling_config.num_proposal_samples=10_000 \
 model.sampling_config.clip_reweighting_logits=0.002 \
-+model.net.atom_model.lookahead_conditioning=True \
+model.optimizer.lr=1e-4 \
++model.net.residue_model.lookahead_conditioning=True \
 tags=[up_to_8aa,ddp,look] \
 hydra.run.dir='${paths.log_dir}/${task_name}/runs/'${RUN_NAME} \
-ckpt_path='${paths.log_dir}/${task_name}/runs/'${RUN_NAME}/checkpoints/epoch_049_cropped_w2.ckpt \
+ckpt_path='${paths.log_dir}/${task_name}/runs/'${RUN_NAME}/checkpoints/last.ckpt \
 logger.wandb.id=${RUN_NAME}

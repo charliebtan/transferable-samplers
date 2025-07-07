@@ -21,7 +21,7 @@ source $HOME/envs/$env/bin/activate
 wandb online
 
 echo $SLURM_NNODES
-RUN_NAME="tarflow_up_to_8aa_globloc+residue_nolook_v1"
+RUN_NAME="tarflow_up_to_8aa_globloc+residue_nolook_v2"
 
 srun python -u src/train.py \
 experiment=training/tarflow_up_to_8aa_residue_atom logger=wandb \

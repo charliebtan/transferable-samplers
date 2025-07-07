@@ -23,7 +23,7 @@ model:
       - "n2c_residue-by-residue_standard_group-by-group"
       cond_embed:
         _target_: src.models.components.tarflow.embed.AtomConditionalEmbedder
-        hidden_dim: ${model.net.atom_model.channels}
+        hidden_dim: 256
         output_dim: ${model.net.atom_model.channels}
         sinusoid_div_value: 1000 # for sinusoidal positional embedding
       use_adapt_ln: True
@@ -42,7 +42,7 @@ model:
       - "c2n"
       cond_embed:
         _target_: src.models.components.tarflow.embed.ResidueConditionalEmbedder
-        hidden_dim: 384
+        hidden_dim: 256
         output_dim: ${model.net.residue_model.channels}
       use_adapt_ln: True
       use_transition: True

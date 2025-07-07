@@ -14,14 +14,14 @@ model:
       input_dimension: 246 # 82 * 3 atom types
       channels: 768
       max_num_tokens: ${data.num_aa_max}
-      num_blocks: 10
-      layers_per_block: 10
+      num_blocks: 8
+      layers_per_block: 8
       permutation_keys:
       - "n2c"
       - "c2n"
       cond_embed:
         _target_: src.models.components.tarflow.embed.ResidueConditionalEmbedder
-        hidden_dim: 384
+        hidden_dim: 256
         output_dim: ${model.net.residue_model.channels}
       use_adapt_ln: True
       use_transition: True

@@ -3,7 +3,7 @@
 #SBATCH -o watch_folder/%x_%j.out     # output file (%j expands to jobID)
 #SBATCH -N 2                          # Total number of nodes requested
 #SBATCH --mem=256G                     # server memory requested (per node)
-#SBATCH -t 24:00:00                  # Time limit (hh:mm:ss)
+#SBATCH -t 12:00:00                  # Time limit (hh:mm:ss)
 #SBATCH --account=aip-necludov               
 #SBATCH --ntasks-per-node=4
 #SBATCH --gres=gpu:h100:4                  # Type/number of GPUs needed
@@ -21,7 +21,7 @@ source $HOME/envs/$env/bin/activate
 wandb online
 
 echo $SLURM_NNODES
-RUN_NAME="tarflow_up_to_8aa_globloc_c2n_v1"
+RUN_NAME="tarflow_up_to_8aa_globloc_c2n_v2"
 
 srun python -u src/train.py \
 experiment=training/tarflow_up_to_8aa_atom_c2n_new logger=wandb \
