@@ -16,6 +16,7 @@ from src.data.components.permutations import get_permutations_dict
 from src.data.components.residue_tokenization import get_residue_tokenization_dict
 from src.data.components.openmm import OpenMMBridge, OpenMMEnergy
 from src.data.components.peptide_dataset import PeptideDataset
+from src.data.components.webdataset import build_webdataset
 from src.data.components.prepare_data import (
     build_lmdb,
     check_and_get_files,
@@ -64,11 +65,12 @@ class TransferablePeptideDataModule(BaseDataModule):
         num_val_sequences: int = 20,
         resume_build_lmdb: bool = False,
         do_plots: bool = True,
+        webdataset_path: str = None,
+        webdataset_tar_pattern: str = None,
     ):
         super().__init__(batch_size=batch_size, num_workers=num_workers, pin_memory=pin_memory)
 
         assert dim == num_dimensions * num_particles, "dim must be equal to num_dimensions * num_particles"
-        assert num_workers < 2, "need a copy of lmdb for each worker, use at most 1 worker"
 
         self.train_data_path = f"{data_dir}/train"
         self.val_data_path = f"{data_dir}/val"
@@ -370,10 +372,9 @@ class TransferablePeptideDataModule(BaseDataModule):
 
         transforms = torchvision.transforms.Compose(transform_list)
 
-        self.data_train = PeptideDataset(
-            self.train_lmdb_path,
-            seq_names=self.train_seq_names,
-            num_dimensions=self.hparams.num_dimensions,
+        self.data_train = build_webdataset(
+            path=self.hparams.webdataset_path,
+            tar_pattern=self.hparams.webdataset_tar_pattern,
             transform=transforms,
         )
 
@@ -400,7 +401,6 @@ class TransferablePeptideDataModule(BaseDataModule):
             transform=test_transforms,
         )
 
-        logging.info(f"Train dataset size: {len(self.data_train)}")
         logging.info(f"Validation dataset size: {len(self.data_val)}")
         logging.info(f"Test dataset size: {len(self.data_test)}")
 

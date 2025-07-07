@@ -3,6 +3,9 @@ from typing import Any, Optional
 import torch
 from lightning import LightningDataModule
 from torch.utils.data import DataLoader
+from torch.utils.data import IterableDataset
+
+import webdataset as wds
 
 
 class BaseDataModule(LightningDataModule):
@@ -53,14 +56,30 @@ class BaseDataModule(LightningDataModule):
 
         :return: The train dataloader.
         """
-        return DataLoader(
-            dataset=self.data_train,
-            batch_size=self.batch_size_per_device,
-            num_workers=self.hparams.num_workers,
-            pin_memory=self.hparams.pin_memory,
-            shuffle=True,
-            persistent_workers=True if self.hparams.num_workers > 0 else False,
-        )
+        is_iterable = isinstance(self.data_train, IterableDataset)
+
+        if is_iterable:
+
+            data_loader = wds.WebLoader(
+                self.data_train,
+                batch_size=self.batch_size_per_device,
+                num_workers=self.hparams.num_workers
+            )
+
+            # Define epoch length (can be overridden by Lightning's `limit_train_batches`) 
+            data_loader = data_loader.with_epoch(10_000)
+
+            return data_loader
+
+        else:
+            return DataLoader(
+                dataset=self.data_train,
+                batch_size=self.batch_size_per_device,
+                num_workers=self.hparams.num_workers,
+                pin_memory=self.hparams.pin_memory,
+                shuffle=True,
+                persistent_workers=True if self.hparams.num_workers > 0 else False,
+            )
 
     def val_dataloader(self) -> DataLoader[Any]:
         """Create and return the validation dataloader.
