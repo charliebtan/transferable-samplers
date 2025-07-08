@@ -288,8 +288,7 @@ def load_pdbs_and_topologies(
     """
     pdb_dict = {}
     topology_dict = {}
-    logging.info("Loading .pdb files")
-    for path in tqdm(pdb_paths):
+    for path in tqdm(pdb_paths, desc="Loading PDBs", total=len(pdb_paths)):
         seq = os.path.basename(path).split("-")[0]
 
         pdb = openmm.app.PDBFile(path)
@@ -300,96 +299,5 @@ def load_pdbs_and_topologies(
 
         pdb_dict[seq] = pdb
         topology_dict[seq] = topology
-
-    # CHECK ATOM ORDERING
-
-    # def standardize_atom_name(atom_name: str, aa_name: str) -> str:
-    #     """
-    #     Standardizes the atom name to a consistent format.
-
-    #     Args:
-    #         atom_name (str): The original atom name.
-
-    #     Returns:
-    #         str: The standardized atom name.
-    #     """
-    #     # TODO double check this with Leon
-    #     # Standarize side-chain H atom encoding
-    #     if atom_name[0] == "H" and atom_name[-1] in ("1", "2", "3"):
-    #         # For these AA the H-X-N atoms are not interchangable
-    #         if aa_name in ("HIS", "PHE", "TRP", "TYR") and atom_name[:2] in (
-    #             "HE",
-    #             "HD",
-    #             "HZ",
-    #             "HH",
-    #         ):
-    #             pass
-    #         else:
-    #             atom_name = atom_name[:-1]
-
-    #     return atom_name
-
-    # logging.info("Checking atom order consistency for each amino acid")
-    # atom_order_dict = {}
-
-    # for seq, pdb in pdb_dict.items():
-    #     residues = list(pdb.topology.residues())
-    #     for i, residue in enumerate(residues):
-
-    #         residue_name = residue.name
-
-    #         atom_names = [atom.name for atom in residue.atoms()]
-    #         atom_names = [standardize_atom_name(atom_name, residue.name) for atom_name in atom_names]
-
-    #         # Handle N-terminal and C-terminal residues separately
-    #         if i == 0:
-    #             residue_key = f"N{residue_name}"
-    #         elif i == len(residues) - 1:
-    #             residue_key = f"C{residue_name}"
-    #         else:
-    #             residue_key = residue_name
-
-    #         if residue_key not in atom_order_dict:
-    #             # Record the atom ordering for this residue
-    #             atom_order_dict[residue_key] = atom_names
-    #         else:
-    #             # Check consistency with the recorded atom ordering
-    #             assert atom_names == atom_order_dict[residue_key], (
-    #             f"Inconsistent atom order in residue {residue} of sequence {seq}"
-    #             f"Expected: {atom_order_dict[residue_key]}, Found: {atom_names}"
-    #             )
-
-    # CHECK ATOM BONDING
-
-    # atom_order_dict = {}
-
-    # for seq, pdb in pdb_dict.items():
-    #     residues = list(pdb.topology.residues())
-    #     for i, residue in enumerate(residues):
-
-    #         residue_name = residue.name
-
-    #         # Handle N-terminal and C-terminal residues separately
-    #         if i == 0:
-    #             residue_key = f"N{residue_name}"
-    #         elif i == len(residues) - 1:
-    #             residue_key = f"C{residue_name}"
-    #         else:
-    #             residue_key = residue_name
-
-    #         if residue_key not in atom_order_dict:
-    #             atom_order_dict[residue_key] = None
-
-    #             print(residue_key)
-    #             for bond in residue.bonds():
-    #                 atom1 = bond.atom1
-    #                 atom2 = bond.atom2
-
-    #                 res1 = atom1.residue
-    #                 res2 = atom2.residue
-
-    #                 print(f"Bond: ({atom1.name} - {res1.index}, {atom2.name} - {res2.index})")
-
-    #             breakpoint()
 
     return pdb_dict, topology_dict

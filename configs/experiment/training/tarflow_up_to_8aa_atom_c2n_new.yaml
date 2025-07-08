@@ -1,0 +1,52 @@
+# @package _global_
+
+defaults:
+  - override /model: normalizing_flow
+  - override /model/net: multitarflow
+  - override /data: up_to_8aa
+  - override /trainer: gpu
+
+model:
+  net:
+    _target_: src.models.components.tarflow.tarflow.MultiTarFlow
+    atom_model:
+      _target_: src.models.components.tarflow.tarflow.AtomTarFlow
+      input_dimension: 3 # 3D coordinates
+      channels: 384
+      max_num_tokens: ${data.num_particles}
+      num_blocks: 8
+      layers_per_block: 8
+      permutation_keys:
+      - "n2c_backbone-first_standard_group-by-group"
+      - "n2c_residue-by-residue_standard_group-by-group_flip"
+      - "n2c_backbone-first_standard_group-by-group_flip"
+      - "n2c_residue-by-residue_standard_group-by-group"
+      - "c2n_backbone-first_standard_group-by-group"
+      - "c2n_residue-by-residue_standard_group-by-group_flip"
+      - "c2n_backbone-first_standard_group-by-group_flip"
+      - "c2n_residue-by-residue_standard_group-by-group"
+      cond_embed:
+        _target_: src.models.components.tarflow.embed.AtomConditionalEmbedder
+        hidden_dim: ${model.net.atom_model.channels}
+        output_dim: ${model.net.atom_model.channels}
+        sinusoid_div_value: 1000 # for sinusoidal positional embedding
+      use_adapt_ln: True
+      use_transition: True
+      use_qkln: True
+      pos_embed_type: "sinusoidal"
+
+  sampling_config:
+    num_proposal_samples: 5_000
+
+data:
+  batch_size: 512
+  com_augmentation: True
+  num_eval_samples: 5_000
+
+trainer:
+  check_val_every_n_epoch: 50
+  limit_train_batches: 1000
+  limit_val_batches: 0.5 # it's quite slow otherwise - only affects val/loss
+  limit_test_batches: null
+  max_epochs: 500
+  num_sanity_val_steps: 0

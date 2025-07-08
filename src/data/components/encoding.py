@@ -1,4 +1,5 @@
 import torch
+from tqdm import tqdm
 
 """Start encodings from 1 to leave 0 for zero padding"""
 
@@ -122,7 +123,7 @@ def get_encoding(topology):
             # Standarize side-chain H atom encoding
             if atom_name[0] == "H" and atom_name[-1] in ("1", "2", "3"):
                 # For these AA the H-X-N atoms are not interchangable
-                if aa.name in ("HIS", "PHE", "TRP", "TYR") and atom_name[:2] in (
+                if aa.name in ("HIS", "HIE", "PHE", "TRP", "TYR") and atom_name[:2] in (
                     "HE",
                     "HD",
                     "HZ",
@@ -154,6 +155,6 @@ def get_encoding(topology):
 
 def get_encoding_dict(topology_dict):
     encoding_dict = {}
-    for seq_name, topology in topology_dict.items():
+    for i, (seq_name, topology) in tqdm(enumerate(topology_dict.items()), desc="Generating encodings", total=len(topology_dict)):
         encoding_dict[seq_name] = get_encoding(topology)
     return encoding_dict

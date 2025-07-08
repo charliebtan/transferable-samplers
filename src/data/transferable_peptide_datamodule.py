@@ -1,6 +1,7 @@
 import logging
 import math
 import os
+import pickle
 from typing import Callable, Optional
 
 import openmm
@@ -13,6 +14,7 @@ from src.data.components.data_types import SamplesData
 from src.data.components.encoding import get_encoding_dict
 from src.data.components.openmm import OpenMMBridge, OpenMMEnergy
 from src.data.components.peptide_dataset import PeptideDataset
+from src.data.components.permutations import get_permutations_dict
 from src.data.components.prepare_data import (
     build_lmdb,
     check_and_get_files,
@@ -21,9 +23,11 @@ from src.data.components.prepare_data import (
     load_pdbs_and_topologies,
     prepare_tica_models,
 )
+from src.data.components.residue_tokenization import get_residue_tokenization_dict
 from src.data.components.symmetry import resolve_chirality
 from src.data.components.test_subset import ALL_TEST_SUBSET, SCALING_SUBSET, TEST_SUBSET_DICT
 from src.data.components.transforms.add_encoding import AddEncodingTransform
+from src.data.components.transforms.add_permutations import AddPermutationsTransform
 from src.data.components.transforms.atom_noise import AtomNoiseTransform
 from src.data.components.transforms.center_of_mass import CenterOfMassTransform
 from src.data.components.transforms.padding import PaddingTransform
@@ -262,7 +266,7 @@ class TransferablePeptideDataModule(BaseDataModule):
         assert self.hparams.num_atoms > train_max_num_atoms, (
             "TarFlow num_atoms must be greater than the largest system size. "
             + f"Max num atoms={train_max_num_atoms}. Set num_atoms in data config "
-            + f"to {train_max_num_atoms + 1}."
+            + f"to {train_max_num_atoms}."
         )
 
         pdb_paths = [
@@ -270,8 +274,47 @@ class TransferablePeptideDataModule(BaseDataModule):
             *val_metadata["pdb_paths"].values(),
             *test_metadata["pdb_paths"].values(),
         ]
-        self.pdb_dict, self.topology_dict = load_pdbs_and_topologies(pdb_paths, self.num_aa_range)
+
+        pdb_pkl_path = "pdb.pkl"
+        topology_pkl_path = "topology.pkl"
+        if os.path.exists(pdb_pkl_path):
+            logging.info("Loading pdb dict from existing pickle file.")
+            with open(pdb_pkl_path, "rb") as f:
+                self.pdb_dict = pickle.load(f) # noqa: S301
+            with open(topology_pkl_path, "rb") as f:
+                self.topology_dict = pickle.load(f) # noqa: S301
+        else:
+            self.pdb_dict, self.topology_dict = load_pdbs_and_topologies(pdb_paths, self.num_aa_range)
+            if self.trainer.local_rank == 0:
+                with open(pdb_pkl_path, "wb") as f:
+                    pickle.dump(self.pdb_dict, f)
+                with open(topology_pkl_path, "wb") as f:
+                    pickle.dump(self.topology_dict, f) 
+
         self.encoding_dict = get_encoding_dict(self.topology_dict)
+
+        permutation_pkl_path = "permutations.pkl"
+        if os.path.exists(permutation_pkl_path):
+            logging.info("Loading permutations from existing pickle file.")
+            with open(permutation_pkl_path, "rb") as f:
+                self.permutations_dict = pickle.load(f) # noqa: S301
+        else:
+            self.permutations_dict = get_permutations_dict(self.topology_dict)
+            if self.trainer.local_rank == 0:
+                with open(permutation_pkl_path, "wb") as permutation_pkl_file:
+                    pickle.dump(self.permutations_dict, permutation_pkl_file)
+
+        residue_tokenization_pkl_path = "residue_tokenization.pkl"
+        if os.path.exists(residue_tokenization_pkl_path):
+            logging.info("Loading residue tokenization from existing pickle file.")
+            with open(residue_tokenization_pkl_path, "rb") as f:
+                self.residue_tokenization_dict = pickle.load(f) # noqa: S301
+        else:
+            logging.info("Creating residue tokenization dictionary.")
+            self.residue_tokenization_dict = get_residue_tokenization_dict(self.topology_dict)
+            if self.trainer.local_rank == 0:
+                with open(residue_tokenization_pkl_path, "wb") as f:
+                    pickle.dump(self.residue_tokenization_dict, f)
 
         total_samples = 0
         weighted_vars = []
@@ -321,6 +364,7 @@ class TransferablePeptideDataModule(BaseDataModule):
             self.atom_noise_std = 0.0
         transform_list = transform_list + [
             AddEncodingTransform(self.encoding_dict),
+            AddPermutationsTransform(self.permutations_dict, self.residue_tokenization_dict),
             PaddingTransform(self.hparams.num_atoms, self.hparams.num_dimensions),
         ]
 
@@ -343,6 +387,7 @@ class TransferablePeptideDataModule(BaseDataModule):
         test_transform_list = [
             StandardizeTransform(self.std, self.hparams.num_dimensions),
             AddEncodingTransform(self.encoding_dict),
+            AddPermutationsTransform(self.permutations_dict, self.residue_tokenization_dict),
             PaddingTransform(self.hparams.num_atoms, self.hparams.num_dimensions),
         ]
 
@@ -398,18 +443,21 @@ class TransferablePeptideDataModule(BaseDataModule):
         # TODO can this be handle better? in the lmdb?
         # how to do nice plots? - i suppose plots will be a more rare occasion
         true_samples = true_samples[: self.hparams.num_eval_samples]
-
         true_samples = true_samples.reshape(
             true_samples.shape[0],
             -1,
         )
-
         true_samples = self.normalize(true_samples)
-
         encoding = self.encoding_dict[eval_sequence]
+        permutations = {
+            "atom": self.permutations_dict[eval_sequence],
+            "residue": self.residue_tokenization_dict[eval_sequence],
+        }
+
         potential = self.setup_potential(eval_sequence)
         energy_fn = lambda x: potential.energy(self.unnormalize(x)).flatten()
-        return true_samples, encoding, energy_fn
+
+        return true_samples, permutations, encoding, energy_fn
 
     def metrics_and_plots(
         self,
@@ -482,7 +530,7 @@ class TransferablePeptideDataModule(BaseDataModule):
                         compute_distribution_distances=False,
                     )
                 )
-                if self.hparams.do_plots:
+                if self.hparams.do_plots and len(data) > 32:
                     plot_ramachandran(log_image_fn, data.samples, self.topology_dict[sequence], prefix=prefix + name)
                     plot_tica(
                         log_image_fn,

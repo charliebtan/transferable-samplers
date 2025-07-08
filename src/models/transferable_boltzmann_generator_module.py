@@ -149,6 +149,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
     def batched_generate_samples(
         self,
         total_size: int,
+        permutations: Optional[dict[str, torch.Tensor]] = None,
         encoding: Optional[dict[str, torch.Tensor]] = None,
         batch_size: Optional[int] = None,
         dummy_ll: bool = False,
@@ -159,12 +160,14 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         log_ps = []
         prior_samples = []
         for _ in tqdm(range(total_size // batch_size)):
-            s, lp, ps = self.generate_samples(batch_size, encoding=encoding, dummy_ll=dummy_ll)
+            s, lp, ps = self.generate_samples(batch_size, permutations, encoding=encoding, dummy_ll=dummy_ll)
             samples.append(s)
             log_ps.append(lp)
             prior_samples.append(ps)
         if total_size % batch_size > 0:
-            s, lp, ps = self.generate_samples(total_size % batch_size, encoding=encoding, dummy_ll=dummy_ll)
+            s, lp, ps = self.generate_samples(
+                total_size % batch_size, permutations, encoding=encoding, dummy_ll=dummy_ll
+            )
             samples.append(s)
             log_ps.append(lp)
             prior_samples.append(ps)
@@ -235,7 +238,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
 
         # Parse and aggregate metrics along peptide sequences
         for key, value in metrics.items():
-            if key.startswith(prefix):
+            if key.startswith(prefix):  # TODO not sure this is needed here
                 # Extract sequence and metric name
                 parts = key.split("/")
                 metric_name = "/".join(parts[2:])
@@ -268,6 +271,24 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         metrics.update(count_dict)
         return metrics
 
+    def detach_and_cpu(
+        self, obj
+    ):  # TODO hack to have this here? at all? you could just be more careful to detach / cpu?
+        """
+        Recursively detach and move all tensors to CPU within a nested structure.
+        Works with dicts, lists, tuples, and tensors.
+        """
+        if isinstance(obj, torch.Tensor):
+            return obj.detach().cpu()
+        elif isinstance(obj, dict):
+            return {k: self.detach_and_cpu(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [self.detach_and_cpu(v) for v in obj]
+        elif isinstance(obj, tuple):
+            return tuple(self.detach_and_cpu(v) for v in obj)
+        else:
+            return obj  # Leave other data types (int, float, str, etc.) as-is
+
     def evaluate_all(self, prefix):
         metrics = {}
         eval_seq_names = self.datamodule.val_seq_names if prefix.startswith("val") else self.datamodule.test_seq_names
@@ -281,12 +302,13 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
                 eval_seq_names = self.hparams.eval_seq_name
 
         for seq_name in eval_seq_names:
-            true_samples, encoding, energy_fn = self.datamodule.prepare_eval(seq_name)
+            true_samples, permutations, encoding, energy_fn = self.datamodule.prepare_eval(seq_name)
             logging.info(f"Evaluating {seq_name} samples")
             metrics.update(
                 self.evaluate(
                     seq_name,
                     true_samples,
+                    permutations,
                     encoding,
                     energy_fn,
                     prefix=f"{prefix}/{seq_name}",
@@ -296,6 +318,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
 
         # Aggregate metrics across all sequences
         if self.local_rank == 0:
+            metrics = self.detach_and_cpu(metrics)  # Ensure all tensors are detached and on CPU
             metric_object_list = [self.add_aggregate_metrics(metrics, prefix=prefix)]
         else:
             metric_object_list = [None]  # List must have same length for broadcast
@@ -306,7 +329,15 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
 
     @torch.no_grad()
     def evaluate(
-        self, sequence, true_samples, encoding, energy_fn, prefix: str = "val", proposal_generator=None, output_dir=None
+        self,
+        sequence,
+        true_samples,
+        permutations,
+        encoding,
+        energy_fn,
+        prefix: str = "val",
+        proposal_generator=None,
+        output_dir=None,
     ) -> None:
         """Generates samples from the proposal and runs SMC if enabled.
         Also computes metrics, through the datamodule function "metrics_and_plots".
@@ -331,7 +362,9 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         # Generate samples and record time
         torch.cuda.synchronize()
         start_time = time.time()
-        proposal_samples, proposal_log_q, prior_samples = proposal_generator(num_proposal_samples, encoding)
+        proposal_samples, proposal_log_q, prior_samples = proposal_generator(
+            num_proposal_samples, permutations, encoding
+        )
         torch.cuda.synchronize()
         time_duration = time.time() - start_time
         self.log(f"{prefix}/samples_walltime", time_duration, sync_dist=True)
