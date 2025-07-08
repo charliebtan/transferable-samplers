@@ -331,7 +331,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         # Generate samples and record time
         torch.cuda.synchronize()
         start_time = time.time()
-        proposal_samples, proposal_log_p, prior_samples = proposal_generator(num_proposal_samples, encoding)
+        proposal_samples, proposal_log_q, prior_samples = proposal_generator(num_proposal_samples, encoding)
         torch.cuda.synchronize()
         time_duration = time.time() - start_time
         self.log(f"{prefix}/samples_walltime", time_duration, sync_dist=True)
@@ -341,7 +341,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         samples_dict = {
             "prior_samples": prior_samples,
             "proposal_samples": proposal_samples,
-            "proposal_log_p": proposal_log_p,
+            "proposal_log_q": proposal_log_q,
         }
         if output_dir is None:
             output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
@@ -378,10 +378,11 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
 
         # Apply CoM adjustment to energy, this must be done here for compatibility with CNFs
         if self.hparams.sampling_config.get("use_com_adjustment", False):
-            proposal_log_p = proposal_log_p + self.com_energy_adjustment(proposal_samples)
+            proposal_log_q = proposal_log_q + self.com_energy_adjustment(proposal_samples)
 
         # Compute resampling index
-        resampling_logits = -proposal_samples_energy - proposal_log_p
+        # proposal_log_p - proposal_log_q
+        resampling_logits = -proposal_samples_energy - proposal_log_q
 
         # Filter samples based on logit clipping - this affects both IS and SMC
         if self.hparams.sampling_config.clip_reweighting_logits:

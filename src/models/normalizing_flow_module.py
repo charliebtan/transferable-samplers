@@ -134,7 +134,7 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
         prior_samples = self.prior.sample(local_batch_size, num_atoms, device=self.device)
 
         # need to rescale to the "sum" of the log p (the prior returns the position-wise mean)
-        prior_log_p = -self.prior.energy(prior_samples) * data_dim
+        prior_log_q = -self.prior.energy(prior_samples) * data_dim
 
         if encoding is not None:
             encoding = {
@@ -187,12 +187,12 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
             )
             x_pred = self.all_gather(x_pred).reshape(-1, *x_pred.shape[1:])
             fwd_logdets = self.all_gather(fwd_logdets).reshape(-1, *fwd_logdets.shape[1:])
-            prior_log_p = self.all_gather(prior_log_p).reshape(-1, *prior_log_p.shape[1:])
+            prior_log_q = self.all_gather(prior_log_q).reshape(-1, *prior_log_q.shape[1:])
             prior_samples = self.all_gather(prior_samples).reshape(-1, *prior_samples.shape[1:])
 
-        log_p = prior_log_p.flatten() + fwd_logdets.flatten()
+        log_q = prior_log_q.flatten() + fwd_logdets.flatten()
 
-        return x_pred, log_p, prior_samples
+        return x_pred, log_q, prior_samples
 
 
 if __name__ == "__main__":
