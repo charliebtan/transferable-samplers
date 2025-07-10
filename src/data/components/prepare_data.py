@@ -10,7 +10,7 @@ import openmm.app
 import torch
 from tqdm import tqdm
 
-from src.evaluation.metrics.tica import run_tica
+from src.evaluation.metrics.tica import run_tica, run_tica_ca
 from src.evaluation.plots.plot_atom_distances import interatomic_dist  # TODO move this
 
 
@@ -221,8 +221,18 @@ def _prepare_single_tica(seq_name, npz_path, pdb_path):
     logging.info(f"Loading {seq_name} for TICA")
     samples = np.load(npz_path, allow_pickle=False)
     topology = md.load_topology(pdb_path)
-    traj_samples = md.Trajectory(samples["positions"], topology=topology)
-    tica_model = run_tica(traj_samples, lagtime=100, dim=2)
+    try:
+        traj_samples = md.Trajectory(samples["positions"], topology=topology)
+    except IndexError:
+        traj_samples = md.Trajectory(samples, topology=topology)
+
+    if len(seq_name) > 4:
+        tica_model = run_tica_ca(traj_samples, topology, lagtime=100, dim=2)
+        print("doing CA only!")
+    else:
+        tica_model = run_tica(traj_samples, lagtime=100, dim=2)
+        print("doing all atoms!")
+
     return tica_model
 
 

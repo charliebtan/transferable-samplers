@@ -4,6 +4,7 @@ import statistics as stats
 import time
 from collections import defaultdict
 from typing import Any, Optional
+import inspect
 
 import hydra
 import matplotlib.pyplot as plt
@@ -11,10 +12,15 @@ import torch
 import torchmetrics
 from lightning import LightningDataModule, LightningModule
 from lightning.pytorch.loggers import WandbLogger
+from omegaconf import OmegaConf
 from torchmetrics import MeanMetric
 from tqdm import tqdm
 
 from src.data.components.data_types import SamplesData
+from src.data.components.symmetry import (
+    get_symmetry_change,
+)
+from src.data.single_peptide_datamodule import SinglePeptideDataModule
 from src.models.components.ema import EMA
 from src.models.components.priors import NormalDistribution
 from src.models.components.smc.base_sampler import SMCSampler
@@ -34,6 +40,8 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         ema_decay: float,
         compile: bool,
         use_com_adjustment: bool = False,
+        fix_symmetry: bool = True,
+        drop_unfixable_symmetry: bool = False,
         *args,
         **kwargs,
     ) -> None:
@@ -122,10 +130,16 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         """
         optimizer = self.hparams.optimizer(params=self.trainer.model.parameters())
         if self.hparams.scheduler is not None:
-            scheduler = self.hparams.scheduler(
-                optimizer=optimizer,
-                total_steps=self.trainer.estimated_stepping_batches,
-            )
+            scheduler_fn = self.hparams.scheduler
+            scheduler_params = inspect.signature(scheduler_fn).parameters
+
+            if "total_steps" in scheduler_params:
+                scheduler = scheduler_fn(
+                    optimizer=optimizer,
+                    total_steps=self.trainer.estimated_stepping_batches,
+                )
+            else:
+                scheduler = scheduler_fn(optimizer=optimizer)
             return {
                 "optimizer": optimizer,
                 "lr_scheduler": {
@@ -215,15 +229,12 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         self.log_dict(metrics.compute(), sync_dist=True)
         metrics.reset()
         if self.hparams.ema_decay > 0:
-            if self.hparams.eval_ema:
-                self.net.backup()
-                self.net.copy_to_model()
-                self.evaluate_all(prefix)
-                self.net.restore_to_model()
-            if self.hparams.eval_non_ema:
-                self.evaluate_all(prefix + "/non_ema")
+            self.net.backup()
+            self.net.copy_to_model()
+            self.evaluate_all(prefix)
+            self.net.restore_to_model()
         else:
-            self.evaluate(prefix)
+            self.evaluate_all(prefix)
         plt.close("all")
 
     def add_aggregate_metrics(self, metrics: dict[str, torch.Tensor], prefix: str = "val") -> dict[str, torch.Tensor]:
@@ -330,6 +341,8 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         Also computes metrics, through the datamodule function "metrics_and_plots".
         """
 
+        metrics = {}
+
         true_data = SamplesData(
             self.datamodule.as_pointcloud(self.datamodule.unnormalize(true_samples)),
             energy_fn(true_samples),
@@ -346,36 +359,72 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         else:
             num_proposal_samples = self.hparams.sampling_config.num_proposal_samples
 
-        # Generate samples and record time
-        torch.cuda.synchronize()
-        start_time = time.time()
-        proposal_samples, proposal_log_p, prior_samples = proposal_generator(num_proposal_samples, permutations, encoding)
-        torch.cuda.synchronize()
-        time_duration = time.time() - start_time
-        self.log(f"{prefix}/samples_walltime", time_duration, sync_dist=True)
-        self.log(f"{prefix}/samples_per_second", len(proposal_samples) / time_duration, sync_dist=True)
+        if self.hparams.sampling_config.get("load_samples_path", None) is None:
+            # Generate samples and record time
+            torch.cuda.synchronize()
+            start_time = time.time()
+            proposal_samples, proposal_log_p, prior_samples = proposal_generator(num_proposal_samples, permutations, encoding)
+            torch.cuda.synchronize()
+            time_duration = time.time() - start_time
 
-        # Save samples to disk
-        samples_dict = {
-            "prior_samples": prior_samples,
-            "proposal_samples": proposal_samples,
-            "proposal_log_p": proposal_log_p,
-        }
-        if output_dir is None:
-            output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
-        if self.local_rank == 0:
-            os.makedirs(f"{output_dir}/{prefix}", exist_ok=True)
-            if self.hparams.sampling_config.get("subset_idx") is not None:
-                torch.save(samples_dict, f"{output_dir}/{prefix}/samples_{self.hparams.sampling_config.subset_idx}.pt")
-                logging.info(
-                    f"Saving {len(proposal_samples)} samples to {output_dir} "
-                    "/{prefix}/samples_{self.hparams.sampling_config.subset_idx}.pt"
+            metrics.update(
+                {
+                    f"{prefix}/samples_walltime": time_duration,
+                    f"{prefix}/samples_per_second": len(proposal_samples) / time_duration,
+                    f"{prefix}/seconds_per_sample": time_duration / len(proposal_samples),
+                }
+            )
+
+            # Save samples to disk
+            samples_dict = {
+                "prior_samples": prior_samples,
+                "proposal_samples": proposal_samples,
+                "proposal_log_p": proposal_log_p,
+            }
+            if output_dir is None:
+                output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
+            if self.local_rank == 0:
+                os.makedirs(f"{output_dir}/{prefix}", exist_ok=True)
+                if self.hparams.sampling_config.get("subset_idx") is not None:
+                    torch.save(
+                        samples_dict, f"{output_dir}/{prefix}/samples_{self.hparams.sampling_config.subset_idx}.pt"
+                    )
+                    logging.info(
+                        f"Saving {len(proposal_samples)} samples to {output_dir} "
+                        "/{prefix}/samples_{self.hparams.sampling_config.subset_idx}.pt"
+                    )
+                    return {}  # early return if subset_idx is set - need to post-process these samples in notebook
+                else:
+                    torch.save(samples_dict, f"{output_dir}/{prefix}/samples.pt")
+                    logging.info(f"Saving {len(proposal_samples)} samples to {output_dir}/{prefix}/samples.pt")
+        else:
+            # Load samples from disk
+            samples_path = self.hparams.sampling_config.load_samples_path
+            logging.info(f"Loading proposal samples from {samples_path}")
+            samples_dict = torch.load(samples_path, map_location=self.device)
+            proposal_samples = samples_dict["samples"]
+            proposal_log_p = samples_dict["log_p"]
+            prior_samples = samples_dict["prior_samples"]
+
+            # TODO all this stuff
+
+            try:
+                cfg_path = self.hparams.sampling_config.load_samples_path.replace(
+                    "test_samples.pt", ".hydra/config.yaml"
                 )
-                return {}  # early return if subset_idx is set - need to post-process these samples in notebook
-            else:
-                torch.save(samples_dict, f"{output_dir}/{prefix}/samples.pt")
-                logging.info(f"Saving {len(proposal_samples)} samples to {output_dir}/{prefix}/samples.pt")
+                original_cfg = OmegaConf.load(cfg_path)
+            except FileNotFoundError:
+                cfg_path = self.hparams.sampling_config.load_samples_path.replace(
+                    "test_samples.pt", "/0/.hydra/config.yaml"
+                )
+                original_cfg = OmegaConf.load(cfg_path)
 
+            self.log("original/ess_thresold", original_cfg.model.jarzynski_sampler.ess_threshold)
+            self.log("original/num_test_proposal_samples", original_cfg.model.sampling_config.num_test_proposal_samples)
+            self.log("original/num_timesteps", original_cfg.model.jarzynski_sampler.num_timesteps)
+            self.log("original/use_com_adjustment", original_cfg.model.get("use_com_energy", 0))
+            self.log("original/clip_logits", original_cfg.model.clip_logits if original_cfg.model.clip_logits else 0.0)
+            self.log("original/langevin_epsilon", original_cfg.model.jarzynski_sampler.get("langevin_eps", 0))
         # Compute energy
         proposal_samples_energy = energy_fn(proposal_samples)
 
@@ -394,8 +443,50 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         logging.info(f"Proposal CoM std: {proposal_com_std}")
         self.log(f"{prefix}/proposal_com_std", proposal_com_std, sync_dist=True)
 
+        temp_proposal_samples = proposal_samples.clone()
+
+        first_symmetry_change = get_symmetry_change(
+            self.datamodule.as_pointcloud(self.datamodule.unnormalize(true_samples)),
+            self.datamodule.as_pointcloud(self.datamodule.unnormalize(temp_proposal_samples)),
+            self.datamodule.topology_dict[sequence],
+        )
+
+        correct_symmetry_rate = 1 - first_symmetry_change.float().mean().item()
+
+        temp_proposal_samples[first_symmetry_change] *= -1
+
+        second_symmetry_change = get_symmetry_change(
+            self.datamodule.as_pointcloud(self.datamodule.unnormalize(true_samples)),
+            self.datamodule.as_pointcloud(self.datamodule.unnormalize(temp_proposal_samples)),
+            self.datamodule.topology_dict[sequence],
+        )
+
+        uncorrectable_symmetry_rate = second_symmetry_change.float().mean().item()
+
+        if self.hparams.fix_symmetry:
+            proposal_samples[first_symmetry_change] *= -1
+
+            if self.hparams.drop_unfixable_symmetry:  # only makes sense to drop if symmetry is fixed
+                proposal_samples = proposal_samples[~second_symmetry_change]
+                proposal_log_p = proposal_log_p[~second_symmetry_change]
+                proposal_samples_energy = proposal_samples_energy[~second_symmetry_change]
+
+        metrics.update(
+            {
+                f"{prefix}/proposal/correct_symmetry_rate": correct_symmetry_rate,
+                f"{prefix}/proposal/uncorrectable_symmetry_rate": uncorrectable_symmetry_rate,
+            }
+        )
+
+        # Datatype for easier metrics and plotting
+        proposal_data = SamplesData(
+            self.datamodule.as_pointcloud(self.datamodule.unnormalize(proposal_samples)),
+            proposal_samples_energy,
+        )
+
         # Apply CoM adjustment to energy, this must be done here for compatibility with CNFs
         if self.hparams.sampling_config.get("use_com_adjustment", False):
+            logging.info("Applying center of mass energy adjustment")
             proposal_log_p = proposal_log_p + self.com_energy_adjustment(proposal_samples)
 
         # Compute resampling index
@@ -420,7 +511,24 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             logits=resampling_logits,
         )
 
-        if self.smc_sampler is not None and self.smc_sampler.enabled:
+        if self.hparams.sampling_config.get("load_samples_path", None) is not None:
+            load_samples_path_jarz = self.hparams.sampling_config.load_samples_path.replace(
+                "_samples", "_jarzynski_samples"
+            )
+        else:
+            load_samples_path_jarz = None
+
+        if load_samples_path_jarz and os.path.exists(load_samples_path_jarz):
+            logging.info(f"Loading Jarzynski samples from {load_samples_path_jarz}")
+            smc_samples_dict = torch.load(load_samples_path_jarz, map_location=self.device)
+            smc_samples = smc_samples_dict["samples"]
+            smc_logits = smc_samples_dict["logits"]
+            smc_data = SamplesData(
+                self.datamodule.as_pointcloud(self.datamodule.unnormalize(smc_samples)),
+                energy_fn(smc_samples),
+                logits=smc_logits,
+            )
+        elif self.smc_sampler is not None and self.smc_sampler.enabled:
             logging.info("SMC sampling enabled")
 
             num_smc_samples = min(self.hparams.sampling_config.num_smc_samples, len(proposal_samples))
@@ -459,14 +567,16 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
 
         if self.local_rank == 0:
             # log dataset metrics
-            metrics = self.datamodule.metrics_and_plots(
-                self.log_image,
-                sequence,
-                true_data,
-                proposal_data,
-                reweighted_data,
-                smc_data,
-                prefix=prefix,
+            metrics.update(
+                self.datamodule.metrics_and_plots(
+                    self.log_image,
+                    sequence,
+                    true_data,
+                    proposal_data,
+                    reweighted_data,
+                    smc_data,
+                    prefix=prefix,
+                )
             )
         else:
             metrics = {}

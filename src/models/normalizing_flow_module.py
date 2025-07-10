@@ -1,4 +1,3 @@
-import logging
 import math
 from typing import Optional
 
@@ -75,8 +74,6 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
         return loss
 
     def com_energy_adjustment(self, x: torch.Tensor) -> torch.Tensor:
-        logging.info("Applying CoM adjustment")
-
         assert self.proposal_com_std is not None, "Center of mass std should be set"
 
         sigma = self.proposal_com_std
@@ -91,15 +88,17 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
 
     def proposal_energy(self, x: torch.Tensor, encoding: dict[str, torch.Tensor]) -> torch.Tensor:
         data_dim = x.shape[1]  # is the product num_particles * num_dimensions
-        _encoding = {}
-        for k, v in encoding.items():
-            # ensure encoding is broadcasted to batch if we pass
-            # in a single peptide
-            if v.shape[0] != x.shape[0]:
-                v = v[None, ...].repeat(x.shape[0], *([1] * v.ndim))
+        if encoding is not None:
+            _encoding = {}
+            for k, v in encoding.items():
+                # ensure encoding is broadcasted to batch if we pass
+                # in a single peptide
+                if v.shape[0] != x.shape[0]:
+                    v = v[None, ...].repeat(x.shape[0], *([1] * v.ndim))
 
-            _encoding[k] = v.to(x.device)
-
+                _encoding[k] = v.to(x.device)
+        else:
+            _encoding = None
         # TODO need to figure out x_pred / recon names - maybe use z going forwards
         x_pred, fwd_logdets = self.net(x, encoding=_encoding)
 
@@ -131,7 +130,11 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
             probability.
         """
 
-        num_particles = encoding["atom_type"].size(0)
+        if encoding is None:
+            num_particles = self.datamodule.hparams.num_particles
+        else:
+            num_particles = encoding["atom_type"].size(0)
+
         data_dim = num_particles * self.datamodule.hparams.num_dimensions
 
         local_batch_size = batch_size // self.trainer.world_size
