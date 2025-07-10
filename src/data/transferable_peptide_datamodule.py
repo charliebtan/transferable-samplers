@@ -15,7 +15,6 @@ from src.data.components.encoding import get_encoding_dict
 from src.data.components.permutations import get_permutations_dict
 from src.data.components.residue_tokenization import get_residue_tokenization_dict
 from src.data.components.openmm import OpenMMBridge, OpenMMEnergy
-from src.data.components.peptide_dataset import PeptideDataset
 from src.data.components.webdataset import build_webdataset
 from src.data.components.prepare_data import (
     build_lmdb,
@@ -28,7 +27,6 @@ from src.data.components.prepare_data import (
 from src.data.components.test_subset import ALL_TEST_SUBSET, SCALING_SUBSET, TEST_SUBSET_DICT
 from src.data.components.transferable_peptide_dataset import TransferablePeptideDataset
 from src.data.components.transforms.add_encoding import AddEncodingTransform
-from src.data.components.transforms.atom_noise import AtomNoiseTransform
 from src.data.components.transforms.center_of_mass import CenterOfMassTransform
 from src.data.components.transforms.padding import PaddingTransform
 from src.data.components.transforms.rotation import Random3DRotationTransform

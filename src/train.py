@@ -1,28 +1,18 @@
 # ruff: noqa: E402, I001
-
 import os
+import random
+import time
 from typing import Any, Optional
 
 import hydra
 import lightning as L
-import rootutils
 import torch
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
 
+import rootutils
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
-
-from src.utils.instantiators import instantiate_callbacks, instantiate_loggers
-from src.utils.logging_utils import log_hyperparameters
-from src.utils.pylogger import RankedLogger
-from src.utils.utils import extras, get_metric_value, task_wrapper
-import time
-import random
-
-torch.set_float32_matmul_precision("highest")  # high at minimum! # TODO benchmark both models with / without
-torch.backends.cuda.matmul.allow_tf32 = False
-torch.backends.cudnn.allow_tf32 = False
 
 # ------------------------------------------------------------------------------------ #
 # the setup_root above is equivalent to:
@@ -41,6 +31,17 @@ torch.backends.cudnn.allow_tf32 = False
 # more info: https://github.com/ashleve/rootutils
 # ------------------------------------------------------------------------------------ #
 
+from src.utils.instantiators import instantiate_callbacks, instantiate_loggers
+from src.utils.logging_utils import log_hyperparameters
+from src.utils.pylogger import RankedLogger
+from src.utils.utils import extras, get_metric_value, task_wrapper
+
+# We had issues with invertbility of TarFlow without the following settings.
+# Didn't notice any walltime difference for TarFlow or ECNF, but is worth # TODO
+# benchmarking for any further implemented models.
+torch.set_float32_matmul_precision("medium")
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32 = True
 
 log = RankedLogger(__name__, rank_zero_only=True)
 
