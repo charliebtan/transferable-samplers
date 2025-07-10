@@ -106,7 +106,7 @@ class MetaBlock(torch.nn.Module):
             else:
                 self.pos_embed = torch.nn.Parameter(torch.randn(num_patches, channels) * 1e-2)
         elif pos_embed_type == "sinusoidal":
-            self.pos_embed = SinusoidalEmbedding(embed_size=channels, max_len=MAX_SEQ_LEN, div_value=0.0)(torch.arange(MAX_SEQ_LEN))
+            self.pos_embed = SinusoidalEmbedding(embed_size=channels, max_len=MAX_SEQ_LEN, div_value=10000.0)(torch.arange(MAX_SEQ_LEN))
             self.pos_embed_scale = torch.nn.Parameter(torch.ones(1) * 1e-2)
         else:
             raise ValueError(f"Unknown pos_embed_type: {pos_embed_type}. Use 'learned' or 'sinusoidal'.")

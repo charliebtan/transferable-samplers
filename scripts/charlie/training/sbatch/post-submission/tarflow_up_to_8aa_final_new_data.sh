@@ -7,7 +7,7 @@
 #SBATCH --account=aip-necludov               
 #SBATCH --ntasks-per-node=4
 #SBATCH --gres=gpu:h100:4                  # Type/number of GPUs needed
-#SBATCH -c 32
+#SBATCH -c 8
 #SBATCH --open-mode=append            # Do not overwrite logs
 #SBATCH --requeue                     # Requeue upon pre-emption
 #SBATCH --signal=SIGUSR1@90
@@ -21,7 +21,7 @@ source $HOME/envs/$env/bin/activate
 wandb online
 
 echo $SLURM_NNODES
-RUN_NAME="tarflow_up_to_8aa_final_new_data_v1"
+RUN_NAME="tarflow_up_to_8aa_final_new_data_v2"
 
 srun python -u src/train.py \
 experiment=training/tarflow_up_to_8aa_atom logger=wandb \
@@ -37,5 +37,5 @@ model.optimizer.weight_decay=1e-4 \
 +model.net.atom_model.lookahead_conditioning=True \
 tags=[up_to_8aa,new_data] \
 hydra.run.dir='${paths.log_dir}/${task_name}/runs/'${RUN_NAME} \
-ckpt_path='${paths.log_dir}/${task_name}/runs/'${RUN_NAME}/checkpoints/epoch_049_cropped_w2.ckpt \
+ckpt_path='${paths.log_dir}/${task_name}/runs/'${RUN_NAME}/checkpoints/last.ckpt \
 logger.wandb.id=${RUN_NAME}

@@ -1,19 +1,17 @@
 from typing import Any
-
+import math
 import torch
 
 
 class CenterOfMassTransform(torch.nn.Module):
     """Applies Gaussian noise to the center of mass of the molecule."""
 
-    def __init__(self, std: float, num_dimensions: int) -> None:
+    def __init__(self, num_dimensions: int) -> None:
         """
         Args:
-            std (float): Standard deviation of the Gaussian noise to be added.
             num_dimensions (int): Number of dimensions for the atom coordinates. Default is 3.
         """
         super().__init__()
-        self.std = std
         self.num_dimensions = num_dimensions
 
     def forward(self, data: dict[str, Any]) -> dict[str, Any]:
@@ -30,8 +28,11 @@ class CenterOfMassTransform(torch.nn.Module):
         assert len(x.shape) == 2, f"only process single molecules, got shape of {x.shape}"
         assert x.shape[1] == self.num_dimensions, f"expected {self.num_dimensions} dimensions, got {x.shape[1]}"
 
+        num_atoms = x.shape[0]
+        std = 1 / math.sqrt(num_atoms)
+
         # Generate noise and adjust the center of mass
-        noise = torch.randn_like(x[0]) * self.std
+        noise = torch.randn_like(x[0]) * std
 
         # Shift all particles so that the center of mass is moved
         x = x + noise

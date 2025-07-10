@@ -4,7 +4,7 @@ train_lmdb_prefix: train_medium
 val_lmdb_prefix: new_val
 test_lmdb_prefix: new_test
 batch_size: 512 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
-num_workers: 1
+num_workers: 2
 pin_memory: False
 num_aa_max: 8
 num_aa_min: 2

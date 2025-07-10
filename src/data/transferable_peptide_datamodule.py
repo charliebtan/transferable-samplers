@@ -3,6 +3,7 @@ import math
 import os
 from typing import Callable, Optional
 import pickle
+import time
 
 import openmm
 import openmm.app
@@ -72,17 +73,16 @@ class TransferablePeptideDataModule(BaseDataModule):
 
         assert dim == num_dimensions * num_particles, "dim must be equal to num_dimensions * num_particles"
 
-        self.train_data_path = f"{data_dir}/train"
         self.val_data_path = f"{data_dir}/val"
         self.test_data_path = f"{data_dir}/test"
 
-        self.train_lmdb_prefix_path = f"{data_dir}/{train_lmdb_prefix}"
         self.val_lmdb_prefix_path = f"{data_dir}/{val_lmdb_prefix}"
         self.test_lmdb_prefix_path = f"{data_dir}/{test_lmdb_prefix}"
 
         self.tica_models_path = f"{data_dir}/tica_models"
 
-        self.num_aa_range = list(range(num_aa_min, num_aa_max + 1))
+        self.pdbs_path = "/scratch/t/tanc/pdbs"
+        self.cache_path = "/scratch/t/tanc/cache"
 
     def prepare_data(self) -> None:
         """Download data if needed. Lightning ensures that `self.prepare_data()` is called only
@@ -93,46 +93,48 @@ class TransferablePeptideDataModule(BaseDataModule):
         Do not use it to assign state (self.x = y).
         """
 
+        os.makedirs(self.cache_path, exist_ok=True)
+
         if not (
-            all([os.path.exists(f"{self.train_lmdb_prefix_path}_{i}.lmdb") for i in range(self.trainer.world_size)])
-            and all(os.path.exists(f"{self.val_lmdb_prefix_path}_{i}.lmdb") for i in range(self.trainer.world_size))
+            all(os.path.exists(f"{self.val_lmdb_prefix_path}_{i}.lmdb") for i in range(self.trainer.world_size))
             and all(os.path.exists(f"{self.test_lmdb_prefix_path}_{i}.lmdb") for i in range(self.trainer.world_size))
         ):
-            logging.info("LMDB files already exist, skipping build.")
+            pass
+            # logging.info("LMDB files already exist, skipping build.")
 
-            train_npz_paths, train_pdb_paths = check_and_get_files(self.train_data_path)
-            val_npz_paths, val_pdb_paths = check_and_get_files(self.val_data_path)
-            test_npz_paths, test_pdb_paths = check_and_get_files(self.test_data_path)
+            # train_npz_paths, train_pdb_paths = check_and_get_files(self.train_data_path)
+            # val_npz_paths, val_pdb_paths = check_and_get_files(self.val_data_path)
+            # test_npz_paths, test_pdb_paths = check_and_get_files(self.test_data_path)
 
-            logging.info("Cross referencing train and val")
-            cross_reference_files(train_npz_paths, val_npz_paths)
-            logging.info("Cross referencing train and test")
-            cross_reference_files(train_npz_paths, test_npz_paths)
-            logging.info("Cross referencing val and test")
-            cross_reference_files(val_npz_paths, test_npz_paths)
+            # logging.info("Cross referencing train and val")
+            # cross_reference_files(train_npz_paths, val_npz_paths)
+            # logging.info("Cross referencing train and test")
+            # cross_reference_files(train_npz_paths, test_npz_paths)
+            # logging.info("Cross referencing val and test")
+            # cross_reference_files(val_npz_paths, test_npz_paths)
 
-            build_lmdb(
-                train_npz_paths,
-                train_pdb_paths,
-                lmdb_prefix_path=self.train_lmdb_prefix_path,
-                resume=self.hparams.resume_build_lmdb,
-            )
+            # build_lmdb(
+            #     train_npz_paths,
+            #     train_pdb_paths,
+            #     lmdb_prefix_path=self.train_lmdb_prefix_path,
+            #     resume=self.hparams.resume_build_lmdb,
+            # )
 
-            build_lmdb(
-                val_npz_paths,
-                val_pdb_paths,
-                subset=ALL_VALIDATION_SUBSET,  # prevents adding sequences we aren't going to use
-                lmdb_prefix_path=self.val_lmdb_prefix_path,
-                resume=self.hparams.resume_build_lmdb,
-            )
+            # build_lmdb(
+            #     val_npz_paths,
+            #     val_pdb_paths,
+            #     subset=ALL_VALIDATION_SUBSET,  # prevents adding sequences we aren't going to use
+            #     lmdb_prefix_path=self.val_lmdb_prefix_path,
+            #     resume=self.hparams.resume_build_lmdb,
+            # )
 
-            build_lmdb(
-                test_npz_paths,
-                test_pdb_paths,
-                subset=ALL_TEST_SUBSET,  # prevents adding sequences we aren't going to use
-                lmdb_prefix_path=self.test_lmdb_prefix_path,
-                resume=self.hparams.resume_build_lmdb,
-            )
+            # build_lmdb(
+            #     test_npz_paths,
+            #     test_pdb_paths,
+            #     subset=ALL_TEST_SUBSET,  # prevents adding sequences we aren't going to use
+            #     lmdb_prefix_path=self.test_lmdb_prefix_path,
+            #     resume=self.hparams.resume_build_lmdb,
+            # )
 
         if not os.path.exists(self.tica_models_path):
             logging.info("TICA models directory does not exist, creating it.")
@@ -169,37 +171,30 @@ class TransferablePeptideDataModule(BaseDataModule):
                 )
             self.batch_size_per_device = self.hparams.batch_size // self.trainer.world_size
 
+        self.std = torch.tensor(0.35)
+
         # get the correct rank for the lmdb
-        self.train_lmdb_path = f"{self.train_lmdb_prefix_path}_{self.trainer.local_rank}.lmdb"
         self.val_lmdb_path = f"{self.val_lmdb_prefix_path}_{self.trainer.local_rank}.lmdb"
         self.test_lmdb_path = f"{self.test_lmdb_prefix_path}_{self.trainer.local_rank}.lmdb"
 
-        train_metadata = load_lmdb_metadata(self.train_lmdb_path)
         val_metadata = load_lmdb_metadata(self.val_lmdb_path)
         test_metadata = load_lmdb_metadata(self.test_lmdb_path)
 
-        train_seq_names = list(train_metadata["num_samples"].keys())
-
-        # Fitler out train sequences that are not in the num_aa_range
-        train_seq_names = [seq_name for seq_name in train_seq_names if len(seq_name) in self.num_aa_range]
+        # Get train sequence names from the files in self.pdbs_path/train
+        train_pdb_dir = os.path.join(self.pdbs_path, "train")
+        train_seq_names = [
+            filename.split(".")[0]
+            for filename in os.listdir(train_pdb_dir)
+            if os.path.isfile(os.path.join(train_pdb_dir, filename))
+        ]
+        train_pdb_paths = [
+            os.path.join(train_pdb_dir, f"{seq_name}.pdb") for seq_name in train_seq_names
+        ]
 
         all_val_seq_names = list(val_metadata["num_samples"].keys())
         # Find the correct validation subset
-        if self.num_aa_range == [2]:
-            val_seq_names = list(VALIDATION_SUBSET_DICT["2"].keys())
-        elif self.num_aa_range == [4]:
-            val_seq_names = list(VALIDATION_SUBSET_DICT["4"].keys())
-        elif self.num_aa_range == [8]:
-            val_seq_names = list(VALIDATION_SUBSET_DICT["8"].keys())
-        elif self.num_aa_range == [2, 3, 4]:
-            val_seq_names = list(VALIDATION_SUBSET_DICT["24"].keys())
-        elif self.num_aa_range == [2, 3, 4, 5, 6, 7, 8] or self.num_aa_range == [2, 3, 4, 5, 6, 7, 8, 9, 10]:
-            val_seq_names = list(VALIDATION_SUBSET_DICT["248"].keys())
-        else:
-            raise ValueError(
-                f"Validation subset not defined for num_aa_range {self.num_aa_range}. "
-                "Please define a new validation subset in VALIDATION_SUBSET_DICT."
-            )
+        val_seq_names = list(VALIDATION_SUBSET_DICT["248"].keys())
+
         # Check that the validation subset sequences are all present in the lmdb database
         missing_seq_names = [seq_name for seq_name in val_seq_names if seq_name not in all_val_seq_names]
         if missing_seq_names:
@@ -211,19 +206,11 @@ class TransferablePeptideDataModule(BaseDataModule):
         # Eval on the unions of the different aa lengths
         all_test_seq_names = list(test_metadata["num_samples"].keys())
         test_seq_names = {}
-        if 2 in self.num_aa_range:
-            test_seq_names.update(TEST_SUBSET_DICT["2"])
-        if 4 in self.num_aa_range:
-            test_seq_names.update(TEST_SUBSET_DICT["4"])
-        if 8 in self.num_aa_range:
-            test_seq_names.update(TEST_SUBSET_DICT["8"])
-        if (9 in self.num_aa_range) or (10 in self.num_aa_range):
-            test_seq_names.update(SCALING_SUBSET)
-        if not test_seq_names:
-            raise ValueError(
-                f"Test subset not defined for num_aa_range {self.num_aa_range}. "
-                "Please define a new test subset in TEST_SUBSET_DICT."
-            )
+        test_seq_names.update(TEST_SUBSET_DICT["2"])
+        test_seq_names.update(TEST_SUBSET_DICT["4"])
+        test_seq_names.update(TEST_SUBSET_DICT["8"])
+        test_seq_names.update(SCALING_SUBSET)
+
         # Check that the test subset sequences are all present in the lmdb database
         missing_test_seq_names = [seq_name for seq_name in test_seq_names if seq_name not in all_test_seq_names]
         if missing_test_seq_names:
@@ -233,9 +220,6 @@ class TransferablePeptideDataModule(BaseDataModule):
             )
 
         # Filter the metadata to only include the sequences in the train / validation / test sets
-        for key in train_metadata.keys():
-            if isinstance(train_metadata[key], dict):
-                train_metadata[key] = {k: v for k, v in train_metadata[key].items() if k in train_seq_names}
         for key in val_metadata.keys():
             if isinstance(val_metadata[key], dict):
                 val_metadata[key] = {k: v for k, v in val_metadata[key].items() if k in val_seq_names}
@@ -247,10 +231,6 @@ class TransferablePeptideDataModule(BaseDataModule):
         self.val_seq_names = val_seq_names
         self.test_seq_names = test_seq_names
 
-        train_max_num_particles = max(list(train_metadata["num_particles"].values()))
-        val_max_num_particles = max(list(val_metadata["num_particles"].values()))
-        test_max_num_particles = max(list(test_metadata["num_particles"].values()))
-
         tica_model_files = os.listdir(self.tica_models_path)
 
         self.tica_model_paths = {  # TODO horrible naming vs self.tica_models_paths
@@ -258,35 +238,25 @@ class TransferablePeptideDataModule(BaseDataModule):
             for tica_model_file in tica_model_files
         }
 
-        assert train_max_num_particles >= val_max_num_particles, (
-            "Train largest system must be greater than or equal to val largest system for pos_embed learning."
-        )
-        assert train_max_num_particles >= test_max_num_particles, (
-            "Train largest system must be greater than or equal to test largest system for pos_embed learning."
-        )
-        # Need to check here so TarFlow is correctly initalized for data
-        assert self.hparams.num_particles >= train_max_num_particles, (
-            "TarFlow num_particles must be greater or equal to the largest system size. "
-            + f"Max num particles={train_max_num_particles}. Set num_particles in data config "
-            + f"to {train_max_num_particles}."
-        )
-
         pdb_paths = [
-            *train_metadata["pdb_paths"].values(),
+            *train_pdb_paths,
             *val_metadata["pdb_paths"].values(),
             *test_metadata["pdb_paths"].values(),
         ]
 
-        pdb_pkl_path = "pdb.pkl"
-        topology_pkl_path = "topology.pkl"
+        # TODO make this make sense
+
+        pdb_pkl_path = f"{self.cache_path}/pdb_dict.pkl"
+        topology_pkl_path = f"{self.cache_path}/topology_dict.pkl"
         if os.path.exists(pdb_pkl_path):
-            logging.info("Loading pdb dict from existing pickle file.")
+            logging.info(f"Loading pdb dict from {pdb_pkl_path}")
             with open(pdb_pkl_path, "rb") as f:
                 self.pdb_dict = pickle.load(f)
+            logging.info(f"Loading topology dict from {topology_pkl_path}")
             with open(topology_pkl_path, "rb") as f:
                 self.topology_dict = pickle.load(f)
         else:
-            self.pdb_dict, self.topology_dict = load_pdbs_and_topologies(pdb_paths, self.num_aa_range)
+            self.pdb_dict, self.topology_dict = load_pdbs_and_topologies(pdb_paths, [2,3,4,5,6,7,8,9,10])
             if self.trainer.local_rank == 0:
                 with open(pdb_pkl_path, "wb") as f:
                     pickle.dump(self.pdb_dict, f)
@@ -295,9 +265,9 @@ class TransferablePeptideDataModule(BaseDataModule):
 
         self.encoding_dict = get_encoding_dict(self.topology_dict)
 
-        permutation_pkl_path = "permutations.pkl"
+        permutation_pkl_path = f"{self.cache_path}/permutations_dict.pkl"
         if os.path.exists(permutation_pkl_path):
-            logging.info("Loading permutations from existing pickle file.")
+            logging.info(f"Loading permutations dict from {permutation_pkl_path}")
             with open(permutation_pkl_path, "rb") as f:
                 self.permutations_dict = pickle.load(f)
         else:
@@ -306,7 +276,7 @@ class TransferablePeptideDataModule(BaseDataModule):
                 with open(permutation_pkl_path, "wb") as permutation_pkl_file:
                     pickle.dump(self.permutations_dict, permutation_pkl_file)
 
-        residue_tokenization_pkl_path = "residue_tokenization.pkl"
+        residue_tokenization_pkl_path = f"{self.cache_path}/residue_tokenization_dict.pkl"
         if os.path.exists(residue_tokenization_pkl_path):
             logging.info("Loading residue tokenization from existing pickle file.")
             with open(residue_tokenization_pkl_path, "rb") as f:
@@ -318,52 +288,16 @@ class TransferablePeptideDataModule(BaseDataModule):
                 with open(residue_tokenization_pkl_path, "wb") as f:
                     pickle.dump(self.residue_tokenization_dict, f)
 
-        total_samples = 0
-        weighted_vars = []
-        for k, v in train_metadata["vars"].items():
-            num_samples = train_metadata["num_samples"][k]
-            total_samples += num_samples
-            weighted_vars.append(v * num_samples)
-        self.std = torch.sqrt(torch.sum(torch.tensor(weighted_vars)) / total_samples)
-        logging.info(f"Standard deviation of training data: {self.std}")
-
         transform_list = [
             StandardizeTransform(self.std, self.hparams.num_dimensions),
             Random3DRotationTransform(self.hparams.num_dimensions),
         ]
         if self.hparams.com_augmentation:
-            # Center of mass augmentation has std 1/sqrt(N) where N is the mean number of atoms
-            # in the system. This is the same center of mass std deviation as the prior.
-
-            # Compute the mean number of particles per system in the training set
-            weighted_num_particles = []
-            total_num_samples = 0
-            for seq_name in self.train_seq_names:
-                num_samples = train_metadata["num_samples"][seq_name]
-                num_particles = train_metadata["num_particles"][seq_name]
-                weighted_num_particles.append(num_samples * num_particles)
-                total_num_samples += num_samples
-            mean_num_particles = sum(weighted_num_particles) / total_num_samples
-
-            logging.info(f"Mean number of training particles: {mean_num_particles}")
-
             transform_list.append(
                 CenterOfMassTransform(
-                    1 / math.sqrt(mean_num_particles),
                     self.hparams.num_dimensions,
                 )
             )
-        if self.hparams.atom_noise_augmentation_factor:
-            self.atom_noise_std = (
-                self.hparams.atom_noise_augmentation_factor * 0.1 / self.std
-            )  # 0.1 is length in nm of N-H bond
-            transform_list.append(
-                AtomNoiseTransform(
-                    self.atom_noise_std,
-                )
-            )
-        else:
-            self.atom_noise_std = 0.0
         transform_list = transform_list + [
             AddEncodingTransform(self.encoding_dict),
             AddPermutationsTransform(self.permutations_dict, self.residue_tokenization_dict),

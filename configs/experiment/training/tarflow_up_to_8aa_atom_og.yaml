@@ -17,21 +17,15 @@ model:
       num_blocks: 8
       layers_per_block: 8
       permutation_keys:
-      - "n2c_backbone-first_standard"
-      - "n2c_residue-by-residue_standard_flip"
-      - "n2c_backbone-first_standard_flip"
       - "n2c_residue-by-residue_standard"
-      - "n2c_backbone-first_variant"
-      - "n2c_residue-by-residue_variant_flip"
-      - "n2c_backbone-first_variant_flip"
-      - "n2c_residue-by-residue_variant"
+      - "n2c_residue-by-residue_standard_flip"
       cond_embed:
         _target_: src.models.components.tarflow.embed.AtomConditionalEmbedder
         hidden_dim: ${model.net.atom_model.channels}
         output_dim: ${model.net.atom_model.channels}
         sinusoid_div_value: 1000 # for sinusoidal positional embedding
-      use_adapt_ln: True
-      use_transition: True
+      use_adapt_ln: False
+      use_transition: False
       use_qkln: True
       pos_embed_type: "sinusoidal"
 

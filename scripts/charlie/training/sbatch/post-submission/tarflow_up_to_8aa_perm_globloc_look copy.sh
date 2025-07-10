@@ -37,5 +37,5 @@ model.optimizer.weight_decay=1e-4 \
 +model.net.atom_model.lookahead_conditioning=True \
 tags=[up_to_8aa,new_data] \
 hydra.run.dir='${paths.log_dir}/${task_name}/runs/'${RUN_NAME} \
-ckpt_path='${paths.log_dir}/${task_name}/runs/'${RUN_NAME}/checkpoints/epoch_049_cropped_w2.ckpt \
+ckpt_path='${paths.log_dir}/${task_name}/runs/'${RUN_NAME}/checkpoints/last.ckpt \
 logger.wandb.id=${RUN_NAME}

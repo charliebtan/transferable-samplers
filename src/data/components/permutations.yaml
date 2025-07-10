@@ -1,29 +1,32 @@
 backbone:
   n2c:
-    - N 
-    - H # not on Proline
-    - H2 # only on N-terminal
-    - H3 # only on N-terminal
-    - CA
-    - HA # not on Glycine
-    - HA2 # only on Glycine
-    - HA3 # only on Glycine
-    - C
-    - O
-    - OXT # only on C-terminal
-
+    before_sidechain:
+      - N 
+      - H # not on Proline
+      - H2 # only on N-terminal
+      - H3 # only on N-terminal
+      - CA
+      - HA # not on Glycine
+      - HA2 # only on Glycine
+      - HA3 # only on Glycine
+    after_sidechain:
+      - C
+      - O
+      - OXT # only on C-terminal
   c2n:
-    - OXT # only on C-terminal
-    - C
-    - O
-    - CA
-    - HA # not on Glycine
-    - HA2 # only on Glycine
-    - HA3 # only on Glycine
-    - N
-    - H # not on Proline
-    - H2 # only on N-terminal
-    - H3 # only on N-terminal
+    before_sidechain:
+      - OXT # only on C-terminal
+      - C
+      - O
+      - CA
+      - HA # not on Glycine
+      - HA2 # only on Glycine
+      - HA3 # only on Glycine
+    after_sidechain:
+      - N
+      - H # not on Proline
+      - H2 # only on N-terminal
+      - H3 # only on N-terminal
 
 sidechain:
   ALA:
@@ -362,6 +365,7 @@ sidechain:
       - HE1
       - CD1
       - HD1
+
 
   PRO:
     standard:

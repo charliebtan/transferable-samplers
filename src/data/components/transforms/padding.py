@@ -51,6 +51,7 @@ class PaddingTransform(torch.nn.Module):
         num_tokens = next(iter(permutations.values())).shape[0]
         assert all(len(v) == num_tokens for v in permutations.values()), "All permutations must have same length"
         pad_len = padded_seq_len - num_tokens
+        assert pad_len >= 0
         if not pad_len:
             return permutations.copy()
         else:

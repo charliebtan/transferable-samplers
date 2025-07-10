@@ -289,7 +289,10 @@ def load_pdbs_and_topologies(
     pdb_dict = {}
     topology_dict = {}
     for path in tqdm(pdb_paths, desc="Loading PDBs", total=len(pdb_paths)):
-        seq = os.path.basename(path).split("-")[0]
+        if "-" in path:
+            seq = os.path.basename(path).split("-")[0]
+        else:
+            seq = os.path.basename(path).split(".")[0]
 
         pdb = openmm.app.PDBFile(path)
         topology = md.load_topology(path)
