@@ -20,7 +20,7 @@ from src.utils.utils import extras, get_metric_value, task_wrapper
 import time
 import random
 
-torch.set_float32_matmul_precision("highest")  # high at minimum!
+torch.set_float32_matmul_precision("highest")  # high at minimum! # TODO benchmark both models with / without
 torch.backends.cuda.matmul.allow_tf32 = False
 torch.backends.cudnn.allow_tf32 = False
 
@@ -145,7 +145,11 @@ def main(cfg: DictConfig) -> Optional[float]:
     extras(cfg)
 
     if "multiruns" in cfg.paths.output_dir:
-        sleep_time = random.uniform(0, 180)
+        # We had an issue with multirun sweeps where > 100 jobs would start at the same time,
+        # causing rate limiting issues with wandb. To avoid this, we add a random sleep time
+        # before starting the training. This is a workaround to avoid hitting the rate limits.
+        # It seems to be fine having many concurrent jobs, but not starting simultaneously.
+        sleep_time = random.uniform(0, 120)
         log.info(f"Sleeping for {sleep_time:.2f} seconds to avoid wandb rate limitations.")
         time.sleep(sleep_time)
 
