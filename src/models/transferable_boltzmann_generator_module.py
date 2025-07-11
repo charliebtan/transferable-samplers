@@ -102,7 +102,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         :param batch_idx: The index of the current batch.
         :return: A tensor of losses between model predictions and targets.
         """
-        assert len(batch["x"].shape) == 2, "molecules must be in vector format"
+        assert len(batch["x"].shape) == 3, "molecules must be a pointcloud (batch_size, num_atoms, 3)"
         loss = self.model_step(batch)
         batch_value = self.train_metrics(loss)
         self.log_dict(batch_value, prog_bar=True)
@@ -357,7 +357,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         metrics = {}
 
         true_data = SamplesData(
-            self.datamodule.as_pointcloud(self.datamodule.unnormalize(true_samples)),
+            self.datamodule.unnormalize(true_samples),
             energy_fn(true_samples),
         )
 
@@ -372,6 +372,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         else:
             num_proposal_samples = self.hparams.sampling_config.num_proposal_samples
 
+<<<<<<< HEAD
         if self.hparams.sampling_config.get("load_samples_path", None) is None:
             # Generate samples and record time
             torch.cuda.synchronize()
@@ -379,6 +380,18 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             proposal_samples, proposal_log_q, prior_samples = proposal_generator(num_proposal_samples, permutations, encoding)
             torch.cuda.synchronize()
             time_duration = time.time() - start_time
+=======
+        # Generate samples and record time
+        torch.cuda.synchronize()
+        start_time = time.time()
+        proposal_samples, proposal_log_p, prior_samples = proposal_generator(
+            num_proposal_samples, permutations, encoding
+        )
+        torch.cuda.synchronize()
+        time_duration = time.time() - start_time
+        self.log(f"{prefix}/samples_walltime", time_duration, sync_dist=True)
+        self.log(f"{prefix}/samples_per_second", len(proposal_samples) / time_duration, sync_dist=True)
+>>>>>>> pointclouds
 
             metrics.update(
                 {
@@ -443,7 +456,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
 
         # Datatype for easier metrics and plotting
         proposal_data = SamplesData(
-            self.datamodule.as_pointcloud(self.datamodule.unnormalize(proposal_samples)),
+            self.datamodule.unnormalize(proposal_samples),
             proposal_samples_energy,
         )
 
@@ -520,7 +533,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         _, resampling_index = resample(proposal_samples, resampling_logits, return_index=True)
 
         reweighted_data = SamplesData(
-            self.datamodule.as_pointcloud(self.datamodule.unnormalize(proposal_samples[resampling_index])),
+            self.datamodule.unnormalize(proposal_samples[resampling_index]),
             proposal_samples_energy[resampling_index],
             logits=resampling_logits,
         )
@@ -572,7 +585,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
 
             # Datatype for easier metrics and plotting
             smc_data = SamplesData(
-                self.datamodule.as_pointcloud(self.datamodule.unnormalize(smc_samples)),
+                self.datamodule.unnormalize(smc_samples),
                 energy_fn(smc_samples),
                 logits=smc_logits,
             )

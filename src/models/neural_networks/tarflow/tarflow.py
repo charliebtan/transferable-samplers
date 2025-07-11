@@ -2,7 +2,6 @@
 # For licensing see accompanying LICENSE file.
 # Copyright (C) 2024 Apple Inc. All Rights Reserved.
 #
-import numpy as np
 import torch
 import torch.nn as nn
 
@@ -18,14 +17,16 @@ else:
 
 MAX_SEQ_LEN = 512
 
+
 def write_tensor_to_txt(tensor: torch.Tensor, filename: str, linesize: int = 3):
     """HELPFUL FOR DEBUGGING: write a tensor to a text file for easy diffs"""
     tensor = tensor.flatten()
-    with open("0DEBUG_" + filename, 'w') as f:
+    with open("0DEBUG_" + filename, "w") as f:
         for j in range(0, tensor.size(0), linesize):
-            triplet = tensor[j:j+linesize].tolist()
-            line = ' '.join(f"{x:.6f}" for x in triplet)
-            f.write(line + '\n')
+            triplet = tensor[j : j + linesize].tolist()
+            line = " ".join(f"{x:.6f}" for x in triplet)
+            f.write(line + "\n")
+
 
 class PermutationFromDict(torch.nn.Module):
     def __init__(self, permutation_key: str):
@@ -33,14 +34,17 @@ class PermutationFromDict(torch.nn.Module):
         self.permutation_key = permutation_key
 
     def forward(self, data: torch.Tensor, data_permutations_dict: dict[str, torch.Tensor], inverse: bool = False):
-        data_permutations_dict = data_permutations_dict["permutations"] # TODO refactor out
-        assert self.permutation_key in data_permutations_dict, f"Permutation key {self.permutation_key} not found in data_permutations"
+        data_permutations_dict = data_permutations_dict["permutations"]  # TODO refactor out
+        assert self.permutation_key in data_permutations_dict, (
+            f"Permutation key {self.permutation_key} not found in data_permutations"
+        )
         permutation = data_permutations_dict[self.permutation_key]
         if inverse:
-            permutation = torch.argsort(permutation) # get inverse permutation
+            permutation = torch.argsort(permutation)  # get inverse permutation
         permutation = permutation.unsqueeze(-1).expand(-1, -1, data.shape[-1])
         permuted_data = torch.gather(data, dim=1, index=permutation)
         return permuted_data
+
 
 class MetaBlock(torch.nn.Module):
     attn_mask: torch.Tensor
@@ -59,7 +63,7 @@ class MetaBlock(torch.nn.Module):
         use_adapt_ln: bool = False,
         use_attn_pair_bias: bool = False,
         pair_bias_hidden_dim: int = 16,
-        use_transition: bool= False,
+        use_transition: bool = False,
         use_qkln: bool = False,
         dropout: float = 0.0,
         pos_embed_type: str = "learned",  # learned, sinusoidal
@@ -146,7 +150,6 @@ class MetaBlock(torch.nn.Module):
         cond: torch.Tensor,
         mask: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-
         x_in = self.permutation(x, permutations)  # store permuted input for later
 
         x = self.proj_in(x)
@@ -161,7 +164,9 @@ class MetaBlock(torch.nn.Module):
         if cond is not None:
             cond = self.permutation(cond, permutations)
             if self.lookahead_conditioning:
-                lookahead_cond = torch.cat([cond[:, 1:], torch.zeros_like(cond[:, :1])], dim=1)  # shift back one token w/ zero pad
+                lookahead_cond = torch.cat(
+                    [cond[:, 1:], torch.zeros_like(cond[:, :1])], dim=1
+                )  # shift back one token w/ zero pad
                 cond = torch.cat([cond, lookahead_cond], dim=-1)  # concatenate the two
             cond_emb = self.proj_cond(cond)
         else:
@@ -203,7 +208,7 @@ class MetaBlock(torch.nn.Module):
 
         tokenization_map = permutations.get("tokenization_map", None)
         if tokenization_map is not None:
-            tokenization_mask = (tokenization_map != -1).float().repeat_interleave(3, dim=-1) # TODO hardcode
+            tokenization_mask = (tokenization_map != -1).float().repeat_interleave(3, dim=-1)  # TODO hardcode
             tokenization_mask = self.permutation(tokenization_mask, permutations)
             xb = xb * tokenization_mask
             xa = xa * tokenization_mask
@@ -211,9 +216,11 @@ class MetaBlock(torch.nn.Module):
         x_out = self.permutation((x_in - xb) * scale, permutations, inverse=True)
 
         if tokenization_map is not None:
-            data_dim = (tokenization_map != -1).int().sum(dim=[1, 2]) * 3 # this will inherently account for full padded residue tokens # TODO could be better
+            data_dim = (tokenization_map != -1).int().sum(
+                dim=[1, 2]
+            ) * 3  # this will inherently account for full padded residue tokens # TODO could be better
         elif mask is not None:
-            data_dim = mask.sum(dim=-1) * 3 # TODO ugly and makes assumptions
+            data_dim = mask.sum(dim=-1) * 3  # TODO ugly and makes assumptions
         else:
             data_dim = x.shape[1] * 3  # assume all tokens are valid
 
@@ -227,15 +234,17 @@ class MetaBlock(torch.nn.Module):
         cond: torch.Tensor,
         pos_embed: torch.Tensor,
         i: int,
-        attn_temp: float = 1.0, # TODO remove?
-        which_cache: str = "cond", # TODO remove?
+        attn_temp: float = 1.0,  # TODO remove?
+        which_cache: str = "cond",  # TODO remove?
     ) -> tuple[torch.Tensor, torch.Tensor]:
         x_in = x.clone()
         x = self.proj_in(x_in[:, i : i + 1]) + pos_embed[:, i : i + 1]
 
         if cond is not None:
             if self.lookahead_conditioning:
-                lookahead_cond = torch.cat([cond[:, 1:], torch.zeros_like(cond[:, :1])], dim=1)  # shift back one token w/ zero pad
+                lookahead_cond = torch.cat(
+                    [cond[:, 1:], torch.zeros_like(cond[:, :1])], dim=1
+                )  # shift back one token w/ zero pad
                 cond = torch.cat([cond, lookahead_cond], dim=-1)  # concatenate the two
             cond_in = cond[:, i : i + 1]
             cond_emb = self.proj_cond(cond_in)
@@ -292,14 +301,14 @@ class MetaBlock(torch.nn.Module):
         xs = [x[:, i] for i in range(x.size(1))]
         tokenization_map = permutations.get("tokenization_map", None)
         if tokenization_map is not None:
-            tokenization_mask = (tokenization_map != -1).float().repeat_interleave(3, dim=-1) # TODO hardcode
+            tokenization_mask = (tokenization_map != -1).float().repeat_interleave(3, dim=-1)  # TODO hardcode
             tokenization_mask = self.permutation(tokenization_mask, permutations)
             tokenization_masks = [tokenization_mask[:, i] for i in range(tokenization_mask.size(1))]
         for i in range(x.size(1) - 1):
             za, zb = self.reverse_step(x, cond, pos_embed, i, which_cache="cond")
             if tokenization_map is not None:
-                zb = zb * tokenization_masks[i+1]
-                za = za * tokenization_masks[i+1]
+                zb = zb * tokenization_masks[i + 1]
+                za = za * tokenization_masks[i + 1]
             scale = za[:, 0].float().exp().type(za.dtype)  # get rid of the sequence dimension
             xs[i + 1] = xs[i + 1] * scale + zb[:, 0]
             x = torch.stack(xs, dim=1)
@@ -308,6 +317,7 @@ class MetaBlock(torch.nn.Module):
         x = self.permutation(x, permutations, inverse=True)
 
         return x
+
 
 def atoms_to_residue_tokens(atom_tokens: torch.Tensor, residue_tokenization: torch.Tensor):
     """
@@ -334,7 +344,7 @@ def atoms_to_residue_tokens(atom_tokens: torch.Tensor, residue_tokenization: tor
     gathered = torch.gather(
         atom_tokens.unsqueeze(1).expand(-1, num_residues, -1, -1),  # [B, Num_AA, Seq_len, 3]
         dim=2,
-        index=safe_indices.unsqueeze(-1).expand(-1, -1, -1, D)      # [B, Num_AA, max_atoms_per_residue, 3]
+        index=safe_indices.unsqueeze(-1).expand(-1, -1, -1, D),  # [B, Num_AA, max_atoms_per_residue, 3]
     )
 
     # Mask out padding tokens
@@ -345,10 +355,9 @@ def atoms_to_residue_tokens(atom_tokens: torch.Tensor, residue_tokenization: tor
 
     return residue_tokens
 
+
 def residue_to_atom_tokens(
-    residue_tokens: torch.Tensor,
-    residue_tokenization: torch.Tensor,
-    max_seq_len: int
+    residue_tokens: torch.Tensor, residue_tokenization: torch.Tensor, max_seq_len: int
 ) -> torch.Tensor:
     """
     Vectorized inversion of atoms_to_residue_tokens with support for padded MAX_SEQUENCE_LENGTH.
@@ -369,7 +378,7 @@ def residue_to_atom_tokens(
     residue_tokens = residue_tokens.view(B, Num_AA, max_atoms_per_residue, D)  # [B, R, A, 3]
 
     # Valid atom mask
-    mask = (residue_tokenization != -1)  # [B, R, A]
+    mask = residue_tokenization != -1  # [B, R, A]
 
     # Sanitize indices for scatter
     safe_indices = residue_tokenization.clone()
@@ -379,9 +388,9 @@ def residue_to_atom_tokens(
     atom_tokens = torch.zeros(B, max_seq_len, D, device=residue_tokens.device)
 
     # Flatten for scatter
-    scatter_idx = safe_indices.view(B, -1)              # [B, R*A]
-    scatter_vals = residue_tokens.view(B, -1, D)        # [B, R*A, 3]
-    scatter_mask = mask.view(B, -1)                     # [B, R*A]
+    scatter_idx = safe_indices.view(B, -1)  # [B, R*A]
+    scatter_vals = residue_tokens.view(B, -1, D)  # [B, R*A, 3]
+    scatter_mask = mask.view(B, -1)  # [B, R*A]
 
     for b in range(B):
         valid_indices = scatter_idx[b][scatter_mask[b]]  # [#valid_atoms]
@@ -390,16 +399,18 @@ def residue_to_atom_tokens(
 
     return atom_tokens
 
+
 def atom_to_residue_encoding(encoding: torch.Tensor, tokenization_map: torch.Tensor):
     tokenization_map = tokenization_map.clone()
-    c_index_per_residue = tokenization_map[:, :, 0] # get index of "C" atom in each residue
-    c_index_per_residue_mask = c_index_per_residue != -1 # mask for valid residues
-    c_index_per_residue[c_index_per_residue_mask == 0] = 0 # set invalid residues to 0
+    c_index_per_residue = tokenization_map[:, :, 0]  # get index of "C" atom in each residue
+    c_index_per_residue_mask = c_index_per_residue != -1  # mask for valid residues
+    c_index_per_residue[c_index_per_residue_mask == 0] = 0  # set invalid residues to 0
     B, R = c_index_per_residue.shape
     batch_indices = torch.arange(B, device=c_index_per_residue.device).unsqueeze(1).expand(B, R)
     return encoding[batch_indices, c_index_per_residue] * c_index_per_residue_mask
 
-class TarFlow(torch.nn.Module): # rename to AtomTarFlow?
+
+class TarFlow(torch.nn.Module):  # rename to AtomTarFlow?
     def __init__(
         self,
         input_dimension: int,
@@ -414,8 +425,11 @@ class TarFlow(torch.nn.Module): # rename to AtomTarFlow?
         use_transition: bool = False,
         use_qkln: bool = False,
         dropout: float = 0.0,
-        permutation_keys: list[str] = ["n2c_residue-by-residue_standard_group-by-group", "n2c_residue-by-residue_standard_group-by-group_flip"], # defaults to SBG
-        cond_embed: nn.Module | None = None, # TODO don't like name, could make a proper subclass 
+        permutation_keys: list[str] = [
+            "n2c_residue-by-residue_standard_group-by-group",
+            "n2c_residue-by-residue_standard_group-by-group_flip",
+        ],  # defaults to SBG
+        cond_embed: nn.Module | None = None,  # TODO don't like name, could make a proper subclass
         pos_embed_type: str = "learned",  # learned, sinusoidal
         nvp: bool = True,
         debug: bool = False,  # stops the weight initialization from being zero so tokens are not all the same
@@ -423,7 +437,9 @@ class TarFlow(torch.nn.Module): # rename to AtomTarFlow?
     ):
         super().__init__()
         self.input_dimension = input_dimension
-        permutation_keys = list(permutation_keys) * (num_blocks // len(permutation_keys) + 1)  # repeat to match num_blocks
+        permutation_keys = list(permutation_keys) * (
+            num_blocks // len(permutation_keys) + 1
+        )  # repeat to match num_blocks
         self.conditional = False if cond_embed is None else True
         self.cond_embed = cond_embed
         self.debug = debug
@@ -453,14 +469,12 @@ class TarFlow(torch.nn.Module): # rename to AtomTarFlow?
             )
         self.blocks = torch.nn.ModuleList(blocks)
 
-
     def forward(
         self,
         x: torch.Tensor,
         permutations: dict[str, torch.Tensor],
         encoding: dict[str, torch.Tensor] | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-
         mask = permutations.get("mask", None)
 
         if mask is not None:
@@ -502,7 +516,9 @@ class TarFlow(torch.nn.Module): # rename to AtomTarFlow?
             for key in ["atom_type", "aa_type", "aa_pos"]:
                 if key in encoding:
                     if not key == "seq_len":  # seq_len is single value for each batch item, so we don't check it
-                        assert not torch.any(encoding[key] == 0), f"{key} has padding zeros, padding not supported in reverse"
+                        assert not torch.any(encoding[key] == 0), (
+                            f"{key} has padding zeros, padding not supported in reverse"
+                        )
             cond = self.cond_embed(**encoding)
         else:
             cond = None
@@ -520,17 +536,8 @@ class AtomTarFlow(TarFlow):
         permutations: dict[str, torch.Tensor],
         encoding: dict[str, torch.Tensor] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor], torch.Tensor]:
-
-        batch_size = x.shape[0]
         permutations = permutations["atom"]
-
-        # patichy to (batch_size, num_atoms, input_dimension)
-        x = x.reshape(batch_size, -1, self.input_dimension)
-
         x, logdets = super().forward(x, permutations, encoding)
-
-        # un-patchify
-        x = x.reshape(batch_size, -1)
 
         return x, logdets
 
@@ -542,39 +549,27 @@ class AtomTarFlow(TarFlow):
     ) -> torch.Tensor | list[torch.Tensor]:
         """No masking in reverse since we assume the model generates a single peptide system as a time."""
 
-        batch_size = x.shape[0]
         permutations = permutations["atom"]
-
-        # patchify to (batch_size, num_atoms, input_dimension)
-        x = x.reshape(batch_size, -1, self.input_dimension)
-
         x = super().reverse(x, permutations, encoding)
-
-        # un-patchify
-        x = x.reshape(batch_size, -1)
 
         return x
 
-class ResidueTarFlow(TarFlow):
 
+class ResidueTarFlow(TarFlow):
     def forward(
         self,
         x: torch.Tensor,
         permutations: dict[str, torch.Tensor],
         encoding: dict[str, torch.Tensor] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor], torch.Tensor]:
-
-        batch_size = x.shape[0]
-        x = x.reshape(batch_size, -1, 3) # TODO remove
         atom_seq_len = x.shape[1]
-
         permutations = permutations["residue"]
 
-        # patichy to (batch_size, max_residues, max_atoms_per_residue)
-        x_start = x.clone()
+        # patichy to (batch_size, max_residues, max_atoms_per_residue)
+        # x_start = x.clone()
         x = atoms_to_residue_tokens(x, permutations["tokenization_map"])
-        # x_new = residue_to_atom_tokens(x, permutations["tokenization_map"], max_seq_len=atom_seq_len)
-        # assert torch.allclose(x_new, x_start), "Reshape from residue to atom tokens did not preserve original x"
+        # x_new = residue_to_atom_tokens(x, permutations["tokenization_map"], max_seq_len=atom_seq_len)
+        # assert torch.allclose(x_new, x_start), "Reshape from residue to atom tokens did not preserve original x"
 
         residue_encoding = {
             "aa_type": atom_to_residue_encoding(encoding["aa_type"], permutations["tokenization_map"]),
@@ -584,11 +579,7 @@ class ResidueTarFlow(TarFlow):
         x, logdets = super().forward(x, permutations, residue_encoding)
 
         # un-patchify
-        x = residue_to_atom_tokens(
-            x, permutations["tokenization_map"], max_seq_len=atom_seq_len
-        )
-
-        x = x.reshape(batch_size, -1) # TODO remove
+        x = residue_to_atom_tokens(x, permutations["tokenization_map"], max_seq_len=atom_seq_len)
 
         return x, logdets
 
@@ -600,17 +591,14 @@ class ResidueTarFlow(TarFlow):
     ) -> torch.Tensor | list[torch.Tensor]:
         """No masking in reverse since we assume the model generates a single peptide system as a time."""
 
-        batch_size = x.shape[0]
-        x = x.reshape(batch_size, -1, 3) # TODO remove
         atom_seq_len = x.shape[1]
-
         permutations = permutations["residue"]
 
-        # patichy to (batch_size, max_residues, max_atoms_per_residue)
-        x_start = x.clone()
+        # patichy to (batch_size, max_residues, max_atoms_per_residue)
+        # x_start = x.clone()
         x = atoms_to_residue_tokens(x, permutations["tokenization_map"])
-        # x_new = residue_to_atom_tokens(x, permutations["tokenization_map"], max_seq_len=atom_seq_len)
-        # assert torch.allclose(x_new, x_start), "Reshape from residue to atom tokens did not preserve original x"
+        # x_new = residue_to_atom_tokens(x, permutations["tokenization_map"], max_seq_len=atom_seq_len)
+        # assert torch.allclose(x_new, x_start), "Reshape from residue to atom tokens did not preserve original x"
 
         residue_encoding = {
             "aa_type": atom_to_residue_encoding(encoding["aa_type"], permutations["tokenization_map"]),
@@ -620,17 +608,13 @@ class ResidueTarFlow(TarFlow):
         x = super().reverse(x, permutations, encoding=residue_encoding)
 
         # un-patchify
-        x = residue_to_atom_tokens(
-            x, permutations["tokenization_map"], max_seq_len=atom_seq_len
-        )
+        x = residue_to_atom_tokens(x, permutations["tokenization_map"], max_seq_len=atom_seq_len)
 
-        x = x.reshape(batch_size, -1) # TODO remove
+        return x
 
-        return x 
 
 class MultiTarFlow(torch.nn.Module):
-    """
-    """
+    """ """
 
     def __init__(self, atom_model=None, residue_model=None):
         super().__init__()
@@ -643,7 +627,9 @@ class MultiTarFlow(torch.nn.Module):
 
         self.models = torch.nn.ModuleList(models)
 
-    def forward(self, x: torch.Tensor, permutations: dict[str, torch.Tensor], encoding: dict[str, torch.Tensor] | None = None):
+    def forward(
+        self, x: torch.Tensor, permutations: dict[str, torch.Tensor], encoding: dict[str, torch.Tensor] | None = None
+    ):
         logdets = torch.zeros((x.shape[0]), device=x.device)
         for model in self.models:
             x, logdet = model(x, permutations, encoding)
@@ -651,10 +637,13 @@ class MultiTarFlow(torch.nn.Module):
 
         return x, logdets
 
-    def reverse(self, x: torch.Tensor, permutations: dict[str, torch.Tensor], encoding: dict[str, torch.Tensor] | None = None):
+    def reverse(
+        self, x: torch.Tensor, permutations: dict[str, torch.Tensor], encoding: dict[str, torch.Tensor] | None = None
+    ):
         for model in reversed(self.models):
             x = model.reverse(x, permutations, encoding)
         return x
+
 
 ########################################################
 """ Below are helper functions for testing the model """
@@ -681,6 +670,7 @@ def load_padded_model_weights(model_pad, model):
 
     return model
 
+
 @torch.no_grad()
 def test_invert_unpadded_data(model, x, permutations, encoding):
     """
@@ -693,6 +683,7 @@ def test_invert_unpadded_data(model, x, permutations, encoding):
 
     assert torch.allclose(x, x_recon, atol=1e-4), "Invertibility test failed"
     print("Invertibility test passed (unpadded data)")
+
 
 @torch.no_grad()
 def test_invert_padded_data(model, x_pad, permutations, permutations_pad, encoding, encoding_pad, token_dimensions=3):
@@ -713,10 +704,12 @@ def test_invert_padded_data(model, x_pad, permutations, permutations_pad, encodi
     assert torch.allclose(x, x_recon, atol=1e-4), "Invertibility test failed"
     print("Invertibility test passed (padded data)")
 
+
 @torch.no_grad()
-def test_outputs_unpadded_vs_padded_data(model, x_pad, permutations, permutations_pad, encoding, encoding_pad, token_dimensions=3):
-    """
-    """
+def test_outputs_unpadded_vs_padded_data(
+    model, x_pad, permutations, permutations_pad, encoding, encoding_pad, token_dimensions=3
+):
+    """ """
     num_pad_tokens = encoding_pad["aa_type"].shape[1] - encoding["aa_type"].shape[1]
 
     x_pad = x_pad.flatten(start_dim=1)  # flatten to (batch_size, num_tokens * num_dimensions)
@@ -731,23 +724,28 @@ def test_outputs_unpadded_vs_padded_data(model, x_pad, permutations, permutation
     assert torch.allclose(logdets_pad, logdets, atol=1e-4), "Logdet comparison test failed (padded vs unpadded data)"
     print("Model outputs test passed (padded vs unpadded data)")
 
+
 @torch.no_grad()
 def test_outputs_unpadded_vs_padded_model(model, model_pad, x, permutations, encoding):
-    """
-    """
+    """ """
     x = x.flatten(start_dim=1)  # flatten to (batch_size, num_tokens * num_dimensions)
 
     output_rev_pad = model_pad.reverse(x, permutations, encoding=encoding)
     output_rev = model.reverse(x, permutations, encoding=encoding)
 
-    assert torch.allclose(output_rev_pad, output_rev, atol=1e-4), "Reverse output comparison test failed (padded vs unpadded model)"
+    assert torch.allclose(output_rev_pad, output_rev, atol=1e-4), (
+        "Reverse output comparison test failed (padded vs unpadded model)"
+    )
 
     output_fwd_pad, logdets_pad = model_pad(x, permutations, encoding=encoding)
     output_fwd, logdets = model(x, permutations, encoding=encoding)
 
-    assert torch.allclose(output_fwd_pad, output_fwd, atol=1e-4), "Output comparison test failed (padded vs unpadded model)"
+    assert torch.allclose(output_fwd_pad, output_fwd, atol=1e-4), (
+        "Output comparison test failed (padded vs unpadded model)"
+    )
     assert torch.allclose(logdets_pad, logdets, atol=1e-4), "Logdet comparison test failed (padded vs unpadded model)"
     print("Model outputs test passed (padded vs unpadded model)")
+
 
 @torch.no_grad()
 def test_logdet(model, x_i, permutations_i, enc_i):
@@ -764,11 +762,13 @@ def test_logdet(model, x_i, permutations_i, enc_i):
     fwd_jac_true = torch.autograd.functional.jacobian(fwd_func, x_i, vectorize=True)
     fwd_logdets_true = torch.logdet(fwd_jac_true[0].squeeze())
 
-    assert torch.allclose(logdets, fwd_logdets_true, atol=1e-4), f"Log dets do not match, {logdets.item()} != {fwd_logdets_true}"
+    assert torch.allclose(logdets, fwd_logdets_true, atol=1e-4), (
+        f"Log dets do not match, {logdets.item()} != {fwd_logdets_true}"
+    )
     print("Log det test passed")
 
-def get_repeated_data(data, local_batch_size):
 
+def get_repeated_data(data, local_batch_size):
     x = data["x"]
     permutations = data["permutations"]
     encoding = data["encoding"]
@@ -784,10 +784,7 @@ def get_repeated_data(data, local_batch_size):
         for subkey, tensor in permutations["residue"]["permutations"].items()
     }
     permutations["residue"]["tokenization_map"] = (
-        permutations["residue"]["tokenization_map"]
-        .unsqueeze(0)
-        .repeat(local_batch_size, 1, 1)
-        .to(device)
+        permutations["residue"]["tokenization_map"].unsqueeze(0).repeat(local_batch_size, 1, 1).to(device)
     )
 
     if "mask" in permutations["atom"]:
@@ -801,16 +798,15 @@ def get_repeated_data(data, local_batch_size):
         permutations["residue"]["mask"] = mask
 
     if encoding is not None:
-        encoding = {
-            key: tensor.unsqueeze(0).repeat(local_batch_size, 1).to(device) for key, tensor in encoding.items()
-        }
+        encoding = {key: tensor.unsqueeze(0).repeat(local_batch_size, 1).to(device) for key, tensor in encoding.items()}
 
     return x, permutations, encoding
 
+
 if __name__ == "__main__":
-    # torch.use_deterministic_algorithms(True)
-    # torch.backends.cudnn.deterministic = True
-    # torch.backends.cudnn.benchmark = False
+    # torch.use_deterministic_algorithms(True)
+    # torch.backends.cudnn.deterministic = True
+    # torch.backends.cudnn.benchmark = False
     torch.set_printoptions(sci_mode=True, precision=2)
     torch.manual_seed(1)
 
@@ -822,19 +818,19 @@ if __name__ == "__main__":
 
     ### FOR EXTRACTING SINGLE SEQUENCES FROM THE DATASETS
 
-    # padded_data = all_padded_data[seq]
-    # unpadded_data = all_unpadded_data[seq]
+    # padded_data = all_padded_data[seq]
+    # unpadded_data = all_unpadded_data[seq]
 
-    # for seq in all_padded_data.keys():
-    #     if len(seq) == 2:
-    #         single_padded_data = all_padded_data[seq]
-    #         single_unpadded_data = all_unpadded_data[seq]
+    # for seq in all_padded_data.keys():
+    #     if len(seq) == 2:
+    #         single_padded_data = all_padded_data[seq]
+    #         single_unpadded_data = all_unpadded_data[seq]
 
-    # torch.save(single_padded_data, "single_padded_data.pt")
-    # torch.save(single_unpadded_data, "single_unpadded_data.pt")
+    # torch.save(single_padded_data, "single_padded_data.pt")
+    # torch.save(single_unpadded_data, "single_unpadded_data.pt")
 
-    # padded_data = torch.load("single_padded_data.pt", weights_only=False)
-    # unpadded_data = torch.load("single_unpadded_data.pt", weights_only=False)
+    # padded_data = torch.load("single_padded_data.pt", weights_only=False)
+    # unpadded_data = torch.load("single_unpadded_data.pt", weights_only=False)
 
     USE_ADAPT_LN = True
     USE_TRANSITION = True
@@ -842,7 +838,7 @@ if __name__ == "__main__":
     USE_QKLN = True
 
     for seq in all_padded_data.keys():
-        # for i in range(1):  # repeat for multiple runs
+        # for i in range(1):  # repeat for multiple runs
 
         padded_data = all_padded_data[seq]
         unpadded_data = all_unpadded_data[seq]
@@ -945,32 +941,20 @@ if __name__ == "__main__":
         model = model_pad.to(device)
         model = load_padded_model_weights(model_pad, model)
 
-        print(f"sequence:", unpadded_data["seq_name"])
+        print("sequence:", unpadded_data["seq_name"])
 
-        test_invert_unpadded_data(
-            model, x, permutations, encoding
-        )
-        test_invert_unpadded_data(
-            model_pad, x, permutations, encoding
-        )
-        test_invert_padded_data(
-            model_pad, x_pad, permutations, permutations_pad, encoding, encoding_pad
-        )
-        test_outputs_unpadded_vs_padded_data(
-            model_pad, x_pad, permutations, permutations_pad, encoding, encoding_pad
-        )
-        test_outputs_unpadded_vs_padded_model(
-            model, model_pad, x, permutations, encoding
-        )
+        test_invert_unpadded_data(model, x, permutations, encoding)
+        test_invert_unpadded_data(model_pad, x, permutations, encoding)
+        test_invert_padded_data(model_pad, x_pad, permutations, permutations_pad, encoding, encoding_pad)
+        test_outputs_unpadded_vs_padded_data(model_pad, x_pad, permutations, permutations_pad, encoding, encoding_pad)
+        test_outputs_unpadded_vs_padded_model(model, model_pad, x, permutations, encoding)
         for i in range(4):
             print("\nbatch item", i)
 
             x_i = x[i : i + 1]
 
             permutations_i = {
-                "atom": {
-                    "permutations": {k: v[i : i + 1] for k, v in permutations["atom"]["permutations"].items()}
-                },
+                "atom": {"permutations": {k: v[i : i + 1] for k, v in permutations["atom"]["permutations"].items()}},
                 "residue": {
                     "permutations": {k: v[i : i + 1] for k, v in permutations["residue"]["permutations"].items()},
                     "tokenization_map": permutations["residue"]["tokenization_map"][i : i + 1],

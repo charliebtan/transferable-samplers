@@ -56,7 +56,7 @@ class TransferablePeptideDataset(torch.utils.data.Dataset):
                     "x": x,
                 }
             )
-            sample["x"] = sample["x"].view(-1)
+
         return sample
 
     def get_seq_data(self, seq_name: str):
