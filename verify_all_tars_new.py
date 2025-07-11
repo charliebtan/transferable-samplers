@@ -23,6 +23,8 @@ print(len(tar_paths), "tar files found across directories:", TAR_DIRS)
 
 assert len(tar_paths) > 0, "No .tar files found!"
 
+tar_paths = tar_paths[:1]
+
 dataset = (
     wds.WebDataset(tar_paths, shardshuffle=False, resampled=False)
     .decode()
@@ -35,6 +37,8 @@ total = 0
 
 num_atoms_max = 0
 
+my_set = set()
+
 for key, sample_bytes in tqdm(dataset, desc="Verifying samples"):
     try:
         # Convert raw bytes to numpy array
@@ -42,9 +46,14 @@ for key, sample_bytes in tqdm(dataset, desc="Verifying samples"):
 
         num_atoms = arr.shape[0]
 
-        if num_atoms > num_atoms_max:
+        seq_name = key.split("_")[0]
+        seq_len = len(seq_name)
+
+        my_set.add(seq_name)
+
+        if num_atoms > num_atoms_max and seq_len <= 8:
             num_atoms_max = num_atoms
-            print(num_atoms_max)
+            print("\n", num_atoms_max)
         continue
 
         # Check dtype
@@ -68,6 +77,8 @@ for key, sample_bytes in tqdm(dataset, desc="Verifying samples"):
         print(f"[ERROR] {key}: {e}")
         bad_samples.append(key)
         breakpoint()
+
+print(len(my_set), "unique sequences found")
 
 # ==== Summary ====
 print(f"\nTotal verified samples: {total}")
