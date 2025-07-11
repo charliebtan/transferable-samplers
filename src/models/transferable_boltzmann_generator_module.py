@@ -22,6 +22,7 @@ from src.models.components.utils import resample
 
 logger = logging.getLogger(__name__)
 
+
 class TransferableBoltzmannGeneratorLitModule(LightningModule):
     def __init__(
         self,
@@ -93,7 +94,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         :param batch_idx: The index of the current batch.
         :return: A tensor of losses between model predictions and targets.
         """
-        assert len(batch["x"].shape) == 2, "molecules must be in vector format"
+        assert len(batch["x"].shape) == 3, "molecules must be a pointcloud (batch_size, num_atoms, 3)"
         loss = self.model_step(batch)
         batch_value = self.train_metrics(loss)
         self.log_dict(batch_value, prog_bar=True)
@@ -164,7 +165,9 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             log_ps.append(lp)
             prior_samples.append(ps)
         if total_size % batch_size > 0:
-            s, lp, ps = self.generate_samples(total_size % batch_size, permutations, encoding=encoding, dummy_ll=dummy_ll)
+            s, lp, ps = self.generate_samples(
+                total_size % batch_size, permutations, encoding=encoding, dummy_ll=dummy_ll
+            )
             samples.append(s)
             log_ps.append(lp)
             prior_samples.append(ps)
@@ -235,7 +238,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
 
         # Parse and aggregate metrics along peptide sequences
         for key, value in metrics.items():
-            if key.startswith(prefix): # TODO not sure this is needed here
+            if key.startswith(prefix):  # TODO not sure this is needed here
                 # Extract sequence and metric name
                 parts = key.split("/")
                 metric_name = "/".join(parts[2:])
@@ -268,7 +271,9 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         metrics.update(count_dict)
         return metrics
 
-    def detach_and_cpu(self, obj): # TODO hack to have this here? at all? you could just be more careful to detach / cpu?
+    def detach_and_cpu(
+        self, obj
+    ):  # TODO hack to have this here? at all? you could just be more careful to detach / cpu?
         """
         Recursively detach and move all tensors to CPU within a nested structure.
         Works with dicts, lists, tuples, and tensors.
@@ -324,14 +329,22 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
 
     @torch.no_grad()
     def evaluate(
-        self, sequence, true_samples, permutations, encoding, energy_fn, prefix: str = "val", proposal_generator=None, output_dir=None
+        self,
+        sequence,
+        true_samples,
+        permutations,
+        encoding,
+        energy_fn,
+        prefix: str = "val",
+        proposal_generator=None,
+        output_dir=None,
     ) -> None:
         """Generates samples from the proposal and runs SMC if enabled.
         Also computes metrics, through the datamodule function "metrics_and_plots".
         """
 
         true_data = SamplesData(
-            self.datamodule.as_pointcloud(self.datamodule.unnormalize(true_samples)),
+            self.datamodule.unnormalize(true_samples),
             energy_fn(true_samples),
         )
 
@@ -349,7 +362,9 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         # Generate samples and record time
         torch.cuda.synchronize()
         start_time = time.time()
-        proposal_samples, proposal_log_p, prior_samples = proposal_generator(num_proposal_samples, permutations, encoding)
+        proposal_samples, proposal_log_p, prior_samples = proposal_generator(
+            num_proposal_samples, permutations, encoding
+        )
         torch.cuda.synchronize()
         time_duration = time.time() - start_time
         self.log(f"{prefix}/samples_walltime", time_duration, sync_dist=True)
@@ -381,7 +396,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
 
         # Datatype for easier metrics and plotting
         proposal_data = SamplesData(
-            self.datamodule.as_pointcloud(self.datamodule.unnormalize(proposal_samples)),
+            self.datamodule.unnormalize(proposal_samples),
             proposal_samples_energy,
         )
 
@@ -415,7 +430,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         _, resampling_index = resample(proposal_samples, resampling_logits, return_index=True)
 
         reweighted_data = SamplesData(
-            self.datamodule.as_pointcloud(self.datamodule.unnormalize(proposal_samples[resampling_index])),
+            self.datamodule.unnormalize(proposal_samples[resampling_index]),
             proposal_samples_energy[resampling_index],
             logits=resampling_logits,
         )
@@ -450,7 +465,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
 
             # Datatype for easier metrics and plotting
             smc_data = SamplesData(
-                self.datamodule.as_pointcloud(self.datamodule.unnormalize(smc_samples)),
+                self.datamodule.unnormalize(smc_samples),
                 energy_fn(smc_samples),
                 logits=smc_logits,
             )

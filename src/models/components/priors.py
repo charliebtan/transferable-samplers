@@ -20,24 +20,21 @@ class NormalDistribution:
             com = (x * mask[..., None]).sum(dim=1, keepdims=True) / mask.sum(dim=1, keepdims=True)[..., None]
             x = x - com
             x *= mask[..., None]
-        return x.reshape(num_samples, -1)
+        return x.reshape(num_samples, num_particles, self.num_dimensions)
 
     def energy(self, x: torch.Tensor, mask: torch.Tensor | None = None) -> torch.Tensor:
-        assert x.dim() == 2
+        assert x.dim() == 3
         num_samples = x.shape[0]
-        num_particles = x.shape[-1] // self.num_dimensions
+        num_particles = x.shape[1]
         if mask is None:
             mask = torch.ones((num_samples, num_particles), device=x.device)
         if self.mean_free:
-            x = x.reshape(num_samples, -1, self.num_dimensions)
             com = (x * mask[..., None]).sum(dim=1, keepdims=True) / mask.sum(dim=1, keepdims=True)[..., None]
             x = x - com
             x *= mask[..., None]
-            x = x.reshape(num_samples, -1)
 
         pointwise_energy = -self.distribution.log_prob(x)
 
-        pointwise_energy = pointwise_energy.reshape(num_samples, -1, self.num_dimensions)
         pointwise_energy = pointwise_energy * mask.unsqueeze(-1)
         pointwise_energy = pointwise_energy.reshape(num_samples, -1)
         num_particles = mask.sum(dim=-1, keepdim=True)
