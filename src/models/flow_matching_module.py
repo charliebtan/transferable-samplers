@@ -6,7 +6,7 @@ from typing import Optional
 import torch
 from torchdyn.core import NeuralODE
 
-from src.models.components.wrappers import TorchdynWrapper, torch_wrapper
+from src.models.neural_networks.wrappers import TorchdynWrapper, torch_wrapper
 from src.models.transferable_boltzmann_generator_module import TransferableBoltzmannGeneratorLitModule
 
 logger = logging.getLogger(__name__)
@@ -73,7 +73,7 @@ class FlowMatchLitModule(TransferableBoltzmannGeneratorLitModule):
         x1 = batch["x"]
 
         encoding = batch.get("encoding", None)
-        mask = batch.get("mask", None)
+        mask = batch["permutations"]["atom"].get("mask", None)
 
         num_samples = x1.shape[0]
         assert not x1.shape[1] % self.datamodule.hparams.num_dimensions, (

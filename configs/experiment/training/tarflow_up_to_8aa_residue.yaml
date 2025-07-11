@@ -8,9 +8,9 @@ defaults:
 
 model:
   net:
-    _target_: src.models.components.tarflow.tarflow.MultiTarFlow
+    _target_: src.models.neural_networks.tarflow.tarflow.MultiTarFlow
     residue_model:
-      _target_: src.models.components.tarflow.tarflow.ResidueTarFlow
+      _target_: src.models.neural_networks.tarflow.tarflow.ResidueTarFlow
       input_dimension: 246 # 82 * 3 atom types
       channels: 768
       max_num_tokens: ${data.num_aa_max}
@@ -20,7 +20,7 @@ model:
       - "n2c"
       - "c2n"
       cond_embed:
-        _target_: src.models.components.tarflow.embed.ResidueConditionalEmbedder
+        _target_: src.models.neural_networks.embed.ResidueConditionalEmbedder
         hidden_dim: 256
         output_dim: ${model.net.residue_model.channels}
       use_adapt_ln: True

@@ -10,11 +10,11 @@ if __name__ == "__main__":
     # This is when we run the script directly to test model
     from adaptive_blocks import AdaptiveAttnAndTransition
     from attention import Attention, AttentionBlock
-    from embed import SinusoidalEmbedding, ResidueConditionalEmbedder, AtomConditionalEmbedder
+    from src.models.neural_networks.embed import SinusoidalEmbedding, ResidueConditionalEmbedder, AtomConditionalEmbedder
 else:
-    from src.models.components.tarflow.adaptive_blocks import AdaptiveAttnAndTransition
-    from src.models.components.tarflow.attention import Attention, AttentionBlock
-    from src.models.components.tarflow.embed import SinusoidalEmbedding # TODO instantiate
+    from src.models.neural_networks.tarflow.adaptive_blocks import AdaptiveAttnAndTransition
+    from src.models.neural_networks.tarflow.attention import Attention, AttentionBlock
+    from src.models.neural_networks.embed import SinusoidalEmbedding # TODO instantiate
 
 MAX_SEQ_LEN = 512
 

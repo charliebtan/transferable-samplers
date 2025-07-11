@@ -8,9 +8,9 @@ defaults:
 
 model:
   net:
-    _target_: src.models.components.tarflow.tarflow.MultiTarFlow
+    _target_: src.models.neural_networks.tarflow.tarflow.MultiTarFlow
     atom_model:
-      _target_: src.models.components.tarflow.tarflow.AtomTarFlow
+      _target_: src.models.neural_networks.tarflow.tarflow.AtomTarFlow
       input_dimension: 3 # 3D coordinates
       channels: 384
       max_num_tokens: ${data.num_particles}
@@ -20,7 +20,7 @@ model:
       - "n2c_residue-by-residue_standard"
       - "n2c_residue-by-residue_standard_flip"
       cond_embed:
-        _target_: src.models.components.tarflow.embed.AtomConditionalEmbedder
+        _target_: src.models.neural_networks.embed.AtomConditionalEmbedder
         hidden_dim: ${model.net.atom_model.channels}
         output_dim: ${model.net.atom_model.channels}
         sinusoid_div_value: 1000 # for sinusoidal positional embedding

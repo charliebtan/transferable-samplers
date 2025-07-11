@@ -26,6 +26,7 @@ class PaddingTransform(torch.nn.Module):
     def pad_data(self, x: torch.Tensor) -> torch.Tensor:
         assert len(x.shape) == 2
         num_particles = x.shape[0]
+        assert num_particles <= self.max_num_particles, f"number of particles {num_particles} exceeds max {self.max_num_particles}"
         pad_tensor = torch.zeros(self.max_num_particles - num_particles, self.num_dimensions)
         return torch.cat([x, pad_tensor])
 
@@ -90,7 +91,6 @@ class PaddingTransform(torch.nn.Module):
         # else:
         #     TODO = False
         #     return None
-
         x = data["x"]
         encoding = data["encoding"]
         permutations = data["permutations"]

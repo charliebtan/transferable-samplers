@@ -3,7 +3,7 @@
 import torch
 import torch.nn as nn
 
-from src.models.components.tbg.egnn import EGNN
+from src.models.neural_networks.egnn.egnn import EGNN
 
 
 def remove_mean_with_mask(x, node_mask):
@@ -22,6 +22,7 @@ class EGNNDynamicsTransferableMD(nn.Module):
         encoding_dim,
         channels,
         num_layers,
+        cond_embed,
         act_fn=torch.nn.SiLU(),
         recurrent=True,
         attention=True,
@@ -30,7 +31,7 @@ class EGNNDynamicsTransferableMD(nn.Module):
     ):
         super().__init__()
         self.egnn = EGNN(
-            in_node_nf=encoding_dim + 1,  # +1 for time
+            in_node_nf=channels,
             in_edge_nf=1,
             hidden_nf=channels,
             act_fn=act_fn,
@@ -46,10 +47,15 @@ class EGNNDynamicsTransferableMD(nn.Module):
         self.num_dimensions = num_dimensions
         self.edges_dict = {}
 
+        self.cond_embed = cond_embed
+
         # Count function calls
         self.counter = 0
 
     def forward(self, t, x, encoding=None, node_mask=None):
+
+        original_node_mask = node_mask.clone() if node_mask is not None else None
+
         assert not x.shape[1] % self.num_dimensions, "x should be divisible by num_particles"
         num_particles = x.shape[1] // self.num_dimensions
 
@@ -87,35 +93,12 @@ class EGNNDynamicsTransferableMD(nn.Module):
         # Reshape x - apply node_mask
         x = x.reshape(batch_size * num_particles, self.num_dimensions).clone() * node_mask
 
-        # Prepare time embedding
+        # expand t to batch dim if necessary
         t = t.to(x)
-        if t.shape != (batch_size, 1):
-            t = t.repeat(batch_size)
-        t = t.repeat(1, num_particles)
-        t = t.reshape(batch_size * num_particles, 1) * node_mask
-
-        # build 'h' node features
-        h = torch.stack(
-            [
-                encoding["atom_type"],
-                encoding["aa_type"],
-                encoding["aa_pos"],
-            ],
-            dim=-1,
-        )
-        if "seq_len" in encoding:
-            h = torch.cat(
-                [
-                    h,
-                    encoding["seq_len"].expand(-1, num_particles)[..., None],
-                ],
-                dim=-1,
-            )
-        h = h[:batch_size]  # TODO this is ugly but it's just how it's passed in currently
-
+        if t.ndim == 1:
+            t = t.unsqueeze(1)  # make it (B, 1)
+        h = self.cond_embed(**encoding, t=t, mask=original_node_mask)
         h = h.reshape(batch_size * num_particles, -1).to(x.device) * node_mask
-        h = torch.cat([h, t], dim=-1)
-        h = h.reshape(batch_size * num_particles, -1)
 
         edge_attr = torch.sum((x[edges[0]] - x[edges[1]]) ** 2, dim=1, keepdim=True)
         _, x_final = self.egnn(h, x, edges, edge_attr=edge_attr, node_mask=node_mask, edge_mask=edge_mask)
@@ -127,7 +110,7 @@ class EGNNDynamicsTransferableMD(nn.Module):
         self.counter += 1
         return vel.view(batch_size, num_particles * self.num_dimensions)
 
-    def get_adj_matrix(self, n_nodes, batch_size, device):
+    def get_adj_matrix(self, n_nodes, batch_size, device): # TODO rename to get_edges?
         if n_nodes in self.edges_dict:
             edges_dic_b = self.edges_dict[n_nodes]
             if batch_size in edges_dic_b:

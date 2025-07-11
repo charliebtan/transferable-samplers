@@ -7,7 +7,7 @@ defaults:
 
 model:
   net:
-    _target_: src.models.components.tarflow.tarflow_sbg.TarFlow
+    _target_: src.models.neural_networks.tarflow.tarflow_sbg.TarFlow
     in_channels: 3
     channels: 512
     num_blocks: 8

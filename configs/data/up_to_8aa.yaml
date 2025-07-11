@@ -7,7 +7,6 @@ batch_size: 512 # Needs to be divisible by the number of devices (e.g., if in a 
 num_workers: 2
 pin_memory: False
 num_aa_max: 8
-num_aa_min: 2
 num_dimensions: 3
 num_particles: 178       # Max number of particles
 dim: 534                 # num_dimensions * num_particles  # TODO do i still need?

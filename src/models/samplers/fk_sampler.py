@@ -2,7 +2,7 @@ import math
 
 import torch
 
-from src.models.components.smc.base_sampler import SMCSampler
+from src.models.samplers.base_sampler import SMCSampler
 
 
 class FeynmannKacSampler(SMCSampler):

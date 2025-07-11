@@ -22,7 +22,7 @@ model:
     num_smc_samples: 10_000
     clip_reweighting_logits: 0.002 # it was working well on AC without - lets try avoid
   net:
-    _target_: src.models.components.tarflow.tarflow.TarFlow
+    _target_: src.models.neural_networks.tarflow.tarflow.TarFlow
     in_channels: 3
     channels: 384
     num_blocks: 8
@@ -33,11 +33,11 @@ model:
     perm_type: "standard"
     pos_embed_type: "learned"
     cond_embed:
-      _target_: src.models.components.tarflow.embed.ConditionalEmbedder
+      _target_: src.models.neural_networks.embed.ConditionalEmbedder
       channels: ${model.net.channels}
 
   smc_sampler:
-    _target_: src.models.components.smc.hmc_sampler.SMCSamplerHMC
+    _target_: src.models.samplers.hmc_sampler.SMCSamplerHMC
     enabled: True
     langevin_eps: 1e-5
     num_timesteps: 100

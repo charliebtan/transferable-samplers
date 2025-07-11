@@ -1,4 +1,4 @@
-_target_: src.models.components.tarflow.tarflow.TarFlow
+_target_: src.models.neural_networks.tarflow.tarflow.TarFlow
 img_size: ${data.dim}
 in_channels: ${data.num_dimensions}
 channels: 256

@@ -1,7 +1,7 @@
 import torch.nn as nn
 
-from src.models.components.tbg.gcl import E_GCL
-from src.models.components.tbg.timestep_embedder import TimestepEmbedder
+from src.models.neural_networks.egnn.gcl import E_GCL
+from src.models.neural_networks.egnn.timestep_embedder import TimestepEmbedder
 
 
 class EGNN(nn.Module):

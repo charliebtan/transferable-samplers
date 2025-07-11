@@ -21,10 +21,10 @@ from src.data.components.symmetry import (
     get_symmetry_change,
 )
 from src.data.single_peptide_datamodule import SinglePeptideDataModule
-from src.models.components.ema import EMA
-from src.models.components.priors import NormalDistribution
-from src.models.components.smc.base_sampler import SMCSampler
-from src.models.components.utils import resample
+from src.models.neural_networks.ema import EMA
+from src.models.priors import NormalDistribution
+from src.models.samplers.base_sampler import SMCSampler
+from src.models.utils import resample
 
 logger = logging.getLogger(__name__)
 

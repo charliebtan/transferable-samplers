@@ -39,9 +39,9 @@ from src.utils.utils import extras, get_metric_value, task_wrapper
 # We had issues with invertbility of TarFlow without the following settings.
 # Didn't notice any walltime difference for TarFlow or ECNF, but is worth # TODO
 # benchmarking for any further implemented models.
-torch.set_float32_matmul_precision("medium")
-torch.backends.cuda.matmul.allow_tf32 = True
-torch.backends.cudnn.allow_tf32 = True
+torch.set_float32_matmul_precision("highest")
+torch.backends.cuda.matmul.allow_tf32 = False
+torch.backends.cudnn.allow_tf32 = False
 
 log = RankedLogger(__name__, rank_zero_only=True)
 

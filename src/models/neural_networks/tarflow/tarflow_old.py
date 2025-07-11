@@ -8,11 +8,11 @@ if __name__ == "__main__":
     # This is when we run the script directly to test model
     from adaptive_blocks import AdaptiveAttnAndTransition
     from attention import Attention, AttentionBlock
-    from embed import ConditionalEmbedder
+    from src.models.neural_networks.embed import ConditionalEmbedder
 else:
-    from src.models.components.tarflow.adaptive_blocks import AdaptiveAttnAndTransition
-    from src.models.components.tarflow.attention import Attention, AttentionBlock
-    from src.models.components.tarflow.embed import ConditionalEmbedder
+    from src.models.neural_networks.tarflow.adaptive_blocks import AdaptiveAttnAndTransition
+    from src.models.neural_networks.tarflow.attention import Attention, AttentionBlock
+    from src.models.neural_networks.embed import ConditionalEmbedder
 
 
 class Permutation(torch.nn.Module):

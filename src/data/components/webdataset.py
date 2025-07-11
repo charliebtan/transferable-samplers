@@ -9,6 +9,7 @@ def build_webdataset(
     tar_pattern: str,
     num_dimensions: int = 3,
     shuffle_buffer: int = 1000,
+    max_seq_len: int = None,
     transform=None,
 ):
     TAR_DIRS = ["/scratch/t/tanc/webdataset_4", "/project/aip-necludov/tanc/webdataset_4"]
@@ -46,6 +47,11 @@ def build_webdataset(
         .shuffle(shuffle_buffer)
         # .map(log_shard)
         .to_tuple("__key__", "bin")
+        .select(
+            lambda sample: len(sample[0].split("_")[0]) <= max_seq_len
+            if max_seq_len is not None
+            else True
+        )
         .map(make_sample)
     )
 

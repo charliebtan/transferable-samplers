@@ -16,7 +16,7 @@ model:
     use_transition: False
     pos_embed_type: "sinusoidal"
     cond_embed:
-      _target_: src.models.components.tarflow.embed.ConditionalEmbedder
+      _target_: src.models.neural_networks.embed.ConditionalEmbedder
       channels: ${model.net.channels}
 
   sampling_config:

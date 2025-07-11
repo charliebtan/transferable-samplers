@@ -19,7 +19,7 @@ model:
     num_smc_samples: 1_000_000 
     clip_reweighting_logits: 0.002 # it was working well on AC without - lets try avoid
   net:
-    _target_: src.models.components.tarflow.tarflow_sbg.TarFlow
+    _target_: src.models.neural_networks.tarflow.tarflow_sbg.TarFlow
     in_channels: 3
     channels: 384
     num_blocks: 6
@@ -27,7 +27,7 @@ model:
     dropout: 0.0
 
   smc_sampler:
-    _target_: src.models.components.smc.fk_sampler.FeynmannKacSampler
+    _target_: src.models.samplers.fk_sampler.FeynmannKacSampler
     enabled: True
     langevin_eps: 1e-7
     num_timesteps: 100

@@ -3,8 +3,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from src.models.components.tbg.egnn import EGNN
-from src.models.components.tbg.utils import remove_mean
+from src.models.neural_networks.egnn.egnn import EGNN
+from src.models.neural_networks.egnn.utils import remove_mean
 
 
 class EGNN_dynamics_AD2_cat(nn.Module):
@@ -27,11 +27,6 @@ class EGNN_dynamics_AD2_cat(nn.Module):
         super().__init__()
         self._n_particles = num_particles
         self._n_dimensions = num_dimensions
-        if num_particles >= 53:
-            self.data_dir = data_dir
-            self.atom_types_encoding = np.load(f"{self.data_dir}/{atom_encoding_filename}", allow_pickle=True).item()
-            self.pdb_path = f"{self.data_dir}/{pdb_filename}"
-            self.topology = md.load_topology(self.pdb_path)
         # Initial one hot encoding of the different element types
         self.h_initial = self.get_h_initial()
 

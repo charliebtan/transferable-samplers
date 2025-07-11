@@ -1,1 +1,1 @@
-_target_: src.models.components.tarflow.tarflow.MultiTarFlow
+_target_: src.models.neural_networks.tarflow.tarflow.MultiTarFlow

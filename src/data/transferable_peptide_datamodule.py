@@ -43,7 +43,6 @@ class TransferablePeptideDataModule(BaseDataModule):
         val_lmdb_prefix: str,
         test_lmdb_prefix: str,
         num_aa_max: int,
-        num_aa_min: int,
         num_dimensions: int,
         num_particles: int,
         dim: int,  # dim of largest system
@@ -300,6 +299,7 @@ class TransferablePeptideDataModule(BaseDataModule):
         self.data_train = build_webdataset(
             path=self.hparams.webdataset_path,
             tar_pattern=self.hparams.webdataset_tar_pattern,
+            max_seq_len=self.hparams.num_aa_max,
             transform=transforms,
         )
 

@@ -7,7 +7,7 @@ defaults:
   - override /trainer: gpu
 
 tarflow: &tarflow
-  _target_: src.models.components.tarflow.tarflow.TarFlow
+  _target_: src.models.neural_networks.tarflow.tarflow.TarFlow
   use_adapt_ln: True
   use_transition: True
   use_qkln: True
@@ -15,10 +15,10 @@ tarflow: &tarflow
 
 model:
   net:
-    _target_: src.models.components.tarflow.tarflow.MultiTarFlow
+    _target_: src.models.neural_networks.tarflow.tarflow.MultiTarFlow
     models:
       - <<: *tarflow
-        _target_: src.models.components.tarflow.tarflow.ResidueTarFlow
+        _target_: src.models.neural_networks.tarflow.tarflow.ResidueTarFlow
         input_dimension: 246 # 82 * 3 atom types
         max_num_tokens: ${data.num_aa_max}
         channels: 2048
@@ -28,7 +28,7 @@ model:
         - "n2c"
         - "c2n"
         cond_embed:
-          _target_: src.models.components.tarflow.embed.ResidueConditionalEmbedder
+          _target_: src.models.neural_networks.embed.ResidueConditionalEmbedder
           hidden_dim: 128
           output_dim: ${model.net.models[0].channels}
 

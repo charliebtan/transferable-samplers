@@ -1,4 +1,4 @@
-_target_: src.models.components.tbg.egnn_dynamics_transferable_md.EGNNDynamicsTransferableMD
+_target_: src.models.neural_networks.egnn.egnn_dynamics_transferable_md.EGNNDynamicsTransferableMD
 num_particles: ${data.num_particles}
 num_dimensions: ${data.num_dimensions}
 channels: 256

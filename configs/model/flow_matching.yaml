@@ -16,7 +16,7 @@ optimizer:
   betas:
     - 0.9
     - 0.999
-  weight_decay: 1e-2
+  weight_decay: 1e-4
 
 sampling_config:
   use_com_adjustment: False

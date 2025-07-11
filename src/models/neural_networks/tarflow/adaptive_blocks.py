@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 try:
-    from src.models.components.tarflow.attention import AttentionBlock
+    from src.models.neural_networks.tarflow.attention import AttentionBlock
 except ImportError:
     from attention import AttentionBlock
 
@@ -294,7 +294,7 @@ if __name__ == "__main__":
     channels = 128
     num_heads = 8
 
-    from embed import ConditionalEmbedder
+    from src.models.neural_networks.embed import ConditionalEmbedder
 
     x = torch.randn((batch_size, num_atoms, channels))
     atom_type = torch.randint(0, 54, (batch_size, num_atoms))
