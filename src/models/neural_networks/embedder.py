@@ -27,7 +27,7 @@ class SinusoidalEmbedding(nn.Module):
         return pos_embedding
 
 
-class AtomConditionalEmbedder(nn.Module):
+class ConditionalEmbedder(nn.Module):
     def __init__(
         self, hidden_dim: int, output_dim: int, num_atom_emb: int = 128, num_residue_emb: int = 64, sinusoid_div_value: float = 0.0, embed_time: bool = False
     ):
@@ -67,34 +67,4 @@ class AtomConditionalEmbedder(nn.Module):
         x = torch.concat([atom_emb, residue_emb, pos_embed, seq_len_embed], dim=-1)
         if self.embed_time:
             x = torch.concat([x, time_embed], dim=-1)
-        return self.mlp(x) * mask[..., None]  # [b, n, channels]
-
-
-class ResidueConditionalEmbedder(nn.Module):
-    def __init__(
-        self, hidden_dim: int, output_dim: int, num_residue_emb: int = 64, sinusoid_div_value: float = 0.0
-    ):
-        """
-        Input the value of the atom type, residue type, and residue position WITHOUT counting the padding token
-        """
-
-        super().__init__()
-
-        self.residue_embed = nn.Embedding(num_embeddings=num_residue_emb, embedding_dim=hidden_dim)
-        self.seq_len_embed = SinusoidalEmbedding(embed_size=hidden_dim, div_value=sinusoid_div_value)
-
-        self.mlp = nn.Sequential(nn.Linear(2 * hidden_dim, hidden_dim), nn.GELU(), nn.Linear(hidden_dim, output_dim))
-
-    def forward(self, aa_type, seq_len, mask=None, *args, **kwargs):
-        if mask is None:
-            mask = torch.ones_like(aa_type, dtype=torch.bool)
-
-        residue_emb = self.residue_embed(aa_type)
-
-        num_tokens = aa_type.shape[1]
-        # seq_len is of shape [b, 1], once embeded it will be [b, 1, channels]
-        # so we expand it to [b, n, channels] to be concatenated with the other embeddings
-        seq_len_embed = self.seq_len_embed(seq_len).expand(-1, num_tokens, -1)
-
-        x = torch.concat([residue_emb, seq_len_embed], dim=-1)
         return self.mlp(x) * mask[..., None]  # [b, n, channels]

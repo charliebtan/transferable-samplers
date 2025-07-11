@@ -19,7 +19,7 @@ class EGNNDynamicsTransferableMD(nn.Module):
         self,
         num_atoms,
         num_dimensions,
-        encoding_dim,
+        encodings_dim,
         channels,
         num_layers,
         cond_embed,
@@ -52,7 +52,7 @@ class EGNNDynamicsTransferableMD(nn.Module):
         # Count function calls
         self.counter = 0
 
-    def forward(self, t, x, encoding=None, node_mask=None):
+    def forward(self, t, x, encodings=None, node_mask=None):
 
         original_node_mask = node_mask.clone() if node_mask is not None else None
 
@@ -64,9 +64,9 @@ class EGNNDynamicsTransferableMD(nn.Module):
             assert torch.all(x.view(-1, num_atoms, self.num_dimensions).sum(dim=-1)[node_mask == 0] == 0), (
                 "x is not zero where mask is zero"
             )
-            assert torch.all(encoding["atom_type"][node_mask == 0] == 0), "atom_type is not zero where mask is zero"
-            assert torch.all(encoding["aa_type"][node_mask == 0] == 0), "aa_type is not zero where mask is zero"
-            assert torch.all(encoding["aa_pos"][node_mask == 0] == 0), "aa_pos is not zero where mask is zero"
+            assert torch.all(encodings["atom_type"][node_mask == 0] == 0), "atom_type is not zero where mask is zero"
+            assert torch.all(encodings["aa_type"][node_mask == 0] == 0), "aa_type is not zero where mask is zero"
+            assert torch.all(encodings["aa_pos"][node_mask == 0] == 0), "aa_pos is not zero where mask is zero"
 
         if node_mask is None:
             node_mask = torch.ones(x.shape[0], num_atoms, device=x.device, dtype=torch.float)
@@ -97,7 +97,7 @@ class EGNNDynamicsTransferableMD(nn.Module):
         t = t.to(x)
         if t.ndim == 1:
             t = t.unsqueeze(1)  # make it (B, 1)
-        h = self.cond_embed(**encoding, t=t, mask=original_node_mask)
+        h = self.cond_embed(**encodings, t=t, mask=original_node_mask)
         h = h.reshape(batch_size * num_atoms, -1).to(x.device) * node_mask
 
         edge_attr = torch.sum((x[edges[0]] - x[edges[1]]) ** 2, dim=1, keepdim=True)

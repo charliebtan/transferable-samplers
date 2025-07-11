@@ -27,7 +27,7 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
         super().__init__(*args, **kwargs)
         assert not self.hparams.mean_free_prior, "Mean free prior is not supported for normalizing flows"
 
-        self.eval_encoding = None
+        self.eval_encodings = None
         self.eval_energy = None
 
     def model_step(
@@ -35,10 +35,10 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
         batch: torch.Tensor,
     ) -> torch.Tensor:
         x1 = batch["x"]
-        encoding = batch["encoding"]
+        encodings = batch["encodings"]
         permutations = batch["permutations"]
 
-        x0, dlogp = self.net(x1, permutations=permutations, encoding=encoding)
+        x0, dlogp = self.net(x1, permutations=permutations, encodings=encodings)
 
         mask = batch["permutations"]["atom"].get("mask", None)
         loss = self.prior.energy(x0, mask=mask).mean() - dlogp.mean()
@@ -46,15 +46,15 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
         self.log("train/mle_loss", loss.item(), prog_bar=True, sync_dist=True)
 
         if self.hparams.energy_kl_weight:
-            assert self.hparams.eval_seq_name is not None, "Eval sequence name should be set"
+            assert self.hparams.eval_sequence is not None, "Eval sequence name should be set"
 
-            if self.eval_encoding is None:
-                # on first step, we need to prepare the eval encoding
-                _, self.eval_encoding, self.eval_energy = self.datamodule.prepare_eval(self.hparams.eval_seq_name)
+            if self.eval_encodings is None:
+                # on first step, we need to prepare the eval encodings
+                _, self.eval_encodings, self.eval_energy = self.datamodule.prepare_eval(self.hparams.eval_sequence)
 
             samples, log_q_theta, _ = self.generate_samples(
                 self.hparams.energy_kl_batch_size,
-                encoding=self.eval_encoding,
+                encodings=self.eval_encodings,
                 permutations=self.eval_permutations,
             )
 
@@ -66,7 +66,7 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
             self.log("train/log_q_theta_mean", log_q_theta.mean(), prog_bar=True, sync_dist=True)
             self.log("train/log_q_theta_median", log_q_theta.median(), prog_bar=True, sync_dist=True)
 
-            num_atoms = self.eval_encoding["atom_type"].size(0)
+            num_atoms = self.eval_encodings["atom_type"].size(0)
             data_dim = num_atoms * self.datamodule.hparams.num_dimensions
             energy_loss = (log_q_theta - log_p).mean() / data_dim
 
@@ -88,21 +88,21 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
 
         return com_energy
 
-    def proposal_energy(self, x: torch.Tensor, encoding: dict[str, torch.Tensor]) -> torch.Tensor:
+    def proposal_energy(self, x: torch.Tensor, encodings: dict[str, torch.Tensor]) -> torch.Tensor:
         data_dim = x.shape[1]  # is the product num_atoms * num_dimensions
-        if encoding is not None:
-            _encoding = {}
-            for k, v in encoding.items():
-                # ensure encoding is broadcasted to batch if we pass
+        if encodings is not None:
+            _encodings = {}
+            for k, v in encodings.items():
+                # ensure encodings is broadcasted to batch if we pass
                 # in a single peptide
                 if v.shape[0] != x.shape[0]:
                     v = v[None, ...].repeat(x.shape[0], *([1] * v.ndim))
 
-                _encoding[k] = v.to(x.device)
+                _encodings[k] = v.to(x.device)
         else:
-            _encoding = None
+            _encodings = None
         # TODO need to figure out x_pred / recon names - maybe use z going forwards
-        x_pred, fwd_logdets = self.net(x, encoding=_encoding)
+        x_pred, fwd_logdets = self.net(x, encodings=_encodings)
 
         fwd_logdets = fwd_logdets.view(-1) * data_dim  # rescale from mean to sum
         prior_energy = self.prior.energy(x_pred).view(-1) * data_dim  # rescale from mean to sum
@@ -119,7 +119,7 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
         self,
         batch_size: int,
         permutations: dict[str, torch.Tensor],
-        encoding: Optional[dict[str, torch.Tensor]] = None,
+        encodings: Optional[dict[str, torch.Tensor]] = None,
         n_timesteps: int = None,
         dummy_ll=False,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -132,12 +132,12 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
             probability.
         """
 
-        if encoding is None:
-            num_particles = self.datamodule.hparams.num_particles
+        if encodings is None:
+            num_atoms = self.datamodule.hparams.num_particles
         else:
-            num_particles = encoding["atom_type"].size(0)
+            num_atoms = encodings["atom_type"].size(0)
 
-        data_dim = num_particles * self.datamodule.hparams.num_dimensions
+        data_dim = num_atoms * self.datamodule.hparams.num_dimensions
 
         local_batch_size = batch_size // self.trainer.world_size
         prior_samples = self.prior.sample(local_batch_size, num_atoms, device=self.device)
@@ -157,19 +157,19 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
             permutations["residue"]["tokenization_map"].unsqueeze(0).repeat(local_batch_size, 1, 1).to(self.device)
         )
 
-        if encoding is not None:
-            encoding = {
-                key: tensor.unsqueeze(0).repeat(local_batch_size, 1).to(self.device) for key, tensor in encoding.items()
+        if encodings is not None:
+            encodings = {
+                key: tensor.unsqueeze(0).repeat(local_batch_size, 1).to(self.device) for key, tensor in encodings.items()
             }
 
         # def test_logdet(model, x_i, permutations_i, enc_i): 
         # # TODO refactor into a compute true logdet function 
         # and then compare over a subset of batch
-        #     x_pred = model.reverse(x_i, permutations_i, encoding=enc_i)
-        #     _, fwd_logdets = model(x_pred, permutations_i, encoding=enc_i)
+        #     x_pred = model.reverse(x_i, permutations_i, encodings=enc_i)
+        #     _, fwd_logdets = model(x_pred, permutations_i, encodings=enc_i)
         #     fwd_logdets = fwd_logdets * x_i.shape[1]  # rescale from mean to sum
 
-        #     reverse_func = lambda x: model.reverse(x=x, permutations=permutations_i, encoding=enc_i)
+        #     reverse_func = lambda x: model.reverse(x=x, permutations=permutations_i, encodings=enc_i)
         #     rev_jac_true = torch.autograd.functional.jacobian(reverse_func, x_i, vectorize=True)
         #     rev_logdets_true = torch.logdet(rev_jac_true[0].squeeze())
 
@@ -192,7 +192,7 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
         #         },
         #     }
 
-        #     enc_i = {k: v[i : i + 1] for k, v in encoding.items()}
+        #     enc_i = {k: v[i : i + 1] for k, v in encodings.items()}
 
         #     logdets_diff = test_logdet(self.net, x_i, permutations_i, enc_i)  # test logdet of the original model
         #     diffs.append(logdets_diff.item())
@@ -202,8 +202,8 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
         # self.log("invert/logdet_diff", mean_logdets_diff, sync_dist=True)
 
         with torch.no_grad():
-            x_pred = self.net.reverse(prior_samples, permutations, encoding=encoding)
-            x_recon, fwd_logdets = self.net(x_pred, permutations, encoding=encoding)
+            x_pred = self.net.reverse(prior_samples, permutations, encodings=encodings)
+            x_recon, fwd_logdets = self.net(x_pred, permutations, encodings=encodings)
             fwd_logdets = fwd_logdets * data_dim  # rescale from mean to sum
 
             # TODO refector these all into a metrics

@@ -1,0 +1,4 @@
+25000 tar files found.
+
+✅ Total verified samples: 2170000000
+❌ Total bad samples: 0

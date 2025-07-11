@@ -33,14 +33,14 @@ class FlowMatchLitModule(TransferableBoltzmannGeneratorLitModule):
         if "strict_loading" in kwargs:
             self.strict_loading = kwargs["strict_loading"]
 
-    def forward(self, t: torch.Tensor, x: torch.Tensor, encoding, mask) -> torch.Tensor:
+    def forward(self, t: torch.Tensor, x: torch.Tensor, encodings, mask) -> torch.Tensor:
         """Perform a forward pass through the model `self.net`.
 
         :param x:
         :param t:
         :return: dx
         """
-        return self.net(t, x, encoding=encoding, node_mask=mask)
+        return self.net(t, x, encodings=encodings, node_mask=mask)
 
     def get_xt(self, x0, x1, t):
         mu_t = (1.0 - t) * x0 + t * x1
@@ -72,7 +72,7 @@ class FlowMatchLitModule(TransferableBoltzmannGeneratorLitModule):
 
         x1 = batch["x"]
 
-        encoding = batch.get("encoding", None)
+        encodings = batch.get("encodings", None)
         mask = batch["permutations"]["atom"].get("mask", None)
 
         num_samples = x1.shape[0]
@@ -87,7 +87,7 @@ class FlowMatchLitModule(TransferableBoltzmannGeneratorLitModule):
         xt = self.get_xt(prior_samples, x1, t)
         vt_flow = self.get_flow_targets(prior_samples, x1)
 
-        vt_pred = self.forward(t, xt, encoding=encoding, mask=mask)
+        vt_pred = self.forward(t, xt, encodings=encodings, mask=mask)
         loss = self.criterion(vt_pred, vt_flow)
 
         return loss
@@ -128,11 +128,11 @@ class FlowMatchLitModule(TransferableBoltzmannGeneratorLitModule):
                 self.nfe = 0
 
     @torch.no_grad()
-    def flow(self, x: torch.Tensor, encoding, reverse=False, dummy_ll=False) -> torch.Tensor:
+    def flow(self, x: torch.Tensor, encodings, reverse=False, dummy_ll=False) -> torch.Tensor:
         dlog_p = torch.zeros((x.shape[0], 1), device=x.device)
         t_span = torch.linspace(1, 0, 2) if reverse else torch.linspace(0, 1, 2)
 
-        eval_fn = partial(copy.deepcopy(self.net), encoding=encoding)
+        eval_fn = partial(copy.deepcopy(self.net), encodings=encodings)
 
         if self.hparams.div_estimator == "ito":
             x_ito, dlog_p_ito = self.sde_integrate(x, reverse=reverse)
@@ -239,13 +239,13 @@ class FlowMatchLitModule(TransferableBoltzmannGeneratorLitModule):
         return -(-self.prior.energy(x).view(-1) - dlogp.view(-1))
 
     def evaluate(
-        self, sequence, true_samples, encoding, energy_fn, prefix: str = "val", proposal_generator=None, output_dir=None
+        self, sequence, true_samples, encodings, energy_fn, prefix: str = "val", proposal_generator=None, output_dir=None
     ):
         logger.info(f"has test_integrators {hasattr(self.hparams, 'test_integrators')}")
         if True and hasattr(self.hparams, "test_integrators"):
             self.test_integrators()
             return {}
-        results = super().evaluate(sequence, true_samples, encoding, energy_fn, prefix, proposal_generator, output_dir)
+        results = super().evaluate(sequence, true_samples, encodings, energy_fn, prefix, proposal_generator, output_dir)
 
         self.log(f"{prefix}/nfe", self.nfe / (max(self.num_integrations, 1e-4)))
         self.nfe = 0
@@ -256,7 +256,7 @@ class FlowMatchLitModule(TransferableBoltzmannGeneratorLitModule):
     def generate_samples(
         self,
         batch_size: int,
-        encoding: Optional[dict[str, torch.Tensor]] = None,
+        encodings: Optional[dict[str, torch.Tensor]] = None,
         dummy_ll: bool = False,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Generate samples from the model.
@@ -268,10 +268,10 @@ class FlowMatchLitModule(TransferableBoltzmannGeneratorLitModule):
             probability.
         """
 
-        if encoding is None:
+        if encodings is None:
             num_atoms = self.datamodule.hparams.num_particles
         else:
-            num_atoms = encoding["atom_type"].size(0)
+            num_atoms = encodings["atom_type"].size(0)
 
         data_dim = num_atoms * self.datamodule.hparams.num_dimensions
 
@@ -281,13 +281,13 @@ class FlowMatchLitModule(TransferableBoltzmannGeneratorLitModule):
         # need to rescale to the "sum" of the log p (the prior returns the position-wise mean)
         prior_log_p = -self.prior.energy(prior_samples) * data_dim
 
-        if encoding is not None:
-            encoding = {
-                key: tensor.unsqueeze(0).repeat(local_batch_size, 1).to(self.device) for key, tensor in encoding.items()
+        if encodings is not None:
+            encodings = {
+                key: tensor.unsqueeze(0).repeat(local_batch_size, 1).to(self.device) for key, tensor in encodings.items()
             }
 
         with torch.no_grad():
-            samples, dlog_p = self.flow(prior_samples, encoding=encoding, reverse=False, dummy_ll=dummy_ll)
+            samples, dlog_p = self.flow(prior_samples, encodings=encodings, reverse=False, dummy_ll=dummy_ll)
             samples = self.all_gather(samples).reshape(batch_size, -1)
             dlog_p = self.all_gather(dlog_p).reshape(-1, *dlog_p.shape[1:])
             prior_log_p = self.all_gather(prior_log_p).reshape(-1, *prior_log_p.shape[1:])

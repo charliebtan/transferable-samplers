@@ -2,7 +2,7 @@ import numpy as np
 import torch
 
 
-class SinglePeptideDataset(torch.utils.data.Dataset):
+class NumpyDataset(torch.utils.data.Dataset):
     def __init__(self, npy_array, num_dimensions: int, transform=None):
         self.npy_array = npy_array
         self.num_dimensions = num_dimensions
@@ -23,11 +23,3 @@ class SinglePeptideDataset(torch.utils.data.Dataset):
             )
             sample["x"] = sample["x"].reshape(-1)
         return sample
-
-    def get_seq_data(self):
-        indexes = np.arange(len(self.npy_array))
-        xs = []
-        for idx in indexes:
-            x = self.npy_array[idx].float()
-            xs.append(torch.tensor(x))
-        return torch.stack(xs)

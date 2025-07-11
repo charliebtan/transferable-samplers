@@ -27,10 +27,10 @@ def build_webdataset(
 
     def make_sample(sample):
         key, x = sample
-        seq_name = key.split("_")[0]
+        sequence = key.split("_")[0]
         x = np.frombuffer(x, dtype=np.float32).reshape(-1, num_dimensions)
         x = torch.from_numpy(x.copy())
-        sample_dict = {"x": x, "seq_name": seq_name}
+        sample_dict = {"x": x, "sequence": sequence}
         if transform:
             sample_dict = transform(sample_dict)
             sample_dict["x"] = sample_dict["x"].view(-1)

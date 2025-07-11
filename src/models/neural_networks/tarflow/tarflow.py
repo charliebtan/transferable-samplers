@@ -9,11 +9,11 @@ if __name__ == "__main__":
     # This is when we run the script directly to test model
     from adaptive_blocks import AdaptiveAttnAndTransition
     from attention import Attention, AttentionBlock
-    from src.models.neural_networks.embed import SinusoidalEmbedding, ResidueConditionalEmbedder, AtomConditionalEmbedder
+    from src.models.neural_networks.embedder import SinusoidalEmbedding, ResidueConditionalEmbedder, ConditionalEmbedder
 else:
     from src.models.neural_networks.tarflow.adaptive_blocks import AdaptiveAttnAndTransition
     from src.models.neural_networks.tarflow.attention import Attention, AttentionBlock
-    from src.models.neural_networks.embed import SinusoidalEmbedding # TODO instantiate
+    from src.models.neural_networks.embedder import SinusoidalEmbedding # TODO instantiate
 
 MAX_SEQ_LEN = 512
 
@@ -400,14 +400,14 @@ def residue_to_atom_tokens(
     return atom_tokens
 
 
-def atom_to_residue_encoding(encoding: torch.Tensor, tokenization_map: torch.Tensor):
+def atom_to_residue_encodings(encodings: torch.Tensor, tokenization_map: torch.Tensor):
     tokenization_map = tokenization_map.clone()
     c_index_per_residue = tokenization_map[:, :, 0]  # get index of "C" atom in each residue
     c_index_per_residue_mask = c_index_per_residue != -1  # mask for valid residues
     c_index_per_residue[c_index_per_residue_mask == 0] = 0  # set invalid residues to 0
     B, R = c_index_per_residue.shape
     batch_indices = torch.arange(B, device=c_index_per_residue.device).unsqueeze(1).expand(B, R)
-    return encoding[batch_indices, c_index_per_residue] * c_index_per_residue_mask
+    return encodings[batch_indices, c_index_per_residue] * c_index_per_residue_mask
 
 
 class TarFlow(torch.nn.Module):  # rename to AtomTarFlow?
@@ -473,7 +473,7 @@ class TarFlow(torch.nn.Module):  # rename to AtomTarFlow?
         self,
         x: torch.Tensor,
         permutations: dict[str, torch.Tensor],
-        encoding: dict[str, torch.Tensor] | None = None,
+        encodings: dict[str, torch.Tensor] | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         mask = permutations.get("mask", None)
 
@@ -483,13 +483,13 @@ class TarFlow(torch.nn.Module):  # rename to AtomTarFlow?
             mask = mask.view(x.shape[0], -1)  # needs to be this shape for embedder
 
         if self.conditional:
-            assert encoding is not None, "Encoding must be provided for conditional model."
+            assert encodings is not None, "encodings must be provided for conditional model."
             if mask is not None:
-                for key in encoding.keys():
+                for key in encodings.keys():
                     if not key == "seq_len":  # seq_len is not a tensor, so we don't check it
-                        assert torch.all(encoding[key][mask == 0] == 0), f"{key} is not zero where mask is zero"
+                        assert torch.all(encodings[key][mask == 0] == 0), f"{key} is not zero where mask is zero"
             # (batch_size, seq_len, channels)
-            cond = self.cond_embed(**encoding, mask=mask)
+            cond = self.cond_embed(**encodings, mask=mask)
         else:
             cond = None
 
@@ -505,21 +505,21 @@ class TarFlow(torch.nn.Module):  # rename to AtomTarFlow?
         self,
         x: torch.Tensor,
         permutations: dict[str, torch.Tensor],
-        encoding: dict[str, torch.Tensor] | None = None,
+        encodings: dict[str, torch.Tensor] | None = None,
     ) -> torch.Tensor:
         """No masking in reverse since we assume the model generates a single peptide system as a time."""
 
         if self.conditional:
-            assert encoding is not None, "Encoding must be provided for conditional model."
-            assert x.shape[1] == encoding["aa_type"].shape[1], "x and encoding do not match"
+            assert encodings is not None, "encodings must be provided for conditional model."
+            assert x.shape[1] == encodings["aa_type"].shape[1], "x and encodings do not match"
 
             for key in ["atom_type", "aa_type", "aa_pos"]:
-                if key in encoding:
+                if key in encodings:
                     if not key == "seq_len":  # seq_len is single value for each batch item, so we don't check it
-                        assert not torch.any(encoding[key] == 0), (
+                        assert not torch.any(encodings[key] == 0), (
                             f"{key} has padding zeros, padding not supported in reverse"
                         )
-            cond = self.cond_embed(**encoding)
+            cond = self.cond_embed(**encodings)
         else:
             cond = None
 
@@ -534,10 +534,10 @@ class AtomTarFlow(TarFlow):
         self,
         x: torch.Tensor,
         permutations: dict[str, torch.Tensor],
-        encoding: dict[str, torch.Tensor] | None = None,
+        encodings: dict[str, torch.Tensor] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor], torch.Tensor]:
         permutations = permutations["atom"]
-        x, logdets = super().forward(x, permutations, encoding)
+        x, logdets = super().forward(x, permutations, encodings)
 
         return x, logdets
 
@@ -545,12 +545,12 @@ class AtomTarFlow(TarFlow):
         self,
         x: torch.Tensor,
         permutations: dict[str, torch.Tensor],
-        encoding: dict[str, torch.Tensor] | None = None,
+        encodings: dict[str, torch.Tensor] | None = None,
     ) -> torch.Tensor | list[torch.Tensor]:
         """No masking in reverse since we assume the model generates a single peptide system as a time."""
 
         permutations = permutations["atom"]
-        x = super().reverse(x, permutations, encoding)
+        x = super().reverse(x, permutations, encodings)
 
         return x
 
@@ -560,7 +560,7 @@ class ResidueTarFlow(TarFlow):
         self,
         x: torch.Tensor,
         permutations: dict[str, torch.Tensor],
-        encoding: dict[str, torch.Tensor] | None = None,
+        encodings: dict[str, torch.Tensor] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor], torch.Tensor]:
         atom_seq_len = x.shape[1]
         permutations = permutations["residue"]
@@ -571,12 +571,12 @@ class ResidueTarFlow(TarFlow):
         # x_new = residue_to_atom_tokens(x, permutations["tokenization_map"], max_seq_len=atom_seq_len)
         # assert torch.allclose(x_new, x_start), "Reshape from residue to atom tokens did not preserve original x"
 
-        residue_encoding = {
-            "aa_type": atom_to_residue_encoding(encoding["aa_type"], permutations["tokenization_map"]),
-            "seq_len": encoding["seq_len"],
+        residue_encodings = {
+            "aa_type": atom_to_residue_encodings(encodings["aa_type"], permutations["tokenization_map"]),
+            "seq_len": encodings["seq_len"],
         }
 
-        x, logdets = super().forward(x, permutations, residue_encoding)
+        x, logdets = super().forward(x, permutations, residue_encodings)
 
         # un-patchify
         x = residue_to_atom_tokens(x, permutations["tokenization_map"], max_seq_len=atom_seq_len)
@@ -587,7 +587,7 @@ class ResidueTarFlow(TarFlow):
         self,
         x: torch.Tensor,
         permutations: dict[str, torch.Tensor],
-        encoding: dict[str, torch.Tensor] | None = None,
+        encodings: dict[str, torch.Tensor] | None = None,
     ) -> torch.Tensor | list[torch.Tensor]:
         """No masking in reverse since we assume the model generates a single peptide system as a time."""
 
@@ -600,12 +600,12 @@ class ResidueTarFlow(TarFlow):
         # x_new = residue_to_atom_tokens(x, permutations["tokenization_map"], max_seq_len=atom_seq_len)
         # assert torch.allclose(x_new, x_start), "Reshape from residue to atom tokens did not preserve original x"
 
-        residue_encoding = {
-            "aa_type": atom_to_residue_encoding(encoding["aa_type"], permutations["tokenization_map"]),
-            "seq_len": encoding["seq_len"],
+        residue_encodings = {
+            "aa_type": atom_to_residue_encodings(encodings["aa_type"], permutations["tokenization_map"]),
+            "seq_len": encodings["seq_len"],
         }
 
-        x = super().reverse(x, permutations, encoding=residue_encoding)
+        x = super().reverse(x, permutations, encodings=residue_encodings)
 
         # un-patchify
         x = residue_to_atom_tokens(x, permutations["tokenization_map"], max_seq_len=atom_seq_len)
@@ -628,20 +628,20 @@ class MultiTarFlow(torch.nn.Module):
         self.models = torch.nn.ModuleList(models)
 
     def forward(
-        self, x: torch.Tensor, permutations: dict[str, torch.Tensor], encoding: dict[str, torch.Tensor] | None = None
+        self, x: torch.Tensor, permutations: dict[str, torch.Tensor], encodings: dict[str, torch.Tensor] | None = None
     ):
         logdets = torch.zeros((x.shape[0]), device=x.device)
         for model in self.models:
-            x, logdet = model(x, permutations, encoding)
+            x, logdet = model(x, permutations, encodings)
             logdets += logdet
 
         return x, logdets
 
     def reverse(
-        self, x: torch.Tensor, permutations: dict[str, torch.Tensor], encoding: dict[str, torch.Tensor] | None = None
+        self, x: torch.Tensor, permutations: dict[str, torch.Tensor], encodings: dict[str, torch.Tensor] | None = None
     ):
         for model in reversed(self.models):
-            x = model.reverse(x, permutations, encoding)
+            x = model.reverse(x, permutations, encodings)
         return x
 
 
@@ -672,34 +672,34 @@ def load_padded_model_weights(model_pad, model):
 
 
 @torch.no_grad()
-def test_invert_unpadded_data(model, x, permutations, encoding):
+def test_invert_unpadded_data(model, x, permutations, encodings):
     """
     Test the model's invertibility on unpadded data.
     This function checks if the model can reconstruct the input data from its latent representation.
     """
     x = x.flatten(start_dim=1)  # flatten to (batch_size, num_tokens * num_dimensions)
-    z, _ = model(x, permutations, encoding=encoding)
-    x_recon = model.reverse(z, permutations, encoding=encoding)
+    z, _ = model(x, permutations, encodings=encodings)
+    x_recon = model.reverse(z, permutations, encodings=encodings)
 
     assert torch.allclose(x, x_recon, atol=1e-4), "Invertibility test failed"
     print("Invertibility test passed (unpadded data)")
 
 
 @torch.no_grad()
-def test_invert_padded_data(model, x_pad, permutations, permutations_pad, encoding, encoding_pad, token_dimensions=3):
+def test_invert_padded_data(model, x_pad, permutations, permutations_pad, encodings, encodings_pad, token_dimensions=3):
     """
     Test the model's invertibility on unpadded data.
     This function checks if the model can reconstruct the input data from its latent representation.
     """
-    num_pad_tokens = encoding_pad["aa_type"].shape[1] - encoding["aa_type"].shape[1]
+    num_pad_tokens = encodings_pad["aa_type"].shape[1] - encodings["aa_type"].shape[1]
 
     x_pad = x_pad.flatten(start_dim=1)  # flatten to (batch_size, num_tokens * num_dimensions)
-    z_pad, _ = model(x_pad, permutations_pad, encoding=encoding_pad)
+    z_pad, _ = model(x_pad, permutations_pad, encodings=encodings_pad)
 
     x = x_pad[:, : -num_pad_tokens * token_dimensions]  # remove padding tokens from x
     z = z_pad[:, : -num_pad_tokens * token_dimensions]  # remove padding tokens from z
 
-    x_recon = model.reverse(z, permutations, encoding=encoding)
+    x_recon = model.reverse(z, permutations, encodings=encodings)
 
     assert torch.allclose(x, x_recon, atol=1e-4), "Invertibility test failed"
     print("Invertibility test passed (padded data)")
@@ -707,16 +707,16 @@ def test_invert_padded_data(model, x_pad, permutations, permutations_pad, encodi
 
 @torch.no_grad()
 def test_outputs_unpadded_vs_padded_data(
-    model, x_pad, permutations, permutations_pad, encoding, encoding_pad, token_dimensions=3
+    model, x_pad, permutations, permutations_pad, encodings, encodings_pad, token_dimensions=3
 ):
     """ """
-    num_pad_tokens = encoding_pad["aa_type"].shape[1] - encoding["aa_type"].shape[1]
+    num_pad_tokens = encodings_pad["aa_type"].shape[1] - encodings["aa_type"].shape[1]
 
     x_pad = x_pad.flatten(start_dim=1)  # flatten to (batch_size, num_tokens * num_dimensions)
     x = x_pad[:, : -num_pad_tokens * token_dimensions]  # remove padding tokens from x
 
-    z_pad, logdets_pad = model(x_pad, permutations_pad, encoding=encoding_pad)
-    z_ref, logdets = model(x, permutations, encoding=encoding)
+    z_pad, logdets_pad = model(x_pad, permutations_pad, encodings=encodings_pad)
+    z_ref, logdets = model(x, permutations, encodings=encodings)
 
     z = z_pad[:, : -num_pad_tokens * token_dimensions]  # remove padding tokens from z
 
@@ -726,19 +726,19 @@ def test_outputs_unpadded_vs_padded_data(
 
 
 @torch.no_grad()
-def test_outputs_unpadded_vs_padded_model(model, model_pad, x, permutations, encoding):
+def test_outputs_unpadded_vs_padded_model(model, model_pad, x, permutations, encodings):
     """ """
     x = x.flatten(start_dim=1)  # flatten to (batch_size, num_tokens * num_dimensions)
 
-    output_rev_pad = model_pad.reverse(x, permutations, encoding=encoding)
-    output_rev = model.reverse(x, permutations, encoding=encoding)
+    output_rev_pad = model_pad.reverse(x, permutations, encodings=encodings)
+    output_rev = model.reverse(x, permutations, encodings=encodings)
 
     assert torch.allclose(output_rev_pad, output_rev, atol=1e-4), (
         "Reverse output comparison test failed (padded vs unpadded model)"
     )
 
-    output_fwd_pad, logdets_pad = model_pad(x, permutations, encoding=encoding)
-    output_fwd, logdets = model(x, permutations, encoding=encoding)
+    output_fwd_pad, logdets_pad = model_pad(x, permutations, encodings=encodings)
+    output_fwd, logdets = model(x, permutations, encodings=encodings)
 
     assert torch.allclose(output_fwd_pad, output_fwd, atol=1e-4), (
         "Output comparison test failed (padded vs unpadded model)"
@@ -750,7 +750,7 @@ def test_outputs_unpadded_vs_padded_model(model, model_pad, x, permutations, enc
 @torch.no_grad()
 def test_logdet(model, x_i, permutations_i, enc_i):
     x_i = x_i.flatten(start_dim=1)  # flatten to (batch_size, num_tokens * num_dimensions)
-    _, logdets = model(x_i, permutations_i, encoding=enc_i)
+    _, logdets = model(x_i, permutations_i, encodings=enc_i)
 
     if "mask" in permutations_i["atom"]:
         mask = permutations_i["atom"]["mask"]
@@ -758,7 +758,7 @@ def test_logdet(model, x_i, permutations_i, enc_i):
     else:
         logdets = logdets * x_i.shape[1]  # scale logdets by data dim
 
-    fwd_func = lambda x: model(x=x, permutations=permutations_i, encoding=enc_i)
+    fwd_func = lambda x: model(x=x, permutations=permutations_i, encodings=enc_i)
     fwd_jac_true = torch.autograd.functional.jacobian(fwd_func, x_i, vectorize=True)
     fwd_logdets_true = torch.logdet(fwd_jac_true[0].squeeze())
 
@@ -771,7 +771,7 @@ def test_logdet(model, x_i, permutations_i, enc_i):
 def get_repeated_data(data, local_batch_size):
     x = data["x"]
     permutations = data["permutations"]
-    encoding = data["encoding"]
+    encodings = data["encodings"]
 
     x = x.unsqueeze(0).repeat(local_batch_size, 1, 1).to("cuda")
 
@@ -797,10 +797,10 @@ def get_repeated_data(data, local_batch_size):
         mask = mask.unsqueeze(0).repeat(local_batch_size, 1).to(device)
         permutations["residue"]["mask"] = mask
 
-    if encoding is not None:
-        encoding = {key: tensor.unsqueeze(0).repeat(local_batch_size, 1).to(device) for key, tensor in encoding.items()}
+    if encodings is not None:
+        encodings = {key: tensor.unsqueeze(0).repeat(local_batch_size, 1).to(device) for key, tensor in encodings.items()}
 
-    return x, permutations, encoding
+    return x, permutations, encodings
 
 
 if __name__ == "__main__":
@@ -843,8 +843,8 @@ if __name__ == "__main__":
         padded_data = all_padded_data[seq]
         unpadded_data = all_unpadded_data[seq]
 
-        x, permutations, encoding = get_repeated_data(unpadded_data, local_batch_size)
-        x_pad, permutations_pad, encoding_pad = get_repeated_data(padded_data, local_batch_size)
+        x, permutations, encodings = get_repeated_data(unpadded_data, local_batch_size)
+        x_pad, permutations_pad, encodings_pad = get_repeated_data(padded_data, local_batch_size)
 
         noise = torch.randn_like(x_pad)
         x = x + noise[:, : x.shape[1]]  # ensure noise is same shape as x
@@ -882,7 +882,7 @@ if __name__ == "__main__":
                 "n2c_backbone-first_standard_group-by-group_flip",
                 "n2c_residue-by-residue_standard_group-by-group",
             ],
-            cond_embed=AtomConditionalEmbedder(
+            cond_embed=ConditionalEmbedder(
                 hidden_dim=256,
                 output_dim=256,
             ),
@@ -899,7 +899,7 @@ if __name__ == "__main__":
         model_residues = ResidueTarFlow(
             input_dimension=246,  # 82 * 3 atom types
             channels=256,
-            max_num_tokens=len(unpadded_data["seq_name"]),
+            max_num_tokens=len(unpadded_data["sequence"]),
             num_blocks=2,
             layers_per_block=2,
             permutation_keys=["n2c", "c2n"],
@@ -926,7 +926,7 @@ if __name__ == "__main__":
                 "n2c_backbone-first_standard_group-by-group_flip",
                 "n2c_residue-by-residue_standard_group-by-group",
             ],
-            cond_embed=AtomConditionalEmbedder(
+            cond_embed=ConditionalEmbedder(
                 hidden_dim=256,
                 output_dim=256,
             ),
@@ -941,13 +941,13 @@ if __name__ == "__main__":
         model = model_pad.to(device)
         model = load_padded_model_weights(model_pad, model)
 
-        print("sequence:", unpadded_data["seq_name"])
+        print("sequence:", unpadded_data["sequence"])
 
-        test_invert_unpadded_data(model, x, permutations, encoding)
-        test_invert_unpadded_data(model_pad, x, permutations, encoding)
-        test_invert_padded_data(model_pad, x_pad, permutations, permutations_pad, encoding, encoding_pad)
-        test_outputs_unpadded_vs_padded_data(model_pad, x_pad, permutations, permutations_pad, encoding, encoding_pad)
-        test_outputs_unpadded_vs_padded_model(model, model_pad, x, permutations, encoding)
+        test_invert_unpadded_data(model, x, permutations, encodings)
+        test_invert_unpadded_data(model_pad, x, permutations, encodings)
+        test_invert_padded_data(model_pad, x_pad, permutations, permutations_pad, encodings, encodings_pad)
+        test_outputs_unpadded_vs_padded_data(model_pad, x_pad, permutations, permutations_pad, encodings, encodings_pad)
+        test_outputs_unpadded_vs_padded_model(model, model_pad, x, permutations, encodings)
         for i in range(4):
             print("\nbatch item", i)
 
@@ -961,7 +961,7 @@ if __name__ == "__main__":
                 },
             }
 
-            enc_i = {k: v[i : i + 1] for k, v in encoding.items()}
+            enc_i = {k: v[i : i + 1] for k, v in encodings.items()}
 
             test_logdet(model, x_i, permutations_i, enc_i)  # test logdet of the original model
             test_logdet(model_pad, x_i, permutations_i, enc_i)  # test logdet of the padded model

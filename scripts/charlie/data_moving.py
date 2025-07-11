@@ -157,31 +157,31 @@ all_codes = [
 #
 # for pdb_file in tqdm(pdb_files):
 #
-#     seq_name = pdb_file.split(".")[0]
+#     sequence = pdb_file.split(".")[0]
 #
-#     if seq_name in val_dirs:
-#         shutil.copy(os.path.join(pdb_dir, pdb_file), f"{prefix_val}/{seq_name}-traj-state0.pdb")
-#     elif seq_name in dirs:
-#         shutil.copy(os.path.join(pdb_dir, pdb_file), f"{prefix_train}/{seq_name}-traj-state0.pdb")
+#     if sequence in val_dirs:
+#         shutil.copy(os.path.join(pdb_dir, pdb_file), f"{prefix_val}/{sequence}-traj-state0.pdb")
+#     elif sequence in dirs:
+#         shutil.copy(os.path.join(pdb_dir, pdb_file), f"{prefix_train}/{sequence}-traj-state0.pdb")
 
 
 # Generating subset
 # files = os.listdir("/home/mila/t/tanc/scratch/self-consume-bg/data/new/val")
 # npz_files = [file for file in files if file.endswith("-traj-arrays.npz")]
 #
-# seq_names = [file.split("-")[0] for file in npz_files]
+# sequences = [file.split("-")[0] for file in npz_files]
 #
-# seq_names_2 = [name for name in seq_names if len(name) == 2]
-# seq_names_4 = [name for name in seq_names if len(name) == 4]
-# seq_names_8 = [name for name in seq_names if len(name) == 8]
+# sequences_2 = [name for name in sequences if len(name) == 2]
+# sequences_4 = [name for name in sequences if len(name) == 4]
+# sequences_8 = [name for name in sequences if len(name) == 8]
 #
 # np.random.seed(0)
 #
 #
-# def draw_random_subset(seq_names, size):
+# def draw_random_subset(sequences, size):
 #     sampled = []
 #     while len(sampled) < size:
-#         subset = np.random.choice(seq_names, size=size, replace=False).tolist()
+#         subset = np.random.choice(sequences, size=size, replace=False).tolist()
 #         all_aa = "".join(subset)
 #         if all(code in all_aa for code in all_codes):
 #             sampled = subset
@@ -190,13 +190,13 @@ all_codes = [
 #     return sampled
 #
 #
-# sampled_seq_names_2 = draw_random_subset(seq_names_2, 30)
-# sampled_seq_names_4 = draw_random_subset(seq_names_4, 30)
-# sampled_seq_names_8 = draw_random_subset(seq_names_8, 30)
+# sampled_sequences_2 = draw_random_subset(sequences_2, 30)
+# sampled_sequences_4 = draw_random_subset(sequences_4, 30)
+# sampled_sequences_8 = draw_random_subset(sequences_8, 30)
 #
-# all_sampled_seq_names = sampled_seq_names_2 + sampled_seq_names_4 + sampled_seq_names_8
+# all_sampled_sequences = sampled_sequences_2 + sampled_sequences_4 + sampled_sequences_8
 #
-# for i, name in enumerate(all_sampled_seq_names):
+# for i, name in enumerate(all_sampled_sequences):
 #     print(f"{name}: {i}")
 #
 #
@@ -272,8 +272,8 @@ all_codes = [
 # prefix_train = "/home/mila/t/tanc/scratch/self-consume-bg/data/new/train"
 #
 # for pdb_file in tqdm(pdb_files):
-#     seq_name = pdb_file.split(".")[0]
-#     shutil.copy(os.path.join(pdb_dir, pdb_file), f"{prefix_train}/{seq_name}-traj-state0.pdb")
+#     sequence = pdb_file.split(".")[0]
+#     shutil.copy(os.path.join(pdb_dir, pdb_file), f"{prefix_train}/{sequence}-traj-state0.pdb")
 
 
 from glob import glob

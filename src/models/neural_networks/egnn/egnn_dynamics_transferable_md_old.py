@@ -19,7 +19,7 @@ class EGNNDynamicsTransferableMD(nn.Module):
         self,
         num_particles,
         num_dimensions,
-        encoding_dim,
+        encodings_dim,
         channels,
         num_layers,
         act_fn=torch.nn.SiLU(),
@@ -32,7 +32,7 @@ class EGNNDynamicsTransferableMD(nn.Module):
     ):
         super().__init__()
         self.egnn = EGNN(
-            in_node_nf=encoding_dim + 1,  # +1 for time
+            in_node_nf=encodings_dim + 1,  # +1 for time
             in_edge_nf=1,
             hidden_nf=channels,
             act_fn=act_fn,
@@ -51,7 +51,7 @@ class EGNNDynamicsTransferableMD(nn.Module):
         # Count function calls
         self.counter = 0
 
-    def forward(self, t, x, encoding=None, node_mask=None):
+    def forward(self, t, x, encodings=None, node_mask=None):
         assert not x.shape[1] % self.num_dimensions, "x should be divisible by num_particles"
         num_particles = x.shape[1] // self.num_dimensions
 
@@ -60,9 +60,9 @@ class EGNNDynamicsTransferableMD(nn.Module):
             assert torch.all(x.view(-1, num_particles, self.num_dimensions).sum(dim=-1)[node_mask == 0] == 0), (
                 "x is not zero where mask is zero"
             )
-            assert torch.all(encoding["atom_type"][node_mask == 0] == 0), "atom_type is not zero where mask is zero"
-            assert torch.all(encoding["aa_type"][node_mask == 0] == 0), "aa_type is not zero where mask is zero"
-            assert torch.all(encoding["aa_pos"][node_mask == 0] == 0), "aa_pos is not zero where mask is zero"
+            assert torch.all(encodings["atom_type"][node_mask == 0] == 0), "atom_type is not zero where mask is zero"
+            assert torch.all(encodings["aa_type"][node_mask == 0] == 0), "aa_type is not zero where mask is zero"
+            assert torch.all(encodings["aa_pos"][node_mask == 0] == 0), "aa_pos is not zero where mask is zero"
 
         if node_mask is None:
             node_mask = torch.ones(x.shape[0], num_particles, device=x.device, dtype=torch.float)
@@ -99,17 +99,17 @@ class EGNNDynamicsTransferableMD(nn.Module):
         # build 'h' node features
         h = torch.stack(
             [
-                encoding["atom_type"],
-                encoding["aa_type"],
-                encoding["aa_pos"],
+                encodings["atom_type"],
+                encodings["aa_type"],
+                encodings["aa_pos"],
             ],
             dim=-1,
         )
-        if "seq_len" in encoding:
+        if "seq_len" in encodings:
             h = torch.cat(
                 [
                     h,
-                    encoding["seq_len"].expand(-1, num_particles)[..., None],
+                    encodings["seq_len"].expand(-1, num_particles)[..., None],
                 ],
                 dim=-1,
             )

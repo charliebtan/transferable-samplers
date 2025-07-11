@@ -18,7 +18,7 @@ class EGNN_dynamics_AD2_cat(nn.Module):
         recurrent=True,
         attention=True,  # changed to match AD2_classical_train_tgb_full.py
         tanh=True,  # changed to match AD2_classical_train_tgb_full.py
-        atom_encoding_filename: str = "atom_types_ecoding.npy",
+        atom_encodings_filename: str = "atom_types_ecoding.npy",
         data_dir="data/alanine",
         pdb_filename="AAAAAA_310K.pdb",
         agg="sum",
@@ -27,7 +27,7 @@ class EGNN_dynamics_AD2_cat(nn.Module):
         super().__init__()
         self._n_particles = num_particles
         self._n_dimensions = num_dimensions
-        # Initial one hot encoding of the different element types
+        # Initial one hot encodings of the different element types
         self.h_initial = self.get_h_initial()
 
         h_size = self.h_initial.size(1)
@@ -83,7 +83,7 @@ class EGNN_dynamics_AD2_cat(nn.Module):
         return h_initial
 
     def get_hidden(self):
-        n_encodings = 78
+        n_encodingss = 78
         amino_dict = {
             "ALA": 0,
             "ARG": 1,
@@ -126,9 +126,9 @@ class EGNN_dynamics_AD2_cat(nn.Module):
                 if atom_name.name[:2] == "OE" or atom_name.name[:2] == "OD":
                     atom_name.name = atom_name.name[:-1]
                 atom_types.append(atom_name.name)
-        atom_types_dict = np.array([self.atom_types_encoding[atom_type] for atom_type in atom_types])
+        atom_types_dict = np.array([self.atom_types_encodings[atom_type] for atom_type in atom_types])
         atom_onehot = torch.nn.functional.one_hot(
-            torch.tensor(atom_types_dict), num_classes=len(self.atom_types_encoding)
+            torch.tensor(atom_types_dict), num_classes=len(self.atom_types_encodings)
         )
         if self._n_particles == 53:
             num_classes = 5

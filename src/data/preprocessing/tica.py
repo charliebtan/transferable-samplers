@@ -41,7 +41,7 @@ def tica_features(trajectory, use_dihedrals=True, use_distances=True, selection=
         return []
 
 
-def run_tica(trajectory, lagtime=100, dim=2):
+def run_tica_heavy(trajectory, lagtime=100, dim=2):
     ca_features = tica_features(trajectory)
     tica = dt.decomposition.TICA(dim=dim, lagtime=lagtime)
     koopman_estimator = dt.covariance.KoopmanWeightingEstimator(lagtime=lagtime)
@@ -72,23 +72,19 @@ def run_tica_ca(trajectory, topology, lagtime=500, dim=2):
     tica_model = tica.fit(ca_features, reweighting_model).fetch_model()
     return tica_model
 
+def get_tica_model(sequence, npz_path, pdb_path):
+    samples = np.load(npz_path, allow_pickle=False)
+    topology = md.load_topology(pdb_path)
+    try:
+        traj_samples = md.Trajectory(samples["positions"], topology=topology)
+    except IndexError:
+        traj_samples = md.Trajectory(samples, topology=topology)
 
-def tica_metric(true_samples, pred_samples, topology, tica_model_path, prefix=""):
-    with open(tica_model_path, "rb") as f:
-        tica_model = pickle.load(f)  # noqa: S301
-
-    true_traj_samples = md.Trajectory(true_samples.cpu().numpy(), topology=topology)
-    pred_traj_samples = md.Trajectory(pred_samples.cpu().numpy(), topology=topology)
-
-    if topology.n_residues > 4:
-        ca_list = [atom.index for atom in topology.atoms if atom.name == "CA"]
-        features_test = tica_features_ca(true_traj_samples, ca_list=ca_list)
-        features = tica_features_ca(pred_traj_samples, ca_list=ca_list)
+    if len(sequence) > 4:
+        tica_model = run_tica_ca(traj_samples, topology, lagtime=100, dim=2)
+        print("doing CA only!")
     else:
-        features_test = tica_features(true_traj_samples)
-        features = tica_features(pred_traj_samples)
+        tica_model = run_tica_heavy(traj_samples, lagtime=100, dim=2)
+        print("doing all atoms!")
 
-    n = min(len(features_test), len(features))
-    tics_test = torch.Tensor(tica_model.transform(features_test))[:n, 0:2]
-    tics = torch.Tensor(tica_model.transform(features))[:n, 0:2]
-    return distribution_distances(tics_test, tics, prefix=prefix + "/tica")
+    return tica_model

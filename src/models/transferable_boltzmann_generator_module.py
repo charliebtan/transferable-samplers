@@ -16,8 +16,8 @@ from omegaconf import OmegaConf
 from torchmetrics import MeanMetric
 from tqdm import tqdm
 
-from src.data.components.data_types import SamplesData
-from src.data.components.symmetry import (
+from src.utils.data_types import SamplesData
+from src.models.symmetry import (
     get_symmetry_change,
 )
 from src.data.single_peptide_datamodule import SinglePeptideDataModule
@@ -164,7 +164,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         self,
         total_size: int,
         permutations: Optional[dict[str, torch.Tensor]] = None,
-        encoding: Optional[dict[str, torch.Tensor]] = None,
+        encodings: Optional[dict[str, torch.Tensor]] = None,
         batch_size: Optional[int] = None,
         dummy_ll: bool = False,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -174,13 +174,13 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         log_ps = []
         prior_samples = []
         for _ in tqdm(range(total_size // batch_size)):
-            s, lp, ps = self.generate_samples(batch_size, permutations, encoding=encoding, dummy_ll=dummy_ll)
+            s, lp, ps = self.generate_samples(batch_size, permutations, encodings=encodings, dummy_ll=dummy_ll)
             samples.append(s)
             log_ps.append(lp)
             prior_samples.append(ps)
         if total_size % batch_size > 0:
             s, lp, ps = self.generate_samples(
-                total_size % batch_size, permutations, encoding=encoding, dummy_ll=dummy_ll
+                total_size % batch_size, permutations, encodings=encodings, dummy_ll=dummy_ll
             )
             samples.append(s)
             log_ps.append(lp)
@@ -191,7 +191,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         return samples, log_ps, prior_samples
 
     def generate_samples(
-        self, batch_size: int, encoding: Optional[dict[str, torch.Tensor]] = None, n_timesteps: int = None
+        self, batch_size: int, encodings: Optional[dict[str, torch.Tensor]] = None, n_timesteps: int = None
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Generate samples from the model.
 
@@ -302,27 +302,27 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
 
     def evaluate_all(self, prefix):
         metrics = {}
-        eval_seq_names = self.datamodule.val_seq_names if prefix.startswith("val") else self.datamodule.test_seq_names
-        if (prefix.startswith("test") or prefix.startswith("val")) and self.hparams.get("eval_seq_name") is not None:
-            if self.hparams.eval_seq_name not in eval_seq_names:
-                raise ValueError(f"{self.hparams.eval_seq_name} not in set of test sequences: {eval_seq_names}")
+        eval_sequences = self.datamodule.val_sequences if prefix.startswith("val") else self.datamodule.test_sequences
+        if (prefix.startswith("test") or prefix.startswith("val")) and self.hparams.get("eval_sequence") is not None:
+            if self.hparams.eval_sequence not in eval_sequences:
+                raise ValueError(f"{self.hparams.eval_sequence} not in set of test sequences: {eval_sequences}")
 
-            if not isinstance(self.hparams.eval_seq_name, list):
-                eval_seq_names = [self.hparams.eval_seq_name]
+            if not isinstance(self.hparams.eval_sequence, list):
+                eval_sequences = [self.hparams.eval_sequence]
             else:
-                eval_seq_names = self.hparams.eval_seq_name
+                eval_sequences = self.hparams.eval_sequence
 
-        for seq_name in eval_seq_names:
-            true_samples, permutations, encoding, energy_fn = self.datamodule.prepare_eval(seq_name)
-            logging.info(f"Evaluating {seq_name} samples")
+        for sequence in eval_sequences:
+            true_samples, permutations, encodings, energy_fn = self.datamodule.prepare_eval(sequence)
+            logging.info(f"Evaluating {sequence} samples")
             metrics.update(
                 self.evaluate(
-                    seq_name,
+                    sequence,
                     true_samples,
                     permutations,
-                    encoding,
+                    encodings,
                     energy_fn,
-                    prefix=f"{prefix}/{seq_name}",
+                    prefix=f"{prefix}/{sequence}",
                     proposal_generator=self.batched_generate_samples,
                 )
             )
@@ -344,7 +344,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         sequence,
         true_samples,
         permutations,
-        encoding,
+        encodings,
         energy_fn,
         prefix: str = "val",
         proposal_generator=None,
@@ -377,7 +377,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             # Generate samples and record time
             torch.cuda.synchronize()
             start_time = time.time()
-            proposal_samples, proposal_log_q, prior_samples = proposal_generator(num_proposal_samples, permutations, encoding)
+            proposal_samples, proposal_log_q, prior_samples = proposal_generator(num_proposal_samples, permutations, encodings)
             torch.cuda.synchronize()
             time_duration = time.time() - start_time
 =======
@@ -385,7 +385,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         torch.cuda.synchronize()
         start_time = time.time()
         proposal_samples, proposal_log_p, prior_samples = proposal_generator(
-            num_proposal_samples, permutations, encoding
+            num_proposal_samples, permutations, encodings
         )
         torch.cuda.synchronize()
         time_duration = time.time() - start_time
@@ -565,7 +565,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             start_time = time.time()
 
             # TODO: Make conditional proposal energy
-            cond_proposal_energy = lambda _x: self.proposal_energy(_x, encoding=encoding)
+            cond_proposal_energy = lambda _x: self.proposal_energy(_x, encodings=encodings)
             smc_samples, smc_logits = self.smc_sampler.sample(
                 proposal_samples[:num_smc_samples], cond_proposal_energy, energy_fn
             )  # already returned resampled

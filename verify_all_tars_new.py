@@ -46,10 +46,10 @@ for key, sample_bytes in tqdm(dataset, desc="Verifying samples"):
 
         num_atoms = arr.shape[0]
 
-        seq_name = key.split("_")[0]
-        seq_len = len(seq_name)
+        sequence = key.split("_")[0]
+        seq_len = len(sequence)
 
-        my_set.add(seq_name)
+        my_set.add(sequence)
 
         if num_atoms > num_atoms_max and seq_len <= 8:
             num_atoms_max = num_atoms

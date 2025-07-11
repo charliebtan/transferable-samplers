@@ -29,7 +29,7 @@ def get_8aa_data(tar_path):
     )
     data = []
     for key, sample_bytes in dataset:
-        if len(key.split("_")[0]) == 8:
+        if len(key.split("_")[0]) == 4:
             arr = np.frombuffer(sample_bytes, dtype=np.float32).reshape(-1, NUM_DIMENSIONS)
             com = np.mean(arr, axis=0)
             arr = arr - com

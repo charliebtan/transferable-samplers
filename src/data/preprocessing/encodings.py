@@ -1,9 +1,9 @@
 import torch
 from tqdm import tqdm
 
-"""Start encodings from 1 to leave 0 for zero padding"""
+"""Start encodingss from 1 to leave 0 for zero padding"""
 
-ATOM_TYPE_ENCODING_DICT = {
+ATOM_TYPE_encodings_DICT = {
     "C": 1,
     "CA": 2,
     "CB": 3,
@@ -60,7 +60,7 @@ ATOM_TYPE_ENCODING_DICT = {
     "SG": 54,
 }
 
-AA_TYPE_ENCODING_DICT = {
+AA_TYPE_encodings_DICT = {
     "ALA": 1,
     "ARG": 2,
     "ASN": 3,
@@ -107,20 +107,20 @@ AA_CODE_CONVERSION = {
 }
 
 
-def get_encoding(topology):
-    aa_pos_encoding = []
-    aa_type_encoding = []
-    atom_type_encoding = []
+def get_encodings(topology):
+    aa_pos_encodings = []
+    aa_type_encodings = []
+    atom_type_encodings = []
 
     for i, aa in enumerate(topology.residues):
         for atom in aa.atoms:
-            aa_pos_encoding.append(i + 1)  # shifted to account for pad tokens
-            aa_type_encoding.append(AA_TYPE_ENCODING_DICT[aa.name])
+            aa_pos_encodings.append(i + 1)  # shifted to account for pad tokens
+            aa_type_encodings.append(AA_TYPE_encodings_DICT[aa.name])
 
             atom_name = atom.name
 
             # TODO double check this with Leon
-            # Standarize side-chain H atom encoding
+            # Standarize side-chain H atom encodings
             if atom_name[0] == "H" and atom_name[-1] in ("1", "2", "3"):
                 # For these AA the H-X-N atoms are not interchangable
                 if aa.name in ("HIS", "HIE", "PHE", "TRP", "TYR") and atom_name[:2] in (
@@ -133,28 +133,27 @@ def get_encoding(topology):
                 else:
                     atom_name = atom_name[:-1]
 
-            # Standarize side-chain O atom encoding
+            # Standarize side-chain O atom encodings
             if atom_name[:2] == "OE" or atom_name[:2] == "OD":
                 atom_name = atom_name[:-1]
 
-            atom_type_encoding.append(ATOM_TYPE_ENCODING_DICT[atom_name])
+            atom_type_encodings.append(ATOM_TYPE_encodings_DICT[atom_name])
 
-    atom_type_encoding = torch.tensor(atom_type_encoding, dtype=torch.int64)
-    aa_pos_encoding = torch.tensor(aa_pos_encoding, dtype=torch.int64)
-    aa_type_encoding = torch.tensor(aa_type_encoding, dtype=torch.int64)
+    atom_type_encodings = torch.tensor(atom_type_encodings, dtype=torch.int64)
+    aa_pos_encodings = torch.tensor(aa_pos_encodings, dtype=torch.int64)
+    aa_type_encodings = torch.tensor(aa_type_encodings, dtype=torch.int64)
 
-    encoding = {
-        "atom_type": atom_type_encoding,
-        "aa_pos": aa_pos_encoding,
-        "aa_type": aa_type_encoding,
+    encodings = {
+        "atom_type": atom_type_encodings,
+        "aa_pos": aa_pos_encodings,
+        "aa_type": aa_type_encodings,
         "seq_len": torch.tensor([topology.n_residues], dtype=torch.int64),
     }
 
-    return encoding
+    return encodings
 
-
-def get_encoding_dict(topology_dict):
-    encoding_dict = {}
-    for i, (seq_name, topology) in tqdm(enumerate(topology_dict.items()), desc="Generating encodings", total=len(topology_dict)):
-        encoding_dict[seq_name] = get_encoding(topology)
-    return encoding_dict
+def get_encodings_dict(topology_dict):
+    encodings_dict = {}
+    for i, (sequence, topology) in tqdm(enumerate(topology_dict.items()), desc="Generating encodingss", total=len(topology_dict)):
+        encodings_dict[sequence] = get_encodings(topology)
+    return encodings_dict
