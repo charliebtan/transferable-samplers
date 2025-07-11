@@ -1,6 +1,6 @@
 _target_: src.models.components.dit.DIT3D
 vocab_size: ${data.num_dimensions}
-num_particles: ${data.num_particles}
+num_atoms: ${data.num_atoms}
 #hidden_size: 512
 hidden_size: 768
 cond_dim: 128

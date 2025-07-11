@@ -8,5 +8,5 @@ num_workers: 2
 pin_memory: False
 num_aa_max: 8
 num_dimensions: 3
-num_particles: 178       # Max number of particles
-dim: 534                 # num_dimensions * num_particles  # TODO do i still need?
+num_atoms: 178       # Max number of atoms + at least a single padding token
+dim: 534                 # num_dimensions * num_atoms 

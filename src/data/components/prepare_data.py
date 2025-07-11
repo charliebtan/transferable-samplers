@@ -111,7 +111,7 @@ def build_lmdb(
         metadata = {
             "vars": {},
             "num_samples": {},
-            "num_particles": {},
+            "num_atoms": {},
             "pdb_paths": {},
             "npz_paths": {},
             "seq_to_idx": {},
@@ -144,7 +144,7 @@ def build_lmdb(
         metadata["pdb_paths"][seq_name] = pdb_path
 
         with np.load(npz_path, allow_pickle=False) as data:
-            x = data["positions"]  # shape (N, num_particles, num_dimensions)
+            x = data["positions"]  # shape (N, num_atoms, num_dimensions)
 
         if len(seq_name) == 2 and "test" not in lmdb_prefix_path:
             x = x / 30.0  # train / val 2AA is currently scaled wrong in the files # TODO fix files
@@ -156,13 +156,13 @@ def build_lmdb(
             np.random.seed(subset[seq_name])
             x = x[np.random.choice(x.shape[0], size=10_000, replace=False)]
 
-        num_particles = x.shape[1]
+        num_atoms = x.shape[1]
 
-        metadata["num_particles"][seq_name] = int(num_particles)
+        metadata["num_atoms"][seq_name] = int(num_atoms)
 
         x_tensor = torch.from_numpy(x).to("cuda:0")  # move to GPU
 
-        # Check data is on the correct scale - checks the minimum distances between particles
+        # Check data is on the correct scale - checks the minimum distances between atoms
         # (corresponding to an N-H bond) is close to the expected value of 0.1 nm
         dists = interatomic_dist(
             x_tensor[:: max(1, x_tensor.shape[0] // 100)], flatten=False

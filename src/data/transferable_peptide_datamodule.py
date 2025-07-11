@@ -1,9 +1,9 @@
 import logging
 import math
 import os
-from typing import Callable, Optional
 import pickle
 import time
+from typing import Callable, Optional
 
 import openmm
 import openmm.app
@@ -12,10 +12,10 @@ import torchvision
 
 from src.data.base_datamodule import BaseDataModule
 from src.data.components.encoding import get_encoding_dict
-from src.data.components.permutations import get_permutations_dict
-from src.data.components.residue_tokenization import get_residue_tokenization_dict
 from src.data.components.openmm import OpenMMBridge, OpenMMEnergy
 from src.data.components.webdataset import build_webdataset
+from src.data.components.peptide_dataset import PeptideDataset
+from src.data.components.permutations import get_permutations_dict
 from src.data.components.prepare_data import (
     build_lmdb,
     check_and_get_files,
@@ -24,14 +24,17 @@ from src.data.components.prepare_data import (
     load_pdbs_and_topologies,
     prepare_tica_models,
 )
+from src.data.components.residue_tokenization import get_residue_tokenization_dict
+from src.data.components.symmetry import resolve_chirality
 from src.data.components.test_subset import ALL_TEST_SUBSET, SCALING_SUBSET, TEST_SUBSET_DICT
 from src.data.components.transferable_peptide_dataset import TransferablePeptideDataset
 from src.data.components.transforms.add_encoding import AddEncodingTransform
+from src.data.components.transforms.add_permutations import AddPermutationsTransform
+from src.data.components.transforms.atom_noise import AtomNoiseTransform
 from src.data.components.transforms.center_of_mass import CenterOfMassTransform
 from src.data.components.transforms.padding import PaddingTransform
 from src.data.components.transforms.rotation import Random3DRotationTransform
 from src.data.components.transforms.standardize import StandardizeTransform
-from src.data.components.transforms.add_permutations import AddPermutationsTransform
 from src.data.components.validation_subset import ALL_VALIDATION_SUBSET, VALIDATION_SUBSET_DICT
 
 
@@ -44,7 +47,7 @@ class TransferablePeptideDataModule(BaseDataModule):
         test_lmdb_prefix: str,
         num_aa_max: int,
         num_dimensions: int,
-        num_particles: int,
+        num_atoms: int,
         dim: int,  # dim of largest system
         com_augmentation: bool = False,
         atom_noise_augmentation_factor: float = 0.0,
@@ -61,7 +64,7 @@ class TransferablePeptideDataModule(BaseDataModule):
     ):
         super().__init__(batch_size=batch_size, num_workers=num_workers, pin_memory=pin_memory)
 
-        assert dim == num_dimensions * num_particles, "dim must be equal to num_dimensions * num_particles"
+        assert dim == num_dimensions * num_atoms, "dim must be equal to num_dimensions * num_particles"
 
         self.val_data_path = f"{data_dir}/val"
         self.test_data_path = f"{data_dir}/test"
@@ -244,14 +247,14 @@ class TransferablePeptideDataModule(BaseDataModule):
                 self.pdb_dict = pickle.load(f)
             logging.info(f"Loading topology dict from {topology_pkl_path}")
             with open(topology_pkl_path, "rb") as f:
-                self.topology_dict = pickle.load(f)
+                self.topology_dict = pickle.load(f) # noqa: S301
         else:
             self.pdb_dict, self.topology_dict = load_pdbs_and_topologies(pdb_paths, [2,3,4,5,6,7,8,9,10])
             if self.trainer.local_rank == 0:
                 with open(pdb_pkl_path, "wb") as f:
                     pickle.dump(self.pdb_dict, f)
                 with open(topology_pkl_path, "wb") as f:
-                    pickle.dump(self.topology_dict, f)
+                    pickle.dump(self.topology_dict, f) 
 
         self.encoding_dict = get_encoding_dict(self.topology_dict)
 
@@ -259,7 +262,7 @@ class TransferablePeptideDataModule(BaseDataModule):
         if os.path.exists(permutation_pkl_path):
             logging.info(f"Loading permutations dict from {permutation_pkl_path}")
             with open(permutation_pkl_path, "rb") as f:
-                self.permutations_dict = pickle.load(f)
+                self.permutations_dict = pickle.load(f) # noqa: S301
         else:
             self.permutations_dict = get_permutations_dict(self.topology_dict)
             if self.trainer.local_rank == 0:
@@ -270,7 +273,7 @@ class TransferablePeptideDataModule(BaseDataModule):
         if os.path.exists(residue_tokenization_pkl_path):
             logging.info("Loading residue tokenization from existing pickle file.")
             with open(residue_tokenization_pkl_path, "rb") as f:
-                self.residue_tokenization_dict = pickle.load(f)
+                self.residue_tokenization_dict = pickle.load(f) # noqa: S301
         else:
             logging.info("Creating residue tokenization dictionary.")
             self.residue_tokenization_dict = get_residue_tokenization_dict(self.topology_dict)
@@ -291,7 +294,7 @@ class TransferablePeptideDataModule(BaseDataModule):
         transform_list = transform_list + [
             AddEncodingTransform(self.encoding_dict),
             AddPermutationsTransform(self.permutations_dict, self.residue_tokenization_dict),
-            PaddingTransform(self.hparams.num_particles, self.hparams.num_dimensions, self.hparams.num_aa_max),
+            PaddingTransform(self.hparams.num_atoms, self.hparams.num_dimensions),
         ]
 
         transforms = torchvision.transforms.Compose(transform_list)
@@ -314,7 +317,7 @@ class TransferablePeptideDataModule(BaseDataModule):
             StandardizeTransform(self.std, self.hparams.num_dimensions),
             AddEncodingTransform(self.encoding_dict),
             AddPermutationsTransform(self.permutations_dict, self.residue_tokenization_dict),
-            PaddingTransform(self.hparams.num_particles, self.hparams.num_dimensions, self.hparams.num_aa_max), 
+            PaddingTransform(self.hparams.num_atoms, self.hparams.num_dimensions),
         ]
 
         test_transforms = torchvision.transforms.Compose(test_transform_list)
@@ -377,7 +380,7 @@ class TransferablePeptideDataModule(BaseDataModule):
         permutations = {
             "atom": self.permutations_dict[eval_sequence],
             "residue": self.residue_tokenization_dict[eval_sequence],
-        }   
+        }
 
         potential = self.setup_potential(eval_sequence)
         energy_fn = lambda x: potential.energy(self.unnormalize(x)).flatten()

@@ -28,6 +28,7 @@ from src.models.utils import resample
 
 logger = logging.getLogger(__name__)
 
+
 class TransferableBoltzmannGeneratorLitModule(LightningModule):
     def __init__(
         self,
@@ -178,7 +179,9 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             log_ps.append(lp)
             prior_samples.append(ps)
         if total_size % batch_size > 0:
-            s, lp, ps = self.generate_samples(total_size % batch_size, permutations, encoding=encoding, dummy_ll=dummy_ll)
+            s, lp, ps = self.generate_samples(
+                total_size % batch_size, permutations, encoding=encoding, dummy_ll=dummy_ll
+            )
             samples.append(s)
             log_ps.append(lp)
             prior_samples.append(ps)
@@ -246,7 +249,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
 
         # Parse and aggregate metrics along peptide sequences
         for key, value in metrics.items():
-            if key.startswith(prefix): # TODO not sure this is needed here
+            if key.startswith(prefix):  # TODO not sure this is needed here
                 # Extract sequence and metric name
                 parts = key.split("/")
                 metric_name = "/".join(parts[2:])
@@ -279,7 +282,9 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         metrics.update(count_dict)
         return metrics
 
-    def detach_and_cpu(self, obj): # TODO hack to have this here? at all? you could just be more careful to detach / cpu?
+    def detach_and_cpu(
+        self, obj
+    ):  # TODO hack to have this here? at all? you could just be more careful to detach / cpu?
         """
         Recursively detach and move all tensors to CPU within a nested structure.
         Works with dicts, lists, tuples, and tensors.
@@ -335,7 +340,15 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
 
     @torch.no_grad()
     def evaluate(
-        self, sequence, true_samples, permutations, encoding, energy_fn, prefix: str = "val", proposal_generator=None, output_dir=None
+        self,
+        sequence,
+        true_samples,
+        permutations,
+        encoding,
+        energy_fn,
+        prefix: str = "val",
+        proposal_generator=None,
+        output_dir=None,
     ) -> None:
         """Generates samples from the proposal and runs SMC if enabled.
         Also computes metrics, through the datamodule function "metrics_and_plots".
@@ -363,7 +376,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             # Generate samples and record time
             torch.cuda.synchronize()
             start_time = time.time()
-            proposal_samples, proposal_log_p, prior_samples = proposal_generator(num_proposal_samples, permutations, encoding)
+            proposal_samples, proposal_log_q, prior_samples = proposal_generator(num_proposal_samples, permutations, encoding)
             torch.cuda.synchronize()
             time_duration = time.time() - start_time
 
@@ -379,7 +392,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             samples_dict = {
                 "prior_samples": prior_samples,
                 "proposal_samples": proposal_samples,
-                "proposal_log_p": proposal_log_p,
+                "proposal_log_q": proposal_log_q,
             }
             if output_dir is None:
                 output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
@@ -403,7 +416,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             logging.info(f"Loading proposal samples from {samples_path}")
             samples_dict = torch.load(samples_path, map_location=self.device)
             proposal_samples = samples_dict["samples"]
-            proposal_log_p = samples_dict["log_p"]
+            proposal_log_q = samples_dict["log_q"]
             prior_samples = samples_dict["prior_samples"]
 
             # TODO all this stuff
@@ -487,10 +500,11 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         # Apply CoM adjustment to energy, this must be done here for compatibility with CNFs
         if self.hparams.sampling_config.get("use_com_adjustment", False):
             logging.info("Applying center of mass energy adjustment")
-            proposal_log_p = proposal_log_p + self.com_energy_adjustment(proposal_samples)
+            proposal_log_q = proposal_log_q + self.com_energy_adjustment(proposal_samples)
 
         # Compute resampling index
-        resampling_logits = -proposal_samples_energy - proposal_log_p
+        # proposal_log_p - proposal_log_q
+        resampling_logits = -proposal_samples_energy - proposal_log_q
 
         # Filter samples based on logit clipping - this affects both IS and SMC
         if self.hparams.sampling_config.clip_reweighting_logits:

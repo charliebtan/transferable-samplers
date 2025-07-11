@@ -8,5 +8,5 @@ num_workers: 1
 pin_memory: False
 num_aa_max: 4
 num_dimensions: 3
-num_particles: 97        # Max number of particles
+num_atoms: 97        # Max number of particles
 dim: 291                 # num_dimensions * num_particles  # TODO remove?

@@ -9,5 +9,5 @@ pin_memory: False
 num_aa_max: 4
 num_aa_min: 4
 num_dimensions: 3
-num_particles: 93       # Max number of particles + at least a single padding token
-dim: 279                # num_dimensions * num_particles 
+num_atoms: 93       # Max number of atoms + at least a single padding token
+dim: 279                # num_dimensions * num_atoms 

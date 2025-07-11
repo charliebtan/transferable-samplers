@@ -34,7 +34,7 @@ class CenterOfMassTransform(torch.nn.Module):
         # Generate noise and adjust the center of mass
         noise = torch.randn_like(x[0]) * std
 
-        # Shift all particles so that the center of mass is moved
+        # Shift all atoms so that the center of mass is moved
         x = x + noise
 
         return {

@@ -1,3 +1,3 @@
 _target_: src.models.neural_networks.egnn.egnn_dynamics.EGNN_dynamics
-num_particles: ${data.num_particles}
+num_atoms: ${data.num_atoms}
 num_dimensions: ${data.num_dimensions}
