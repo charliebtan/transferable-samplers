@@ -6,5 +6,4 @@ batch_size: 512 # Needs to be divisible by the number of devices (e.g., if in a 
 num_workers: 1
 pin_memory: False
 num_dimensions: 3
-num_particles: 138
-dim: 414    
+num_atoms: 138

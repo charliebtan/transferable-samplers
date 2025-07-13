@@ -17,9 +17,7 @@ from torchmetrics import MeanMetric
 from tqdm import tqdm
 
 from src.utils.data_types import SamplesData
-from src.models.symmetry import (
-    get_symmetry_change,
-)
+from src.models.utils import get_symmetry_change
 from src.data.single_peptide_datamodule import SinglePeptideDataModule
 from src.models.neural_networks.ema import EMA
 from src.models.priors import NormalDistribution
@@ -372,7 +370,6 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         else:
             num_proposal_samples = self.hparams.sampling_config.num_proposal_samples
 
-<<<<<<< HEAD
         if self.hparams.sampling_config.get("load_samples_path", None) is None:
             # Generate samples and record time
             torch.cuda.synchronize()
@@ -380,18 +377,6 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             proposal_samples, proposal_log_q, prior_samples = proposal_generator(num_proposal_samples, permutations, encodings)
             torch.cuda.synchronize()
             time_duration = time.time() - start_time
-=======
-        # Generate samples and record time
-        torch.cuda.synchronize()
-        start_time = time.time()
-        proposal_samples, proposal_log_p, prior_samples = proposal_generator(
-            num_proposal_samples, permutations, encodings
-        )
-        torch.cuda.synchronize()
-        time_duration = time.time() - start_time
-        self.log(f"{prefix}/samples_walltime", time_duration, sync_dist=True)
-        self.log(f"{prefix}/samples_per_second", len(proposal_samples) / time_duration, sync_dist=True)
->>>>>>> pointclouds
 
             metrics.update(
                 {

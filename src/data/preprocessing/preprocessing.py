@@ -9,9 +9,9 @@ import numpy as np
 import openmm.app
 from tqdm import tqdm
 
-from src.data.components.preprocess.encodingss import get_encodings_dict
-from src.data.components.preprocess.permutations import get_permutations_dict
-from src.data.components.preprocess.tica import run_tica_heavy, run_tica_ca
+from src.data.preprocessing.encodings import get_encodings_dict
+from src.data.preprocessing.permutations import get_permutations_dict
+from src.data.preprocessing.tica import run_tica_heavy, run_tica_ca
 
 def prepare_and_cache_pdb_dict(pdb_paths: list[str], cache_path: str) -> dict[str, openmm.app.PDBFile]:
 
@@ -51,7 +51,7 @@ def prepare_and_cache_encodings_dict(topology_dict: dict[str, md.Topology], cach
     else:
         logging.info(f"Creating encodings dict and caching to {cache_path}")
         encodings_dict = {}
-        for sequence, topology in tqdm(topology_dict.items(), desc="Loading encodingss"):
+        for sequence, topology in tqdm(topology_dict.items(), desc="Loading encodings"):
             encodings = get_encodings_dict(topology)
             encodings_dict[sequence] = encodings
 

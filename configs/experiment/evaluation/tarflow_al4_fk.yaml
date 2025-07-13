@@ -2,7 +2,7 @@
 
 defaults:
   - override /model: normalizing_flow
-  - override /data: al4
+  - override /data: single_system/al4
   - override /trainer: gpu
 
 ckpt_path: null

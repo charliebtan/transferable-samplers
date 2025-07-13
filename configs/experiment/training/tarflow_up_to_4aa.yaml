@@ -34,7 +34,7 @@ model:
       - <<: *tarflow
         _target_: src.models.neural_networks.tarflow.tarflow.AtomTarFlow
         input_dimension: 3 # 3D coordinates
-        max_num_tokens: ${data.num_particles}
+        max_num_tokens: ${data.num_atoms}
         channels: 384
         permutation_keys:
         - "n2c_backbone-first_variant_group-by-group"

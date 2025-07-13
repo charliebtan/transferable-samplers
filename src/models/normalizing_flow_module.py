@@ -133,7 +133,7 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
         """
 
         if encodings is None:
-            num_atoms = self.datamodule.hparams.num_particles
+            num_atoms = self.datamodule.hparams.num_atoms
         else:
             num_atoms = encodings["atom_type"].size(0)
 

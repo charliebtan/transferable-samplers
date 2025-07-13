@@ -1,7 +1,7 @@
 import torch
 from tqdm import tqdm
 
-"""Start encodingss from 1 to leave 0 for zero padding"""
+"""Start encodings from 1 to leave 0 for zero padding"""
 
 ATOM_TYPE_encodings_DICT = {
     "C": 1,
@@ -154,6 +154,6 @@ def get_encodings(topology):
 
 def get_encodings_dict(topology_dict):
     encodings_dict = {}
-    for i, (sequence, topology) in tqdm(enumerate(topology_dict.items()), desc="Generating encodingss", total=len(topology_dict)):
+    for i, (sequence, topology) in tqdm(enumerate(topology_dict.items()), desc="Generating encodings", total=len(topology_dict)):
         encodings_dict[sequence] = get_encodings(topology)
     return encodings_dict

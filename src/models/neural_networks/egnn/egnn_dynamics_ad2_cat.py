@@ -10,7 +10,7 @@ from src.models.neural_networks.egnn.utils import remove_mean
 class EGNN_dynamics_AD2_cat(nn.Module):
     def __init__(
         self,
-        num_particles,
+        num_atoms,
         num_dimensions,
         channels=64,
         act_fn=torch.nn.SiLU(),
@@ -25,7 +25,7 @@ class EGNN_dynamics_AD2_cat(nn.Module):
         M=128,
     ):
         super().__init__()
-        self._n_particles = num_particles
+        self._n_particles = num_atoms
         self._n_dimensions = num_dimensions
         # Initial one hot encodings of the different element types
         self.h_initial = self.get_h_initial()
@@ -83,7 +83,7 @@ class EGNN_dynamics_AD2_cat(nn.Module):
         return h_initial
 
     def get_hidden(self):
-        n_encodingss = 78
+        n_encodings = 78
         amino_dict = {
             "ALA": 0,
             "ARG": 1,

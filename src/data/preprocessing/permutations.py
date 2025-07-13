@@ -191,7 +191,7 @@ def get_permutation(permutations_definition_dict, topology, sequence_ordering, g
 def get_permutations_dict(topology_dict):
 
     # Load the permutations definition from YAML file
-    permutations_definition_dict = load_yaml_as_dict("src/data/components/permutations.yaml")
+    permutations_definition_dict = load_yaml_as_dict("src/data/preprocessing/permutations.yaml")
 
     permutations_dict = defaultdict(dict)
 

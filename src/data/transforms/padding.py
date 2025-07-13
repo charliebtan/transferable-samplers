@@ -31,8 +31,8 @@ class PaddingTransform(torch.nn.Module):
     def pad_data(self, x: torch.Tensor) -> torch.Tensor:
         assert len(x.shape) == 2
         num_atoms = x.shape[0]
-        assert num_atoms <= self.max_num_particles, f"number of particles {num_atoms} exceeds max {self.max_num_particles}"
-        pad_tensor = torch.zeros(self.max_num_particles - num_atoms, x.shape[1], dtype=x.dtype)
+        assert num_atoms <= self.max_num_atoms, f"number of particles {num_atoms} exceeds max {self.max_num_atoms}"
+        pad_tensor = torch.zeros(self.max_num_atoms - num_atoms, x.shape[1], dtype=x.dtype)
         return torch.cat([x, pad_tensor])
 
     def pad_encodings(self, encodings: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:

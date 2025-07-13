@@ -6,7 +6,7 @@ from src.evaluation.metrics.distribution_distances import (
 )
 from src.evaluation.metrics.ess import sampling_efficiency
 from src.evaluation.metrics.ramachandran import ramachandran_metrics
-from src.data.components.preprocess.tica import tica_metric
+from src.evaluation.metrics.tica_metric import tica_metric
 
 
 def evaluate_peptide_data(

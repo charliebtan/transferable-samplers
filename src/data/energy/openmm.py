@@ -9,7 +9,7 @@ import warnings
 import numpy as np
 import torch
 
-from src.data.components.energy import _Bridge, _BridgeEnergy, assert_numpy
+from src.data.energy.energy import _Bridge, _BridgeEnergy, assert_numpy
 
 
 class OpenMMBridge(_Bridge):
@@ -101,7 +101,7 @@ class OpenMMBridge(_Bridge):
         Parameters:
         -----------
         batch : np.ndarray or torch.Tensor
-            A batch of particle positions that has shape (batch_size, num_particles * 3).
+            A batch of particle positions that has shape (batch_size, num_atoms * 3).
         evaluate_force : bool, optional
             Whether to compute forces.
         evaluate_energy : bool, optional
@@ -116,9 +116,9 @@ class OpenMMBridge(_Bridge):
         energies : torch.Tensor or None
             The energies in units of kilojoule/mole; its shape  is (len(batch), )
         forces : torch.Tensor or None
-            The forces in units of kilojoule/mole/nm; its shape is (len(batch), num_particles*3)
+            The forces in units of kilojoule/mole/nm; its shape is (len(batch), num_atoms*3)
         new_positions : torch.Tensor or None
-            The positions in units of nm; its shape is (len(batch), num_particles*3)
+            The positions in units of nm; its shape is (len(batch), num_atoms*3)
         log_path_probability_ratio : torch.Tensor or None
             The logarithmic path probability ratios; its shape  is (len(batch), )
         """
@@ -248,7 +248,7 @@ class MultiContext:
         Parameters
         ----------
         positions : numpy.ndarray
-            The particle positions in nanometer; its shape is (batch_size, num_particles, 3).
+            The particle positions in nanometer; its shape is (batch_size, num_atoms, 3).
         box_vectors : numpy.ndarray, optional
             The periodic box vectors in nanometer; its shape is (batch_size, 3, 3).
             If not specified, don't change the box vectors.
@@ -270,9 +270,9 @@ class MultiContext:
         energies : np.ndarray or None
             The energies in units of kilojoule/mole; its shape  is (len(positions), )
         forces : np.ndarray or None
-            The forces in units of kilojoule/mole/nm; its shape is (len(positions), num_particles, 3)
+            The forces in units of kilojoule/mole/nm; its shape is (len(positions), num_atoms, 3)
         new_positions : np.ndarray or None
-            The positions in units of nm; its shape is (len(positions), num_particles, 3)
+            The positions in units of nm; its shape is (len(positions), num_atoms, 3)
         log_path_probability_ratio : np.ndarray or None
             The logarithmic path probability ratios; its shape  is (len(positions), )
         """
@@ -462,7 +462,7 @@ class SingleContext:
         Parameters:
         -----------
         positions : numpy.ndarray
-            The particle positions in nanometer; its shape is (batch_size, num_particles, 3).
+            The particle positions in nanometer; its shape is (batch_size, num_atoms, 3).
         box_vectors : numpy.ndarray, optional
             The periodic box vectors in nanometer; its shape is (batch_size, 3, 3).
             If not specified, don't change the box vectors.
@@ -484,9 +484,9 @@ class SingleContext:
         energies : np.ndarray or None
             The energies in units of kilojoule/mole; its shape  is (len(positions), )
         forces : np.ndarray or None
-            The forces in units of kilojoule/mole/nm; its shape is (len(positions), num_particles, 3)
+            The forces in units of kilojoule/mole/nm; its shape is (len(positions), num_atoms, 3)
         new_positions : np.ndarray or None
-            The positions in units of nm; its shape is (len(positions), num_particles, 3)
+            The positions in units of nm; its shape is (len(positions), num_atoms, 3)
         log_path_probability_ratio : np.ndarray or None
             The logarithmic path probability ratios; its shape  is (len(positions), )
         """

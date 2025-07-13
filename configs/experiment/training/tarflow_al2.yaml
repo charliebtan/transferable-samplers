@@ -2,7 +2,7 @@
 
 defaults:
   - override /model: normalizing_flow
-  - override /data: al2
+  - override /data: single_system/al2
   - override /trainer: gpu
 
 model:

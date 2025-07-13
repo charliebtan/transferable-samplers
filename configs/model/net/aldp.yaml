@@ -1,3 +1,3 @@
 _target_: src.models.neural_networks.egnn_dynamics_consistency.EGNN_dynamics_AD2_cat
-num_particles: ${data.num_atoms}
+num_atoms: ${data.num_atoms}
 n_dimension: ${data.num_dimensions}

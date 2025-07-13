@@ -18,12 +18,12 @@ class NormalDistribution:
             com = (x * mask[..., None]).sum(dim=1, keepdims=True) / mask.sum(dim=1, keepdims=True)[..., None]
             x = x - com
             x *= mask[..., None]
-        return x.reshape(num_samples, num_particles, self.num_dimensions)
+        return x.reshape(num_samples, num_atoms, self.num_dimensions)
 
     def energy(self, x: torch.Tensor, mask: torch.Tensor | None = None) -> torch.Tensor:
         assert x.dim() == 3
         num_samples = x.shape[0]
-        num_particles = x.shape[1]
+        num_atoms = x.shape[1]
         if mask is None:
             mask = torch.ones((num_samples, num_atoms), device=x.device)
         if self.mean_free:

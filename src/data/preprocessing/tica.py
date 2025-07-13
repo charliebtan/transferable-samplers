@@ -72,15 +72,12 @@ def run_tica_ca(trajectory, topology, lagtime=500, dim=2):
     tica_model = tica.fit(ca_features, reweighting_model).fetch_model()
     return tica_model
 
-def get_tica_model(sequence, npz_path, pdb_path):
-    samples = np.load(npz_path, allow_pickle=False)
-    topology = md.load_topology(pdb_path)
-    try:
-        traj_samples = md.Trajectory(samples["positions"], topology=topology)
-    except IndexError:
-        traj_samples = md.Trajectory(samples, topology=topology)
+def get_tica_model(data, topology):
 
-    if len(sequence) > 4:
+    sequence_length = topology.n_residues
+    traj_samples = md.Trajectory(data, topology=topology)
+
+    if sequence_length > 4:
         tica_model = run_tica_ca(traj_samples, topology, lagtime=100, dim=2)
         print("doing CA only!")
     else:

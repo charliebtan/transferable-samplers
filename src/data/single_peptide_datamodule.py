@@ -10,43 +10,59 @@ import torch
 import torchvision
 
 from src.data.base_datamodule import BaseDataModule
-from src.data.components.openmm import OpenMMBridge, OpenMMEnergy
-from src.data.components.preprocess.preprocess import prepare_tica_models
-from src.data.dataset.numpy_dataset import NumpyDataset
-from src.data.components.transforms.center_of_mass import CenterOfMassTransform
-from src.data.components.transforms.rotation import Random3DRotationTransform
-from src.data.components.transforms.standardize import StandardizeTransform
+from src.data.energy.openmm import OpenMMBridge, OpenMMEnergy
+# from src.data.preprocessing.preprocessing import prepare_tica_models
+from src.data.datasets.tensor_dataset import TensorDataset
+from src.data.transforms.center_of_mass import CenterOfMassTransform
+from src.data.transforms.rotation import Random3DRotationTransform
+from src.data.transforms.standardize import StandardizeTransform
+from src.data.preprocessing.tica import get_tica_model
+
+from huggingface_hub import snapshot_download
+import os
 
 
 class SinglePeptideDataModule(BaseDataModule):
     def __init__(
         self,
+        repo_id: str,
         data_dir: str,
         sequence: str,
         temperature: float,
         num_dimensions: int,
         num_atoms: int,
         com_augmentation: bool = False,
+        num_eval_samples: int = 10_000,
         batch_size: int = 64,
         num_workers: int = 0,
         pin_memory: bool = False,
     ):
         super().__init__(batch_size=batch_size, num_workers=num_workers, pin_memory=pin_memory)
 
-        self.train_data_path = f"{data_dir}/{sequence}_{temperature}K_train.npy"
-        self.val_data_path = f"{data_dir}/{sequence}_{temperature}K_val.npy"
-        self.test_data_path = f"{data_dir}/{sequence}_{temperature}K_test.npy"
+        self.repo_name = self.hparams.repo_id.split("/")[-1]
+        self.trajectory_name = f"{self.hparams.sequence}_{self.hparams.temperature}K"
 
-        self.pdb_path = f"{self.hparams.data_dir}/{sequence}_{temperature}K.pdb"
-
-        self.tica_models_path = f"{data_dir}/tica_models"
+        # Setup paths
+        self.trajectory_data_dir = f"{data_dir}/{self.repo_name}/{self.trajectory_name}"
+        self.train_data_path = f"{self.trajectory_data_dir}/{self.trajectory_name}_train.npy"
+        self.val_data_path = f"{self.trajectory_data_dir}/{self.trajectory_name}_val.npy"
+        self.test_data_path = f"{self.trajectory_data_dir}/{self.trajectory_name}_test.npy"
+        self.pdb_path = f"{self.trajectory_data_dir}/{self.trajectory_name}.pdb"
 
     def prepare_data(self):
-        prepare_tica_models(
-            {self.hparams.sequence: self.test_data_path},
-            {self.hparams.sequence: self.pdb_path},
-            dir=self.tica_models_path,
+
+        os.makedirs(f"{self.hparams.repo_id}/{self.repo_name}", exist_ok=True)
+
+        local_dir = snapshot_download(
+            repo_id=self.hparams.repo_id,
+            repo_type="dataset",
+            local_dir=f"{self.hparams.data_dir}/{self.repo_name}",
+            allow_patterns=[f"{self.trajectory_name}/*"],
+            use_auth_token=True
         )
+        logging.info(f"Downloaded dataset to {local_dir}")
+
+        # TODO - cache TICA model?
 
     def setup(self, stage: Optional[str] = None) -> None:
         # Divide batch size by the number of devices.
@@ -59,52 +75,45 @@ class SinglePeptideDataModule(BaseDataModule):
             self.batch_size_per_device = self.hparams.batch_size // self.trainer.world_size
 
         # Load the data
-        train_data = np.load(self.train_data_path, allow_pickle=True)
-        val_data = np.load(self.val_data_path, allow_pickle=True)
-        test_data = np.load(self.test_data_path, allow_pickle=True)
+        data_train = np.load(self.train_data_path, allow_pickle=True)
+        data_val = np.load(self.val_data_path, allow_pickle=True)
+        data_test = np.load(self.test_data_path, allow_pickle=True)
 
         # Reshape and tensorize the data
-        train_data = torch.from_numpy(train_data)
-        val_data = torch.from_numpy(val_data)
-        test_data = torch.from_numpy(test_data)
+        data_train = torch.from_numpy(data_train)
+        data_val = torch.from_numpy(data_val)
+        data_test = torch.from_numpy(data_test)
 
-        self.topology_dict = {self.hparams.sequence: md.load_topology(self.pdb_path)}
-        self.tica_model_paths = {self.hparams.sequence: f"{self.tica_models_path}/{self.hparams.sequence}-tica.pkl"}
+        # Load the topology from the PDB file
+        self.topology = md.load_topology(self.pdb_path)
 
-        # Standarize data
-        train_data = self.zero_center_of_mass(train_data)
-        val_data = self.zero_center_of_mass(val_data)
-        test_data = self.zero_center_of_mass(test_data)
+        self.permutations = # TODO
 
-        self.std = train_data.std()
-
-        # Subsample the evaluation subsets data
-        val_data = val_data[:: val_data.shape[0] // self.hparams.num_eval_samples]
-        test_data = test_data[:: test_data.shape[0] // self.hparams.num_eval_samples]
+        # Compute std on standardied data
+        self.std = self.zero_center_of_mass(data_train).std()
 
         transform_list = [
-            StandardizeTransform(self.std, self.hparams.num_dimensions),
-            Random3DRotationTransform(self.hparams.num_dimensions),
+            StandardizeTransform(self.std),
+            Random3DRotationTransform(),
         ]
         if self.hparams.com_augmentation:
             transform_list.append(
                 CenterOfMassTransform(
-                    1 / math.sqrt(self.hparams.num_particles),
                     self.hparams.num_dimensions,
                 )
             )
         transforms = torchvision.transforms.Compose(transform_list)
 
-        self.data_train = NumpyDataset(
-            npy_array=train_data,
-            num_dimensions=self.hparams.num_dimensions,
-            transform=transforms,
+        self.data_train = TensorDataset(
+            data=data_train,
+            transform=transforms
         )
+        self.data_val = data_val
+        self.data_test = data_test
 
         logging.info(f"Train dataset size: {len(self.data_train)}")
         logging.info(f"Validation dataset size: {len(self.data_val)}")
         logging.info(f"Test dataset size: {len(self.data_test)}")
-
 
     def setup_potential(self):
         if self.hparams.sequence in ["Ace-A-Nme", "Ace-AAA-Nme"]:
@@ -156,9 +165,15 @@ class SinglePeptideDataModule(BaseDataModule):
         else:
             raise ValueError(f"Unknown prefix: {prefix}. Use 'val' or 'test'.")
 
+        # TODO - cache this as in transferable case
+        tica_model = get_tica_model(
+            true_samples,
+            self.topology
+        )
 
+        # Subsample the true trajectory
+        true_samples = true_samples[:: len(true_samples) // self.hparams.num_eval_samples]
         true_samples = self.normalize(true_samples)
-        tica_model = self.tica_model
 
         permutations = self.permutations
         encodings = None

@@ -4,7 +4,7 @@ defaults:
   - override /model: flow_matching
   - override /model/net: egnn_dynamics_ad2_cat
   - override /model/scheduler: onestep
-  - override /data: al2
+  - override /data: single_system/al2
   - override /trainer: gpu
 
 model:

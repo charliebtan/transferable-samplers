@@ -13,7 +13,7 @@ model:
       _target_: src.models.neural_networks.tarflow.tarflow.AtomTarFlow
       input_dimension: 3 # 3D coordinates
       channels: 384
-      max_num_tokens: ${data.num_particles}
+      max_num_tokens: ${data.num_atoms}
       num_blocks: 8
       layers_per_block: 8
       permutation_keys:

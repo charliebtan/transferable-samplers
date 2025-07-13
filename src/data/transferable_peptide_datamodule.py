@@ -10,15 +10,15 @@ import torch
 import torchvision
 
 from src.data.base_datamodule import BaseDataModule
-from src.data.components.openmm import OpenMMBridge, OpenMMEnergy
-from src.data.components.webdataset import build_webdataset
-from src.data.components.transforms.add_encodings import AddencodingsTransform
-from src.data.components.transforms.add_permutations import AddPermutationsTransform
-from src.data.components.transforms.center_of_mass import CenterOfMassTransform
-from src.data.components.transforms.padding import PaddingTransform
-from src.data.components.transforms.rotation import Random3DRotationTransform
-from src.data.components.transforms.standardize import StandardizeTransform
-from src.data.components.preprocess.preprocess import (
+from src.data.energy.openmm import OpenMMBridge, OpenMMEnergy
+from src.data.datasets.webdataset import build_webdataset
+from src.data.transforms.add_encodings import AddencodingsTransform
+from src.data.transforms.add_permutations import AddPermutationsTransform
+from src.data.transforms.center_of_mass import CenterOfMassTransform
+from src.data.transforms.padding import PaddingTransform
+from src.data.transforms.rotation import Random3DRotationTransform
+from src.data.transforms.standardize import StandardizeTransform
+from src.data.preprocessing.preprocessing import (
     prepare_and_cache_pdb_dict,
     prepare_and_cache_topology_dict,
     prepare_and_cache_encodings_dict,
@@ -41,7 +41,7 @@ class TransferablePeptideDataModule(BaseDataModule):
         super().__init__(batch_size=batch_size, num_workers=num_workers, pin_memory=pin_memory)
 
         self.pdb_dir = os.path.join(data_dir, "pdbs")
-        self.cache_dir = os.path.join(data_dir, "preprocess_cache")
+        self.cache_dir = os.path.join(data_dir, "preprocessing_cache")
 
         self.pdb_dict_pkl_path = os.path.join(self.cache_dir, "pdb_dict.pkl")
         self.topology_dict_pkl_path = os.path.join(self.cache_dir, "topology_dict.pkl")
@@ -52,7 +52,7 @@ class TransferablePeptideDataModule(BaseDataModule):
         self.test_data_path = os.path.join(data_dir, "subsampled_trajectories/test")
 
     def prepare_data(self) -> None:
-        """Download + preprocess data. Lightning ensures that `self.prepare_data()` is called only
+        """Download + preprocessing data. Lightning ensures that `self.prepare_data()` is called only
         within a single process on CPU, so you can safely add your downloading logic within. In
         case of multi-node training, the execution of this hook depends upon
         `self.prepare_data_per_node()`.
@@ -72,7 +72,7 @@ class TransferablePeptideDataModule(BaseDataModule):
                 os.path.join(pdb_dir, filename) for filename in os.listdir(pdb_dir) if filename.endswith(".pdb")
             ])
 
-        # Do data preprocessing here and cache the results - to be loaded by workers later.
+        # Do data preprocessinging here and cache the results - to be loaded by workers later.
         pdb_dict = prepare_and_cache_pdb_dict(pdb_paths, self.pdb_dict_pkl_path)
         topology_dict = prepare_and_cache_topology_dict(pdb_dict, self.topology_dict_pkl_path)
         _ =  prepare_and_cache_encodings_dict(topology_dict, self.encodings_dict_pkl_path)
@@ -97,7 +97,7 @@ class TransferablePeptideDataModule(BaseDataModule):
                 )
             self.batch_size_per_device = self.hparams.batch_size // self.trainer.world_size
 
-        # Load cached data preprocessing dict
+        # Load cached data preprocessinging dict
         with open(self.pdb_dict_pkl_path, "rb") as f:
             self.pdb_dict = pickle.load(f)
         logging.info(f"Loaded pdb dict from {self.pdb_dict_pkl_path}")

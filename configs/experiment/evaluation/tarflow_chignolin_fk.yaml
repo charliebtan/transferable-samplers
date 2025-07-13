@@ -2,7 +2,7 @@
 
 defaults:
   - override /model: normalizing_flow
-  - override /data: chignolin
+  - override /data: single_system/chignolin
   - override /trainer: gpu
 
 ckpt_path: null
