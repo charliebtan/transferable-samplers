@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH -J tarflow_new_data_wd                # Job name
 #SBATCH -o watch_folder/%x_%j.out     # output file (%j expands to jobID)
-#SBATCH -N 2                          # Total number of nodes requested
+#SBATCH -N 4                          # Total number of nodes requested
 #SBATCH --mem=256G                     # server memory requested (per node)
 #SBATCH -t 3:00:00                  # Time limit (hh:mm:ss)
 #SBATCH --account=aip-necludov               

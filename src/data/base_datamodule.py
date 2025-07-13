@@ -8,7 +8,7 @@ from torch.utils.data import IterableDataset
 
 import webdataset as wds
 
-from src.data.components.data_types import SamplesData
+from src.utils.data_types import SamplesData
 from src.evaluation.metrics.evaluate_peptide_data import evaluate_peptide_data
 from src.evaluation.plots.plot_atom_distances import plot_atom_distances
 from src.evaluation.plots.plot_com_norms import plot_com_norms

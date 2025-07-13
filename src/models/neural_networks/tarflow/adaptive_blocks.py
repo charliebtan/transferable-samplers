@@ -294,7 +294,7 @@ if __name__ == "__main__":
     channels = 128
     num_heads = 8
 
-    from src.models.neural_networks.embed import ConditionalEmbedder
+    from src.models.neural_networks.embedder import ConditionalEmbedder
 
     x = torch.randn((batch_size, num_atoms, channels))
     atom_type = torch.randint(0, 54, (batch_size, num_atoms))

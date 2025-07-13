@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import mdtraj as md
 from matplotlib.colors import LogNorm
 
-from src.evaluation.metrics.tica import tica_features, tica_features_ca
+from src.data.components.preprocess.tica import tica_features, tica_features_ca
 
 matplotlib.rcParams["mathtext.fontset"] = "stix"
 matplotlib.rcParams["font.family"] = "STIXGeneral"
