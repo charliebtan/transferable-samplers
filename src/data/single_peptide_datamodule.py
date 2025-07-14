@@ -49,6 +49,10 @@ class SinglePeptideDataModule(BaseDataModule):
         self.test_data_path = f"{self.trajectory_data_dir}/{self.trajectory_name}_test.npy"
         self.pdb_path = f"{self.trajectory_data_dir}/{self.trajectory_name}.pdb"
 
+        # For compatibility with transferable case
+        self.val_sequences = [self.hparams.sequence]
+        self.test_sequences = [self.hparams.sequence]
+
     def prepare_data(self):
 
         os.makedirs(f"{self.hparams.repo_id}/{self.repo_name}", exist_ok=True)
@@ -84,10 +88,11 @@ class SinglePeptideDataModule(BaseDataModule):
         data_val = torch.from_numpy(data_val)
         data_test = torch.from_numpy(data_test)
 
+        # Load the PDB file
+        self.pdb = openmm.app.PDBFile(self.pdb_path)
+
         # Load the topology from the PDB file
         self.topology = md.load_topology(self.pdb_path)
-
-        self.permutations = # TODO
 
         # Compute std on standardied data
         self.std = self.zero_center_of_mass(data_train).std()
@@ -102,14 +107,21 @@ class SinglePeptideDataModule(BaseDataModule):
                     self.hparams.num_dimensions,
                 )
             )
-        transforms = torchvision.transforms.Compose(transform_list)
-
+        train_transforms = torchvision.transforms.Compose(transform_list)
         self.data_train = TensorDataset(
             data=data_train,
-            transform=transforms
+            transform=train_transforms,
         )
-        self.data_val = data_val
-        self.data_test = data_test
+
+        test_transforms = StandardizeTransform(self.std)
+        self.data_val = TensorDataset(
+            data=data_val,
+            transform=test_transforms,
+        )
+        self.data_test = TensorDataset(
+            data=data_test,
+            transform=test_transforms,
+        )
 
         logging.info(f"Train dataset size: {len(self.data_train)}")
         logging.info(f"Validation dataset size: {len(self.data_val)}")
@@ -157,11 +169,12 @@ class SinglePeptideDataModule(BaseDataModule):
         return potential
 
     def prepare_eval(self, prefix: str):
+        """sequence for compatibility with transferable case"""
 
         if prefix == "test":
-            true_samples = self.data_test
+            true_samples = self.data_test.data
         elif prefix == "val":
-            true_samples = self.data_val
+            true_samples = self.data_val.data
         else:
             raise ValueError(f"Unknown prefix: {prefix}. Use 'val' or 'test'.")
 
@@ -175,9 +188,9 @@ class SinglePeptideDataModule(BaseDataModule):
         true_samples = true_samples[:: len(true_samples) // self.hparams.num_eval_samples]
         true_samples = self.normalize(true_samples)
 
-        permutations = self.permutations
+        permutations = None
         encodings = None
         potential = self.setup_potential()
         energy_fn = lambda x: potential.energy(self.unnormalize(x)).flatten()
 
-        return true_samples, permutations, encodings, energy_fn, tica_model
+        return true_samples, permutations, encodings, energy_fn

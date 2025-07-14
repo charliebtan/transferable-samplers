@@ -77,7 +77,7 @@ def get_tica_model(data, topology):
     sequence_length = topology.n_residues
     traj_samples = md.Trajectory(data, topology=topology)
 
-    if sequence_length > 4:
+    if sequence_length > 6:
         tica_model = run_tica_ca(traj_samples, topology, lagtime=100, dim=2)
         print("doing CA only!")
     else:

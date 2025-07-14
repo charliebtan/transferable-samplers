@@ -301,17 +301,8 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
     def evaluate_all(self, prefix):
         metrics = {}
         eval_sequences = self.datamodule.val_sequences if prefix.startswith("val") else self.datamodule.test_sequences
-        if (prefix.startswith("test") or prefix.startswith("val")) and self.hparams.get("eval_sequence") is not None:
-            if self.hparams.eval_sequence not in eval_sequences:
-                raise ValueError(f"{self.hparams.eval_sequence} not in set of test sequences: {eval_sequences}")
-
-            if not isinstance(self.hparams.eval_sequence, list):
-                eval_sequences = [self.hparams.eval_sequence]
-            else:
-                eval_sequences = self.hparams.eval_sequence
-
         for sequence in eval_sequences:
-            true_samples, permutations, encodings, energy_fn = self.datamodule.prepare_eval(sequence)
+            true_samples, permutations, encodings, energy_fn = self.datamodule.prepare_eval(sequence, prefix)
             logging.info(f"Evaluating {sequence} samples")
             metrics.update(
                 self.evaluate(
@@ -479,7 +470,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
 
             if self.hparams.drop_unfixable_symmetry:  # only makes sense to drop if symmetry is fixed
                 proposal_samples = proposal_samples[~second_symmetry_change]
-                proposal_log_p = proposal_log_p[~second_symmetry_change]
+                proposal_log_q = proposal_log_q[~second_symmetry_change]
                 proposal_samples_energy = proposal_samples_energy[~second_symmetry_change]
 
         metrics.update(

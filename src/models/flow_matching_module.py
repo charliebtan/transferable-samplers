@@ -72,17 +72,18 @@ class FlowMatchLitModule(TransferableBoltzmannGeneratorLitModule):
 
         x1 = batch["x"]
 
-        encodings = batch.get("encodings", None)
-        mask = batch["permutations"]["atom"].get("mask", None)
-
         num_samples = x1.shape[0]
-        assert not x1.shape[1] % self.datamodule.hparams.num_dimensions, (
-            f"x1 should be a multiple of {self.datamodule.hparams.num_dimensions}"
-        )
-        num_tokens = x1.shape[1] // self.datamodule.hparams.num_dimensions
+        num_tokens = x1.shape[1]
+
+        encodings = batch.get("encodings", None)
+        permutations = batch.get("permutations", None)
+        mask = permutations.get("mask", None) if permutations else None
 
         t = torch.rand(num_samples, 1, device=x1.device)
         prior_samples = self.prior.sample(num_samples, num_tokens, mask, device=x1.device)
+
+        x1 = x1.flatten(start_dim=1)
+        prior_samples = prior_samples.flatten(start_dim=1)
 
         xt = self.get_xt(prior_samples, x1, t)
         vt_flow = self.get_flow_targets(prior_samples, x1)

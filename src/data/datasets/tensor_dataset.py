@@ -11,7 +11,7 @@ class TensorDataset(torch.utils.data.Dataset):
         return len(self.data)
 
     def __getitem__(self, idx):
-        x = self.data[idx]
+        x = self.data[idx].float()
         if self.transform is not None:
             sample = self.transform(
                 {

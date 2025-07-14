@@ -47,8 +47,8 @@ bgmol @ git+https://github.com/atong01/bgmol.git
 zuko
 wandb
 huggingface-hub
+webdataset
 wget
-lmdb
 
 # flash-attn no build isolation
 # pip install flash-attn --no-build-isolation
