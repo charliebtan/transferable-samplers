@@ -1,6 +1,6 @@
 #!/bin/bash
 python src/train.py -m launcher=mila_rtx8000 \
-experiment=evaluation/tarflow_al3_fk \
+experiment=evaluation/single_system/tarflow_al3_fk \
 tags=[sbg,tarflow,al3,smc_steps_v1] \
 model.sampling_config.num_test_proposal_samples=10_000 \
 model.sampling_config.use_com_adjustment=1,0 \

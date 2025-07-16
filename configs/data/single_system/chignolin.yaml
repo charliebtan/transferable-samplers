@@ -7,3 +7,4 @@ num_workers: 1
 pin_memory: False
 num_dimensions: 3
 num_atoms: 138
+dim: 414

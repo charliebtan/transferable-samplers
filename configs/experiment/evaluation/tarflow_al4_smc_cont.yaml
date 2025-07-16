@@ -2,7 +2,7 @@
 
 defaults:
   - override /model: normalizing_flow
-  - override /data: single_system/chignolin
+  - override /data: single_system/al4
   - override /trainer: gpu
 
 ckpt_path: null
@@ -17,13 +17,13 @@ model:
     batch_size: 10_000
     num_test_proposal_samples: 10_000
     num_smc_samples: 1_000_000 
-    clip_reweighting_logits: 0.002 # it was working well on AC without - lets try avoid
+    clip_reweighting_logits: 0.002
   net:
     _target_: src.models.neural_networks.tarflow.tarflow.TarFlow
     in_channels: 3
-    channels: 384
-    num_blocks: 8
-    layers_per_block: 8
+    channels: 256
+    num_blocks: 6
+    layers_per_block: 6
     dropout: 0.0
 
   smc_sampler:
@@ -35,7 +35,7 @@ model:
     systematic_resampling: True
     warmup: 0.
     batch_size: 256 # set for 48gb
-    input_energy_cutoff: -300 # this might need tuning if you get NaNs!
+    input_energy_cutoff: 100 # this might need tuning if you get NaNs!
     do_energy_plots: True
     log_freq: 1
     

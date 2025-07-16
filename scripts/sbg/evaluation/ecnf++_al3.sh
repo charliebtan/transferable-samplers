@@ -1,6 +1,6 @@
 #!/bin/bash
 python src/train.py -m launcher=mila_l40 \
-experiment=training/ecnf++_al3 \
+experiment=training/single_system/ecnf++_al3 \
 tags=[sgb,al3,ecnf++_eval_v1] \
 logger=wandb \
 train=False \

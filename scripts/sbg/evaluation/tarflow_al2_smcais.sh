@@ -1,6 +1,6 @@
 #!/bin/bash
 python src/train.py -m launcher=mila_48gb \
-experiment=evaluation/tarflow_al2_fk \
+experiment=evaluation/single_system/tarflow_al2_fk \
 tags=[sbg,tarflow,al2,smcais_v6] \
 model.sampling_config.num_test_proposal_samples=10_000,100_000 \
 model.sampling_config.use_com_adjustment=1 \

@@ -1,6 +1,0 @@
-#!/bin/bash
-python src/train.py -m launcher=mila_48gb \
-experiment=training/tarflow_al6 \
-tags=[sbg,al6,smcais_v3,post_eval] \
-+model.sampling_config.load_samples_path="/home/mila/t/tanc/scratch/logs/train/multiruns/2025-05-28_20-36-28/0/test_samples.pt","/home/mila/t/tanc/scratch/logs/train/multiruns/2025-05-28_20-36-28/1/test_samples.pt","/home/mila/t/tanc/scratch/logs/train/multiruns/2025-05-28_20-36-28/2/test_samples.pt","/home/mila/t/tanc/scratch/logs/train/multiruns/2025-05-28_20-36-28/3/test_samples.pt","/home/mila/t/tanc/scratch/logs/train/multiruns/2025-05-28_20-36-28/4/test_samples.pt","/home/mila/t/tanc/scratch/logs/train/multiruns/2025-05-28_20-36-28/5/test_samples.pt","/home/mila/t/tanc/scratch/logs/train/multiruns/2025-05-28_20-36-40/0/test_samples.pt","/home/mila/t/tanc/scratch/logs/train/multiruns/2025-05-28_20-36-40/1/test_samples.pt","/home/mila/t/tanc/scratch/logs/train/multiruns/2025-05-28_20-36-40/2/test_samples.pt","/home/mila/t/tanc/scratch/logs/train/multiruns/2025-05-28_20-36-40/3/test_samples.pt","/home/mila/t/tanc/scratch/logs/train/multiruns/2025-05-28_20-36-40/4/test_samples.pt","/home/mila/t/tanc/scratch/logs/train/multiruns/2025-05-28_20-36-40/5/test_samples.pt" \
-train=False 

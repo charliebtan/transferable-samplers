@@ -35,12 +35,16 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
         batch: torch.Tensor,
     ) -> torch.Tensor:
         x1 = batch["x"]
-        encodings = batch["encodings"]
-        permutations = batch["permutations"]
+        encodings = batch.get("encodings", None)
+        permutations = batch.get("permutations", None)
 
         x0, dlogp = self.net(x1, permutations=permutations, encodings=encodings)
 
-        mask = batch["permutations"]["atom"].get("mask", None)
+        if permutations is not None:
+            mask = batch["permutations"]["atom"].get("mask", None)
+        else:
+            mask = None
+
         loss = self.prior.energy(x0, mask=mask).mean() - dlogp.mean()
 
         self.log("train/mle_loss", loss.item(), prog_bar=True, sync_dist=True)

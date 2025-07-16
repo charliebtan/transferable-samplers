@@ -1,6 +1,6 @@
 #!/bin/bash
 python src/train.py -m launcher=mila_l40 \
-experiment=evaluation/ecnf++_al6_split \
+experiment=evaluation/single_system/ecnf++_al6_split \
 tags=[sgb,al6,ecnf++_al6_split_eval_v1] \
 logger=wandb \
 model.sampling_config.num_test_proposal_samples=500 \

@@ -8,3 +8,4 @@ num_workers: 1
 pin_memory: False
 num_dimensions: 3
 num_atoms: 63
+dim: 189

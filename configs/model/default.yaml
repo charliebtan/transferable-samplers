@@ -3,7 +3,7 @@ defaults:
   - optimizer: adam_w
 
 smc_sampler:
-  _target_: src.models.samplers.fk_sampler.FeynmannKacSampler
+  _target_: src.models.samplers.continuous_time_smc_sampler.ContinuousTimeSMCSampler
   _partial_: true
   batch_size: ${data.batch_size}
   langevin_eps: 0.1

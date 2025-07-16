@@ -1,6 +1,6 @@
 #!/bin/bash
 python src/train.py -m launcher=mila_l40 \
-experiment=evaluation/tarflow_chignolin_fk \
+experiment=evaluation/single_system/tarflow_chignolin_smc \
 tags=[sbg,tarflow,chignolin,smc] \
 model.sampling_config.num_test_proposal_samples=10_000 \
 model.sampling_config.use_com_adjustment=1 \

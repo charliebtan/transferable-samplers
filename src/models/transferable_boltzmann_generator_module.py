@@ -18,7 +18,6 @@ from tqdm import tqdm
 
 from src.utils.data_types import SamplesData
 from src.models.utils import get_symmetry_change
-from src.data.single_peptide_datamodule import SinglePeptideDataModule
 from src.models.neural_networks.ema import EMA
 from src.models.priors import NormalDistribution
 from src.models.samplers.base_sampler import SMCSampler

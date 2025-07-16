@@ -48,7 +48,7 @@ class FlowMatchLitModule(TransferableBoltzmannGeneratorLitModule):
         if not self.hparams.sigma == 0.0:
             num_samples = x1.shape[0]
             num_tokens = x1.shape[1] // self.datamodule.hparams.num_dimensions
-            noise = self.prior.sample(num_samples, num_tokens, mask=None, device=x1.device)
+            noise = self.prior.sample(num_samples, num_tokens, mask=None, device=x1.device).flatten(start_dim=1)
             xt = mu_t + self.hparams.sigma * noise
         else:
             xt = mu_t

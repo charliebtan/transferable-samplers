@@ -31,6 +31,7 @@ class SinglePeptideDataModule(BaseDataModule):
         temperature: float,
         num_dimensions: int,
         num_atoms: int,
+        dim: int,
         com_augmentation: bool = False,
         num_eval_samples: int = 10_000,
         batch_size: int = 64,
@@ -103,9 +104,7 @@ class SinglePeptideDataModule(BaseDataModule):
         ]
         if self.hparams.com_augmentation:
             transform_list.append(
-                CenterOfMassTransform(
-                    self.hparams.num_dimensions,
-                )
+                CenterOfMassTransform()
             )
         train_transforms = torchvision.transforms.Compose(transform_list)
         self.data_train = TensorDataset(
