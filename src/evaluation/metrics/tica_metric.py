@@ -5,11 +5,10 @@ import mdtraj as md
 import numpy as np
 import torch
 
+from src.data.preprocessing.tica import tica_features, tica_features_ca
 from src.evaluation.metrics.distribution_distances import distribution_distances
 
-def tica_metric(true_samples, pred_samples, topology, tica_model_path, prefix=""):
-    with open(tica_model_path, "rb") as f:
-        tica_model = pickle.load(f)  # noqa: S301
+def tica_metric(true_samples, pred_samples, topology, tica_model, prefix=""):
 
     true_traj_samples = md.Trajectory(true_samples.cpu().numpy(), topology=topology)
     pred_traj_samples = md.Trajectory(pred_samples.cpu().numpy(), topology=topology)

@@ -126,7 +126,6 @@ class BaseDataModule(LightningDataModule):
         return x
 
     def center_of_mass(self, x: torch.Tensor) -> torch.Tensor:
-        assert len(x.shape) == 2, "Input should be 2D tensor"
         num_samples = x.shape[0]
         x = x.view(num_samples, -1, self.hparams.num_dimensions)
         com = x.mean(axis=1)
@@ -174,20 +173,19 @@ class BaseDataModule(LightningDataModule):
 
         metrics = {}
 
-        if self.hparams.do_plots:
-            plot_ramachandran(
-                log_image_fn,
-                true_data.samples,
-                self.topology_dict[sequence],
-                prefix=prefix + "true",
-            )
-            plot_tica(
-                log_image_fn,
-                true_data.samples,
-                self.topology_dict[sequence],
-                self.tica_model_paths[sequence],
-                prefix=prefix + "true",
-            )
+        plot_ramachandran(
+            log_image_fn,
+            true_data.samples,
+            self.topology,
+            prefix=prefix + "true",
+        )
+        plot_tica(
+            log_image_fn,
+            true_data.samples,
+            self.topology,
+            self.tica_model,
+            prefix=prefix + "true",
+        )
 
         for data, name in [
             [proposal_data, "proposal"],
@@ -209,22 +207,21 @@ class BaseDataModule(LightningDataModule):
                 evaluate_peptide_data(
                     true_data,
                     data,
-                    topology=self.topology_dict[sequence],
-                    tica_model=self.tica_model_paths[sequence],
+                    topology=self.topology,
+                    tica_model=self.tica_model,
                     num_eval_samples=self.hparams.num_eval_samples,
                     prefix=prefix + name,
                     compute_distribution_distances=False,
                 )
             )
-            if self.hparams.do_plots:
-                plot_ramachandran(log_image_fn, data.samples, self.topology_dict[sequence], prefix=prefix + name)
-                plot_tica(
-                    log_image_fn,
-                    data.samples,
-                    self.topology_dict[sequence],
-                    self.tica_model_paths[sequence],
-                    prefix=prefix + name,
-                )
+            plot_ramachandran(log_image_fn, data.samples, self.topology, prefix=prefix + name)
+            plot_tica(
+                log_image_fn,
+                data.samples,
+                self.topology,
+                self.tica_model,
+                prefix=prefix + name,
+            )
 
         # reduce size so plotting doesn't crash with many samples
         true_data = true_data[: self.hparams.num_eval_samples]
@@ -232,30 +229,29 @@ class BaseDataModule(LightningDataModule):
         resampled_data = resampled_data[: self.hparams.num_eval_samples]
         smc_data = smc_data[: self.hparams.num_eval_samples] if smc_data is not None else None
 
-        if self.hparams.do_plots:
-            plot_energies(
-                log_image_fn,
-                true_data.energy,
-                proposal_data.energy if len(proposal_data) > 0 else None,
-                resampled_data.energy if len(resampled_data) > 0 else None,
-                smc_data.energy if (smc_data is not None and len(smc_data) > 0) else None,
-                prefix=prefix,
-            )
-            plot_atom_distances(
-                log_image_fn,
-                true_data.samples,
-                proposal_data.samples if len(proposal_data) > 0 else None,
-                resampled_data.samples if len(resampled_data) > 0 else None,
-                smc_data.samples if (smc_data is not None and len(smc_data) > 0) else None,
-                prefix=prefix,
-            )
-            plot_com_norms(
-                log_image_fn,
-                proposal_data.samples if len(proposal_data) > 0 else None,
-                resampled_data.samples if len(resampled_data) > 0 else None,
-                smc_data.samples if (smc_data is not None and len(smc_data) > 0) else None,
-                prefix=prefix,
-            )
+        plot_energies(
+            log_image_fn,
+            true_data.energy,
+            proposal_data.energy if len(proposal_data) > 0 else None,
+            resampled_data.energy if len(resampled_data) > 0 else None,
+            smc_data.energy if (smc_data is not None and len(smc_data) > 0) else None,
+            prefix=prefix,
+        )
+        plot_atom_distances(
+            log_image_fn,
+            true_data.samples,
+            proposal_data.samples if len(proposal_data) > 0 else None,
+            resampled_data.samples if len(resampled_data) > 0 else None,
+            smc_data.samples if (smc_data is not None and len(smc_data) > 0) else None,
+            prefix=prefix,
+        )
+        plot_com_norms(
+            log_image_fn,
+            proposal_data.samples if len(proposal_data) > 0 else None,
+            resampled_data.samples if len(resampled_data) > 0 else None,
+            smc_data.samples if (smc_data is not None and len(smc_data) > 0) else None,
+            prefix=prefix,
+        )
 
         return metrics
 

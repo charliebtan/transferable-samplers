@@ -240,13 +240,13 @@ class FlowMatchLitModule(TransferableBoltzmannGeneratorLitModule):
         return -(-self.prior.energy(x).view(-1) - dlogp.view(-1))
 
     def evaluate(
-        self, sequence, true_samples, encodings, energy_fn, prefix: str = "val", proposal_generator=None, output_dir=None
+        self, sequence, true_samples, permutations, encodings, energy_fn, prefix: str = "val", proposal_generator=None,
     ):
         logger.info(f"has test_integrators {hasattr(self.hparams, 'test_integrators')}")
         if True and hasattr(self.hparams, "test_integrators"):
             self.test_integrators()
             return {}
-        results = super().evaluate(sequence, true_samples, encodings, energy_fn, prefix, proposal_generator, output_dir)
+        results = super().evaluate(sequence, true_samples, permutations, encodings, energy_fn, prefix)
 
         self.log(f"{prefix}/nfe", self.nfe / (max(self.num_integrations, 1e-4)))
         self.nfe = 0
@@ -257,6 +257,7 @@ class FlowMatchLitModule(TransferableBoltzmannGeneratorLitModule):
     def generate_samples(
         self,
         batch_size: int,
+        permutations: dict[str, torch.Tensor],
         encodings: Optional[dict[str, torch.Tensor]] = None,
         dummy_ll: bool = False,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -282,6 +283,8 @@ class FlowMatchLitModule(TransferableBoltzmannGeneratorLitModule):
         # need to rescale to the "sum" of the log p (the prior returns the position-wise mean)
         prior_log_p = -self.prior.energy(prior_samples) * data_dim
 
+        prior_samples = prior_samples.flatten(start_dim=1)
+
         if encodings is not None:
             encodings = {
                 key: tensor.unsqueeze(0).repeat(local_batch_size, 1).to(self.device) for key, tensor in encodings.items()
@@ -295,6 +298,8 @@ class FlowMatchLitModule(TransferableBoltzmannGeneratorLitModule):
             prior_samples = self.all_gather(prior_samples).reshape(-1, *prior_samples.shape[1:])
 
         log_p = prior_log_p.flatten() + dlog_p.flatten()
+
+        samples = samples.view(batch_size, -1, self.datamodule.hparams.num_dimensions)
 
         return samples, log_p, prior_samples
 

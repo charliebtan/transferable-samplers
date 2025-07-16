@@ -299,21 +299,19 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
 
     def evaluate_all(self, prefix):
         metrics = {}
-        eval_sequences = self.datamodule.val_sequences if prefix.startswith("val") else self.datamodule.test_sequences
-        for sequence in eval_sequences:
-            true_samples, permutations, encodings, energy_fn = self.datamodule.prepare_eval(sequence, prefix)
-            logging.info(f"Evaluating {sequence} samples")
-            metrics.update(
-                self.evaluate(
-                    sequence,
-                    true_samples,
-                    permutations,
-                    encodings,
-                    energy_fn,
-                    prefix=f"{prefix}/{sequence}",
-                    proposal_generator=self.batched_generate_samples,
-                )
+        sequence = self.datamodule.hparams.sequence
+        true_samples, permutations, encodings, energy_fn = self.datamodule.prepare_eval(prefix)
+        metrics.update(
+            self.evaluate(
+                sequence,
+                true_samples,
+                permutations,
+                encodings,
+                energy_fn,
+                prefix=f"{prefix}/{sequence}",
+                proposal_generator=self.batched_generate_samples,
             )
+        )
 
         # Aggregate metrics across all sequences
         if self.local_rank == 0:
@@ -360,72 +358,44 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         else:
             num_proposal_samples = self.hparams.sampling_config.num_proposal_samples
 
-        if self.hparams.sampling_config.get("load_samples_path", None) is None:
-            # Generate samples and record time
-            torch.cuda.synchronize()
-            start_time = time.time()
-            proposal_samples, proposal_log_q, prior_samples = proposal_generator(num_proposal_samples, permutations, encodings)
-            torch.cuda.synchronize()
-            time_duration = time.time() - start_time
+        # Generate samples and record time
+        torch.cuda.synchronize()
+        start_time = time.time()
+        proposal_samples, proposal_log_q, prior_samples = proposal_generator(num_proposal_samples, permutations, encodings)
+        torch.cuda.synchronize()
+        time_duration = time.time() - start_time
 
-            metrics.update(
-                {
-                    f"{prefix}/samples_walltime": time_duration,
-                    f"{prefix}/samples_per_second": len(proposal_samples) / time_duration,
-                    f"{prefix}/seconds_per_sample": time_duration / len(proposal_samples),
-                }
-            )
-
-            # Save samples to disk
-            samples_dict = {
-                "prior_samples": prior_samples,
-                "proposal_samples": proposal_samples,
-                "proposal_log_q": proposal_log_q,
+        metrics.update(
+            {
+                f"{prefix}/samples_walltime": time_duration,
+                f"{prefix}/samples_per_second": len(proposal_samples) / time_duration,
+                f"{prefix}/seconds_per_sample": time_duration / len(proposal_samples),
             }
-            if output_dir is None:
-                output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
-            if self.local_rank == 0:
-                os.makedirs(f"{output_dir}/{prefix}", exist_ok=True)
-                if self.hparams.sampling_config.get("subset_idx") is not None:
-                    torch.save(
-                        samples_dict, f"{output_dir}/{prefix}/samples_{self.hparams.sampling_config.subset_idx}.pt"
-                    )
-                    logging.info(
-                        f"Saving {len(proposal_samples)} samples to {output_dir} "
-                        "/{prefix}/samples_{self.hparams.sampling_config.subset_idx}.pt"
-                    )
-                    return {}  # early return if subset_idx is set - need to post-process these samples in notebook
-                else:
-                    torch.save(samples_dict, f"{output_dir}/{prefix}/samples.pt")
-                    logging.info(f"Saving {len(proposal_samples)} samples to {output_dir}/{prefix}/samples.pt")
-        else:
-            # Load samples from disk
-            samples_path = self.hparams.sampling_config.load_samples_path
-            logging.info(f"Loading proposal samples from {samples_path}")
-            samples_dict = torch.load(samples_path, map_location=self.device)
-            proposal_samples = samples_dict["samples"]
-            proposal_log_q = samples_dict["log_q"]
-            prior_samples = samples_dict["prior_samples"]
+        )
 
-            # TODO all this stuff
-
-            try:
-                cfg_path = self.hparams.sampling_config.load_samples_path.replace(
-                    "test_samples.pt", ".hydra/config.yaml"
+        # Save samples to disk
+        samples_dict = {
+            "prior_samples": prior_samples,
+            "proposal_samples": proposal_samples,
+            "proposal_log_q": proposal_log_q,
+        }
+        if output_dir is None:
+            output_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
+        if self.local_rank == 0:
+            os.makedirs(f"{output_dir}/{prefix}", exist_ok=True)
+            if self.hparams.sampling_config.get("subset_idx") is not None:
+                torch.save(
+                    samples_dict, f"{output_dir}/{prefix}/samples_{self.hparams.sampling_config.subset_idx}.pt"
                 )
-                original_cfg = OmegaConf.load(cfg_path)
-            except FileNotFoundError:
-                cfg_path = self.hparams.sampling_config.load_samples_path.replace(
-                    "test_samples.pt", "/0/.hydra/config.yaml"
+                logging.info(
+                    f"Saving {len(proposal_samples)} samples to {output_dir} "
+                    "/{prefix}/samples_{self.hparams.sampling_config.subset_idx}.pt"
                 )
-                original_cfg = OmegaConf.load(cfg_path)
+                return {}  # early return if subset_idx is set - need to post-process these samples in notebook
+            else:
+                torch.save(samples_dict, f"{output_dir}/{prefix}/samples.pt")
+                logging.info(f"Saving {len(proposal_samples)} samples to {output_dir}/{prefix}/samples.pt")
 
-            self.log("original/ess_thresold", original_cfg.model.jarzynski_sampler.ess_threshold)
-            self.log("original/num_test_proposal_samples", original_cfg.model.sampling_config.num_test_proposal_samples)
-            self.log("original/num_timesteps", original_cfg.model.jarzynski_sampler.num_timesteps)
-            self.log("original/use_com_adjustment", original_cfg.model.get("use_com_energy", 0))
-            self.log("original/clip_logits", original_cfg.model.clip_logits if original_cfg.model.clip_logits else 0.0)
-            self.log("original/langevin_epsilon", original_cfg.model.jarzynski_sampler.get("langevin_eps", 0))
         # Compute energy
         proposal_samples_energy = energy_fn(proposal_samples)
 
@@ -449,7 +419,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         first_symmetry_change = get_symmetry_change(
             self.datamodule.as_pointcloud(self.datamodule.unnormalize(true_samples)),
             self.datamodule.as_pointcloud(self.datamodule.unnormalize(temp_proposal_samples)),
-            self.datamodule.topology_dict[sequence],
+            self.datamodule.topology,
         )
 
         correct_symmetry_rate = 1 - first_symmetry_change.float().mean().item()
@@ -459,7 +429,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         second_symmetry_change = get_symmetry_change(
             self.datamodule.as_pointcloud(self.datamodule.unnormalize(true_samples)),
             self.datamodule.as_pointcloud(self.datamodule.unnormalize(temp_proposal_samples)),
-            self.datamodule.topology_dict[sequence],
+            self.datamodule.topology,
         )
 
         uncorrectable_symmetry_rate = second_symmetry_change.float().mean().item()
@@ -513,24 +483,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             logits=resampling_logits,
         )
 
-        if self.hparams.sampling_config.get("load_samples_path", None) is not None:
-            load_samples_path_jarz = self.hparams.sampling_config.load_samples_path.replace(
-                "_samples", "_jarzynski_samples"
-            )
-        else:
-            load_samples_path_jarz = None
-
-        if load_samples_path_jarz and os.path.exists(load_samples_path_jarz):
-            logging.info(f"Loading Jarzynski samples from {load_samples_path_jarz}")
-            smc_samples_dict = torch.load(load_samples_path_jarz, map_location=self.device)
-            smc_samples = smc_samples_dict["samples"]
-            smc_logits = smc_samples_dict["logits"]
-            smc_data = SamplesData(
-                self.datamodule.as_pointcloud(self.datamodule.unnormalize(smc_samples)),
-                energy_fn(smc_samples),
-                logits=smc_logits,
-            )
-        elif self.smc_sampler is not None and self.smc_sampler.enabled:
+        if self.smc_sampler.enabled:
             logging.info("SMC sampling enabled")
 
             num_smc_samples = min(self.hparams.sampling_config.num_smc_samples, len(proposal_samples))

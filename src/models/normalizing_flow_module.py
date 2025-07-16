@@ -149,62 +149,6 @@ class NormalizingFlowLitModule(TransferableBoltzmannGeneratorLitModule):
         # need to rescale to the "sum" of the log p (the prior returns the position-wise mean)
         prior_log_q = -self.prior.energy(prior_samples) * data_dim
 
-        permutations["atom"]["permutations"] = {
-            subkey: tensor.unsqueeze(0).repeat(local_batch_size, 1).to(self.device)
-            for subkey, tensor in permutations["atom"]["permutations"].items()
-        }
-        permutations["residue"]["permutations"] = {
-            subkey: tensor.unsqueeze(0).repeat(local_batch_size, 1).to(self.device)
-            for subkey, tensor in permutations["residue"]["permutations"].items()
-        }
-        permutations["residue"]["tokenization_map"] = (
-            permutations["residue"]["tokenization_map"].unsqueeze(0).repeat(local_batch_size, 1, 1).to(self.device)
-        )
-
-        if encodings is not None:
-            encodings = {
-                key: tensor.unsqueeze(0).repeat(local_batch_size, 1).to(self.device) for key, tensor in encodings.items()
-            }
-
-        # def test_logdet(model, x_i, permutations_i, enc_i): 
-        # # TODO refactor into a compute true logdet function 
-        # and then compare over a subset of batch
-        #     x_pred = model.reverse(x_i, permutations_i, encodings=enc_i)
-        #     _, fwd_logdets = model(x_pred, permutations_i, encodings=enc_i)
-        #     fwd_logdets = fwd_logdets * x_i.shape[1]  # rescale from mean to sum
-
-        #     reverse_func = lambda x: model.reverse(x=x, permutations=permutations_i, encodings=enc_i)
-        #     rev_jac_true = torch.autograd.functional.jacobian(reverse_func, x_i, vectorize=True)
-        #     rev_logdets_true = torch.logdet(rev_jac_true[0].squeeze())
-
-        #     logdets_diff = torch.mean(abs(-fwd_logdets - rev_logdets_true))
-        #     return logdets_diff
-
-        # diffs = []
-        # for i in range(16):
-        #     print("\nbatch item", i)
-
-        #     x_i = prior_samples[i : i + 1]
-
-        #     permutations_i = {
-        #         "atom": {
-        #             "permutations": {k: v[i : i + 1] for k, v in permutations["atom"]["permutations"].items()}
-        #         },
-        #         "residue": {
-        #             "permutations": {k: v[i : i + 1] for k, v in permutations["residue"]["permutations"].items()},
-        #             "tokenization_map": permutations["residue"]["tokenization_map"][i : i + 1],
-        #         },
-        #     }
-
-        #     enc_i = {k: v[i : i + 1] for k, v in encodings.items()}
-
-        #     logdets_diff = test_logdet(self.net, x_i, permutations_i, enc_i)  # test logdet of the original model
-        #     diffs.append(logdets_diff.item())
-
-        # mean_logdets_diff = torch.mean(torch.tensor(diffs))
-        # print(f"Mean logdet difference: {mean_logdets_diff}")
-        # self.log("invert/logdet_diff", mean_logdets_diff, sync_dist=True)
-
         with torch.no_grad():
             x_pred = self.net.reverse(prior_samples, permutations, encodings=encodings)
             x_recon, fwd_logdets = self.net(x_pred, permutations, encodings=encodings)

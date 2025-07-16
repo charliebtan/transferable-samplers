@@ -95,6 +95,12 @@ class SinglePeptideDataModule(BaseDataModule):
         # Load the topology from the PDB file
         self.topology = md.load_topology(self.pdb_path)
 
+        # Prepare the TICA model
+        self.tica_model = get_tica_model(
+            data_test,
+            self.topology,
+        )
+
         # Compute std on standardied data
         self.std = self.zero_center_of_mass(data_train).std()
 
@@ -177,12 +183,6 @@ class SinglePeptideDataModule(BaseDataModule):
         else:
             raise ValueError(f"Unknown prefix: {prefix}. Use 'val' or 'test'.")
 
-        # TODO - cache this as in transferable case
-        tica_model = get_tica_model(
-            true_samples,
-            self.topology
-        )
-
         # Subsample the true trajectory
         true_samples = true_samples[:: len(true_samples) // self.hparams.num_eval_samples]
         true_samples = self.normalize(true_samples)
@@ -190,6 +190,6 @@ class SinglePeptideDataModule(BaseDataModule):
         permutations = None
         encodings = None
         potential = self.setup_potential()
-        energy_fn = lambda x: potential.energy(self.unnormalize(x)).flatten()
+        energy_fn = lambda x: potential.energy(self.unnormalize(x).flatten(start_dim=1)).flatten()
 
         return true_samples, permutations, encodings, energy_fn
