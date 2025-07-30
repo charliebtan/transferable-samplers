@@ -5,7 +5,7 @@ defaults:
   - override /data: up_to_8aa
   - override /trainer: gpu
 
-ckpt_path: "/network/scratch/t/tanc/self-consume-bg/logs/train/runs/tarflow_up_to_8aa_no_pb_v1/checkpoints/epoch_299_time.ckpt"
+ckpt_path: null
 train: False
 val: False
 test: True

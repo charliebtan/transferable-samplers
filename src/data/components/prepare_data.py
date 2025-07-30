@@ -296,7 +296,7 @@ def load_pdbs_and_topologies(
         topology = md.load_topology(path)
 
         assert len(list(pdb.topology.chains())) == 1, "Only single chain PDBs are supported"
-        assert len(list(pdb.topology.residues())) in num_aa_range, "PDB does not match the number of amino acids"
+        # assert len(list(pdb.topology.residues())) in num_aa_range, "PDB does not match the number of amino acids"
 
         pdb_dict[seq] = pdb
         topology_dict[seq] = topology

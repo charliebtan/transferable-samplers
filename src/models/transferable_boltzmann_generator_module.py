@@ -418,58 +418,58 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         #     proposal_samples = torch.cat([d["proposal_samples"] for d in samples_dicts], dim=0)
         #     proposal_log_p = torch.cat([d["proposal_log_p"] for d in samples_dicts], dim=0)
 
-        if True:
-            BASE_ROOT = "/home/mila/t/tanc/scratch/self-consume-bg/logs/eval/multiruns"
-            ALL_DATES = [
-                "2025-05-10_02-21-17",
-                "2025-05-11_18-51-26",
-                "2025-05-11_18-49-32",
-                "2025-05-11_18-55-20",
-                "2025-05-11_18-55-02",
-                "2025-05-11_18-52-16",
-                "2025-05-11_01-44-04",
-                "2025-05-11_18-55-55",
-                "2025-05-11_18-49-08",
-                "2025-05-11_18-55-39",
-                "2025-05-11_18-49-54",
-                "2025-05-13_20-21-00",
-                "2025-05-13_20-19-58",
-            ]
+        # if True:
+        #     BASE_ROOT = "/home/mila/t/tanc/scratch/self-consume-bg/logs/eval/multiruns"
+        #     ALL_DATES = [
+        #         "2025-05-10_02-21-17",
+        #         "2025-05-11_18-51-26",
+        #         "2025-05-11_18-49-32",
+        #         "2025-05-11_18-55-20",
+        #         "2025-05-11_18-55-02",
+        #         "2025-05-11_18-52-16",
+        #         "2025-05-11_01-44-04",
+        #         "2025-05-11_18-55-55",
+        #         "2025-05-11_18-49-08",
+        #         "2025-05-11_18-55-39",
+        #         "2025-05-11_18-49-54",
+        #         "2025-05-13_20-21-00",
+        #         "2025-05-13_20-19-58",
+        #     ]
 
-            samples_dicts = []
+        #     samples_dicts = []
 
-            for i in range(10):  # samples_0.pt to samples_9.pt
-                found = False
+        #     for i in range(10):  # samples_0.pt to samples_9.pt
+        #         found = False
 
-                for j in range(500):  # folders numbered 0 through 499
-                    for date in ALL_DATES:
-                        path = f"{BASE_ROOT}/{date}/{j}/{prefix}/samples_{i}.pt"
-                        if os.path.exists(path):
-                            samples_dicts.append(torch.load(path))
-                            found = True
-                            break  # stop checking dates for this (i, j)
+        #         for j in range(500):  # folders numbered 0 through 499
+        #             for date in ALL_DATES:
+        #                 path = f"{BASE_ROOT}/{date}/{j}/{prefix}/samples_{i}.pt"
+        #                 if os.path.exists(path):
+        #                     samples_dicts.append(torch.load(path))
+        #                     found = True
+        #                     break  # stop checking dates for this (i, j)
 
-                    if found:
-                        break  # sample i found for some j/date combo
+        #             if found:
+        #                 break  # sample i found for some j/date combo
 
-                if not found:
-                    logging.warning(f"Sample file samples_{i}.pt not found in any directory.")
+        #         if not found:
+        #             logging.warning(f"Sample file samples_{i}.pt not found in any directory.")
 
-            prior_samples = torch.cat([d["prior_samples"] for d in samples_dicts], dim=0)
-            proposal_samples = torch.cat([d["proposal_samples"] for d in samples_dicts], dim=0)
-            proposal_log_p = torch.cat([d["proposal_log_p"] for d in samples_dicts], dim=0)
+        #     prior_samples = torch.cat([d["prior_samples"] for d in samples_dicts], dim=0)
+        #     proposal_samples = torch.cat([d["proposal_samples"] for d in samples_dicts], dim=0)
+        #     proposal_log_p = torch.cat([d["proposal_log_p"] for d in samples_dicts], dim=0)
 
-        if not self.hparams.sampling_config.get("md", False) and not self.hparams.sampling_config.get("leon", False):
-            self.bad_prior = BADNormalDistribution(mean_free=self.hparams.mean_free_prior)
+        # if not self.hparams.sampling_config.get("md", False) and not self.hparams.sampling_config.get("leon", False):
+        #     self.bad_prior = BADNormalDistribution(mean_free=self.hparams.mean_free_prior)
 
-            num_particles = encoding["atom_type"].size(0)
-            data_dim = num_particles * self.datamodule.hparams.num_dimensions
+        #     num_particles = encoding["atom_type"].size(0)
+        #     data_dim = num_particles * self.datamodule.hparams.num_dimensions
 
-            bad_prior_log_p = self.bad_prior.energy(prior_samples).flatten() * data_dim
-            good_prior_log_p = self.prior.energy(prior_samples).flatten() * data_dim
+        #     bad_prior_log_p = self.bad_prior.energy(prior_samples).flatten() * data_dim
+        #     good_prior_log_p = self.prior.energy(prior_samples).flatten() * data_dim
 
-            dlog_p = proposal_log_p.flatten() + bad_prior_log_p
-            proposal_log_p = dlog_p - good_prior_log_p.flatten()
+        #     dlog_p = proposal_log_p.flatten() + bad_prior_log_p
+        #     proposal_log_p = dlog_p - good_prior_log_p.flatten()
 
         prior_samples = prior_samples[: self.hparams.sampling_config.num_samples_subset]
         proposal_samples = proposal_samples[: self.hparams.sampling_config.num_samples_subset]
