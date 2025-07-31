@@ -46,11 +46,6 @@ sequences=(
 maxiters=(
     100
     1000
-    10000
-    100000
-    1000000
-    10000000
-    100000000
 )
 
 # Pick the sequence based on SLURM_ARRAY_TASK_ID
@@ -60,9 +55,10 @@ for maxiter in "${maxiters[@]}"; do
     python src/train.py -m \
         experiment=evaluation/tarflow_up_to_8aa \
         logger=wandb \
-        tags=[md_eval] \
+        tags=[md_eval_v2] \
         model.eval_seq_name="$seq" \
         +model.dont_fix_symmetry=True \
+        +model.dont_fix_chirality=True \
         +model.energy_maxiter="$maxiter" \
         +model.sample_set=md
 done

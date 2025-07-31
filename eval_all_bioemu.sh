@@ -98,10 +98,10 @@ seq=${sequences[$SLURM_ARRAY_TASK_ID]}
 python src/train.py -m \
     experiment=evaluation/tarflow_up_to_8aa \
     logger=wandb \
-    tags=[bioemu_eval_v2] \
+    tags=[bioemu_eval_v3] \
     model.eval_seq_name="$seq" \
     +model.dont_fix_chirality=True \
-    +model.energy_maxiter=1000 \
+    +model.energy_maxiter=100 \
     +model.sample_set=bioemu
 
 # for maxiter in "${maxiters[@]}"; do
