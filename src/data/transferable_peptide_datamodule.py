@@ -69,7 +69,7 @@ class TransferablePeptideDataModule(BaseDataModule):
 
         self.test_data_path = f"{data_dir}/raw_data"
         self.test_lmdb_prefix_path = f"{data_dir}/{test_lmdb_prefix}"
-        self.tica_models_path = f"{data_dir}/tica_models"
+        self.tica_models_path = "/network/scratch/t/tanc/self-consume-bg/data/new/tica_models"
         self.num_aa_range = list(range(num_aa_min, num_aa_max + 1))
 
     def prepare_data(self) -> None:
@@ -81,10 +81,18 @@ class TransferablePeptideDataModule(BaseDataModule):
         Do not use it to assign state (self.x = y).
         """
 
+        test_npz_paths, test_pdb_paths = check_and_get_files(self.test_data_path)
+
+        test_npz_paths = {
+            test_npz_paths[i].split("/")[-1].split("-")[0]: test_npz_paths[i] for i in range(len(test_npz_paths))
+        }
+
+        test_pdb_paths = {
+            test_pdb_paths[i].split("/")[-1].split("-")[0]: test_pdb_paths[i] for i in range(len(test_pdb_paths))
+        }   
+
         if not all(os.path.exists(f"{self.test_lmdb_prefix_path}_{i}.lmdb") for i in range(self.trainer.world_size)):
             logging.info("LMDB files already exist, skipping build.")
-
-            test_npz_paths, test_pdb_paths = check_and_get_files(self.test_data_path)
 
             build_lmdb(
                 test_npz_paths,
@@ -93,6 +101,8 @@ class TransferablePeptideDataModule(BaseDataModule):
                 lmdb_prefix_path=self.test_lmdb_prefix_path,
                 resume=self.hparams.resume_build_lmdb,
             )
+
+            prepare_tica_models(test_npz_paths, test_pdb_paths, dir=self.tica_models_path)
 
     def setup(self, stage: Optional[str] = None) -> None:
         """Load data. Set variables: `self.data_train`, `self.data_val`, `self.data_test`.
@@ -267,7 +277,7 @@ class TransferablePeptideDataModule(BaseDataModule):
             [resampled_data, "resampled"],
             [smc_data, "smc"],
         ]:
-            if data is None and name == "smc":
+            if data is None:
                 continue
 
             if len(data) == 0:
@@ -306,31 +316,31 @@ class TransferablePeptideDataModule(BaseDataModule):
         # reduce size so plotting doesn't crash with many samples
         true_data = true_data[: self.hparams.num_eval_samples]
         proposal_data = proposal_data[: self.hparams.num_eval_samples]
-        resampled_data = resampled_data[: self.hparams.num_eval_samples]
-        smc_data = smc_data[: self.hparams.num_eval_samples] if smc_data is not None else None
+        # resampled_data = resampled_data[: self.hparams.num_eval_samples]
+        # smc_data = smc_data[: self.hparams.num_eval_samples] if smc_data is not None else None
 
         if self.hparams.do_plots:
             plot_energies(
                 log_image_fn,
                 true_data.energy,
                 proposal_data.energy if len(proposal_data) > 0 else None,
-                resampled_data.energy if len(resampled_data) > 0 else None,
-                smc_data.energy if smc_data is not None and len(smc_data) > 0 else None,
+                None,
+                None,
                 prefix=prefix,
             )
             plot_atom_distances(
                 log_image_fn,
                 true_data.samples,
                 proposal_data.samples if len(proposal_data) > 0 else None,
-                resampled_data.samples if len(resampled_data) > 0 else None,
-                smc_data.samples if smc_data is not None and len(smc_data) > 0 else None,
+                None,
+                None,
                 prefix=prefix,
             )
             plot_com_norms(
                 log_image_fn,
                 proposal_data.samples if len(proposal_data) > 0 else None,
-                resampled_data.samples if len(resampled_data) > 0 else None,
-                smc_data.samples if smc_data is not None and len(smc_data) > 0 else None,
+                None,
+                None,
                 prefix=prefix,
             )
 

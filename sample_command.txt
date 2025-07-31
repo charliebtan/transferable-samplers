@@ -1,1 +1,1 @@
-python src/train.py -m experiment=evaluation/tarflow_up_to_8aa logger=wandb model.eval_seq_name=SAEL +model.dont_fix_symmetry=True
+python src/train.py -m experiment=evaluation/tarflow_up_to_8aa logger=wandb model.eval_seq_name=SAEL +model.dont_fix_symmetry=True +model.energy_maxiter=100 +model.sample_set=unisim

@@ -8,12 +8,15 @@ from typing import Any, Optional
 
 import matplotlib.pyplot as plt
 import torch
+import mdtraj as md
 import torchmetrics
 from lightning import LightningDataModule, LightningModule
 from lightning.pytorch.loggers import WandbLogger
 from torch.distributions import Normal
 from torchmetrics import MeanMetric
 from tqdm import tqdm
+
+import numpy as np
 
 from src.data.components.data_types import SamplesData
 from src.data.components.symmetry import get_symmetry_change, resolve_chirality
@@ -82,6 +85,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         compile: bool,
         use_com_adjustment: bool = False,
         dont_fix_symmetry: bool = False,
+        dont_fix_chirality: bool = False,
         *args,
         **kwargs,
     ) -> None:
@@ -471,9 +475,77 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         #     dlog_p = proposal_log_p.flatten() + bad_prior_log_p
         #     proposal_log_p = dlog_p - good_prior_log_p.flatten()
 
-        prior_samples = prior_samples[: self.hparams.sampling_config.num_samples_subset]
-        proposal_samples = proposal_samples[: self.hparams.sampling_config.num_samples_subset]
-        proposal_log_p = proposal_log_p[: self.hparams.sampling_config.num_samples_subset]
+        if self.hparams.sample_set == "unisim":
+
+            print(f"../scratch/unisim_pepmd_results_{self.hparams.energy_maxiter}/{sequence}/{sequence}_model_ode50_inf10000_guidance0.05.xtc")
+
+            # Load trajectory (requires both .xtc and topology file, e.g. .pdb)
+            traj = md.load_xtc(f"../scratch/unisim_pepmd_results_{self.hparams.energy_maxiter}/{sequence}/{sequence}_model_ode50_inf10000_guidance0.05.xtc", top=f"../scratch/old_test_set/raw_data/{sequence}-traj-state0.pdb")
+
+            # Extract positions (in nanometers, shape: (n_frames, n_atoms, 3))
+            prior_samples = traj.xyz  # already a NumPy array
+
+            prior_samples = prior_samples - prior_samples.mean(axis=1, keepdims=True)  # Centering the samples
+            prior_samples = torch.tensor(prior_samples, dtype=torch.float32).view(-1, prior_samples.shape[1] * prior_samples.shape[2]).to(self.device)  # Reshape to (n_frames, n_atoms * 3)
+
+            proposal_log_p = torch.ones(prior_samples.shape[0], device=self.device)
+            proposal_samples = prior_samples.clone()
+
+        elif self.hparams.sample_set == "md":
+
+            path = f"../scratch/md-runner-scbg-baselines-new/data/md/{sequence}/{sequence}_310_10000"
+
+            if not os.path.exists(f"{path}/agg_3.npz"):
+                for i in range(3):
+                    arrays = []
+                    for j in range(10_000):
+                        array = np.load(f"{path}/{j}_{i}.npz", allow_pickle=True)
+                        arrays.append(array["all_positions"])
+                    array = np.concatenate(arrays, axis=0)
+                    np.savez(f"{path}/agg_{i}.npz", all_positions=array)
+
+            agg_arrays = [np.load(f"{path}/agg_{i}.npz", allow_pickle=True)["all_positions"] for i in range(3)]
+
+            output_arrays = []
+            budget = self.hparams.energy_maxiter  # total time budget in fs
+
+            usage_rate = 100  # fs per frame for agg_0
+
+            for array in agg_arrays:
+                # how many frames can we afford from this array?
+                max_frames = array.shape[0]
+                frames_to_take = min(max_frames, budget // usage_rate)
+
+                output_arrays.append(array[:frames_to_take])
+
+                # reduce remaining budget
+                budget -= frames_to_take * usage_rate
+
+                print("took ", frames_to_take, "frames from array with usage rate", usage_rate, "remaining budget", budget)
+
+                # increase time per frame by 10× for the next array
+                usage_rate *= 10
+            
+            # Extract positions (in nanometers, shape: (n_frames, n_atoms, 3))
+            prior_samples = np.concatenate(output_arrays)
+            np.random.shuffle(prior_samples)  # Shuffle the samples
+
+            prior_samples = prior_samples - prior_samples.mean(axis=1, keepdims=True)  # Centering the samples
+            prior_samples = torch.tensor(prior_samples, dtype=torch.float32).view(-1, prior_samples.shape[1] * prior_samples.shape[2]).to(self.device)  # Reshape to (n_frames, n_atoms * 3)
+
+            proposal_log_p = torch.ones(prior_samples.shape[0], device=self.device)
+            proposal_samples = prior_samples.clone()
+
+        elif self.hparams.sample_set == "bioemu":
+
+            # Extract positions (in nanometers, shape: (n_frames, n_atoms, 3))
+            prior_samples = np.load(f"../scratch/bioemu_results/{sequence}_maxiter{self.hparams.energy_maxiter}/{sequence}_md_equil.npy")
+
+            prior_samples = prior_samples - prior_samples.mean(axis=1, keepdims=True)  # Centering the samples
+            prior_samples = torch.tensor(prior_samples, dtype=torch.float32).view(-1, prior_samples.shape[1] * prior_samples.shape[2]).to(self.device)  # Reshape to (n_frames, n_atoms * 3)
+
+            proposal_log_p = torch.ones(prior_samples.shape[0], device=self.device)
+            proposal_samples = prior_samples.clone()
 
         logging.info(f"Prior samples shape: {prior_samples.shape}")
         logging.info(f"Proposal samples shape: {proposal_samples.shape}")
@@ -482,33 +554,37 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         # Compute energy
         proposal_samples_energy = energy_fn(proposal_samples)
 
-        # Compute proposal center of mass std
-        coms = self.datamodule.center_of_mass(proposal_samples)
-        proposal_com_std = coms.std()
-        # TODO little scary relying on this class attribute! - gets used in self.proposal_energy
-        # when use_com_adjustment=True
-        self.proposal_com_std = proposal_com_std
-        logging.info(f"Proposal CoM std: {proposal_com_std}")
-        self.log(f"{prefix}/proposal_com_std", proposal_com_std, sync_dist=True)
+        # Remove NaN samples
+        inf_mask = torch.isinf(proposal_samples_energy)
 
-        symmetry_metrics, symmetry_change = resolve_chirality(
-            self.datamodule.as_pointcloud(self.datamodule.unnormalize(true_samples)),
-            self.datamodule.as_pointcloud(self.datamodule.unnormalize(proposal_samples)),
-            self.datamodule.topology_dict[sequence],
-            prefix=prefix + "/proposal",
-        )
-        metrics = symmetry_metrics
-        if not self.hparams.dont_fix_symmetry:
-            proposal_samples = proposal_samples[~symmetry_change]
-            proposal_log_p = proposal_log_p[~symmetry_change]
-            proposal_samples_energy = proposal_samples_energy[~symmetry_change]
+        logging.warning(f"Removing {inf_mask.sum()} inf samples from proposal samples")
 
-        symmetry_change = get_symmetry_change(
-            self.datamodule.as_pointcloud(self.datamodule.unnormalize(true_samples)),
-            self.datamodule.as_pointcloud(self.datamodule.unnormalize(proposal_samples)),
-            self.datamodule.topology_dict[sequence],
-        )
-        proposal_samples[symmetry_change] *= -1
+        prior_samples = prior_samples[~inf_mask]
+        proposal_samples = proposal_samples[~inf_mask]
+        proposal_samples_energy = proposal_samples_energy[~inf_mask]
+        proposal_log_p = proposal_log_p[~inf_mask]
+
+        if not self.hparams.dont_fix_chirality:
+            symmetry_metrics, symmetry_change = resolve_chirality(
+                self.datamodule.as_pointcloud(self.datamodule.unnormalize(true_samples)),
+                self.datamodule.as_pointcloud(self.datamodule.unnormalize(proposal_samples)),
+                self.datamodule.topology_dict[sequence],
+                prefix=prefix + "/proposal",
+            )
+            metrics = symmetry_metrics
+            if not self.hparams.dont_fix_symmetry:
+                proposal_samples = proposal_samples[~symmetry_change]
+                proposal_log_p = proposal_log_p[~symmetry_change]
+                proposal_samples_energy = proposal_samples_energy[~symmetry_change]
+
+            symmetry_change = get_symmetry_change(
+                self.datamodule.as_pointcloud(self.datamodule.unnormalize(true_samples)),
+                self.datamodule.as_pointcloud(self.datamodule.unnormalize(proposal_samples)),
+                self.datamodule.topology_dict[sequence],
+            )
+            proposal_samples[symmetry_change] *= -1
+        else:
+            metrics = {}
 
         # Datatype for easier metrics and plotting
         proposal_data = SamplesData(
@@ -516,68 +592,8 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             proposal_samples_energy,
         )
 
-        # Apply CoM adjustment to energy, this must be done here for compatibility with CNFs
-        if self.hparams.sampling_config.get("use_com_adjustment", False):
-            proposal_log_p = proposal_log_p + self.com_energy_adjustment(proposal_samples)
-
-        # Compute resampling index
-        resampling_logits = -proposal_samples_energy - proposal_log_p
-
-        # Filter samples based on logit clipping - this affects both IS and SMC
-        if self.hparams.sampling_config.clip_reweighting_logits:
-            clipped_logits_mask = resampling_logits > torch.quantile(
-                resampling_logits,
-                1 - float(self.hparams.sampling_config.clip_reweighting_logits),
-            )
-            proposal_samples = proposal_samples[~clipped_logits_mask]
-            proposal_samples_energy = proposal_samples_energy[~clipped_logits_mask]
-            resampling_logits = resampling_logits[~clipped_logits_mask]
-            logging.info("Clipped logits for resampling")
-
-        _, resampling_index = resample(proposal_samples, resampling_logits, return_index=True)
-
-        reweighted_data = SamplesData(
-            self.datamodule.as_pointcloud(self.datamodule.unnormalize(proposal_samples[resampling_index])),
-            proposal_samples_energy[resampling_index],
-            logits=resampling_logits,
-        )
-
-        if self.smc_sampler is not None and self.smc_sampler.enabled:
-            logging.info("SMC sampling enabled")
-
-            num_smc_samples = min(self.hparams.sampling_config.num_smc_samples, len(proposal_samples))
-
-            # Generate smc samples and record time
-            torch.cuda.synchronize()
-            start_time = time.time()
-
-            # TODO: Make conditional proposal energy
-            cond_proposal_energy = lambda _x: self.proposal_energy(_x, encoding=encoding)
-            smc_samples, smc_logits = self.smc_sampler.sample(
-                proposal_samples[:num_smc_samples], cond_proposal_energy, energy_fn
-            )  # already returned resampled
-            torch.cuda.synchronize()
-            time_duration = time.time() - start_time
-            self.log(f"{prefix}/smc/samples_walltime", time_duration, sync_dist=True)
-            self.log(f"{prefix}/smc/samples_per_second", len(smc_samples) / time_duration, sync_dist=True)
-
-            # Save samples to disk
-            smc_samples_dict = {
-                "smc_samples": smc_samples,
-                "smc_logits": smc_logits,
-            }
-            if self.local_rank == 0:
-                torch.save(smc_samples_dict, f"{output_dir}/{prefix}/smc_samples.pt")
-                logging.info(f"Saving {len(smc_samples)} samples to {output_dir}/{prefix}_smc_samples.pt")
-
-            # Datatype for easier metrics and plotting
-            smc_data = SamplesData(
-                self.datamodule.as_pointcloud(self.datamodule.unnormalize(smc_samples)),
-                energy_fn(smc_samples),
-                logits=smc_logits,
-            )
-        else:
-            smc_data = copy.deepcopy(true_data)
+        reweighted_data = None
+        smc_data = None
 
         if self.local_rank == 0:
             # log dataset metrics
