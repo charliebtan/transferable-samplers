@@ -28,6 +28,37 @@ from src.models.components.utils import resample
 logger = logging.getLogger(__name__)
 
 
+import os
+import numpy as np
+from pymbar import timeseries
+
+def compute_funky_ess(traj):
+
+    traj = traj.reshape(traj.shape[0], -1, 3)  # Ensure shape is (n_frames, n_atoms, 3)
+
+    # (t0, g_est, Neff_max) = timeseries.detect_equilibration(traj)
+    # traj_equi = traj[t0:]
+    reference_coords = traj[0]
+    squared_diffs = np.sum((traj - reference_coords)**2, axis=2)
+    rmsd_timeseries = np.sqrt(np.mean(squared_diffs, axis=1))
+
+    g = timeseries.statistical_inefficiency(rmsd_timeseries)
+    T = len(rmsd_timeseries)
+
+    # normal ess but we want out of 1.
+    # ess = T / g
+    ess = 1 / g
+
+    print(f"Statistical inefficiency (g): {g:.4f}")
+    print(f"Number of effective samples (ESS): {ess:.4f}")
+
+    # TODO: calculate ess/s
+    # wall_time_sec = ...  #
+    # ess_per_sec = ess / wall_time_sec
+    # print(f"ESS per second: {ess_per_sec:.4f}")
+
+    return ess
+
 class BADNormalDistribution:
     def __init__(self, num_dimensions: int = 3, mean: float = 0.0, std: float = 1.0, mean_free: bool = False):
         self.num_dimensions = num_dimensions
@@ -475,6 +506,8 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         #     dlog_p = proposal_log_p.flatten() + bad_prior_log_p
         #     proposal_log_p = dlog_p - good_prior_log_p.flatten()
 
+        metrics = {}
+
         if self.hparams.sample_set == "unisim":
 
             print(f"../scratch/unisim_pepmd_results_{self.hparams.energy_maxiter}/{sequence}/{sequence}_model_ode50_inf10000_guidance0.05.xtc")
@@ -490,6 +523,8 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
 
             proposal_log_p = torch.ones(prior_samples.shape[0], device=self.device)
             proposal_samples = prior_samples.clone()
+
+            metrics[f"{prefix}/funky_ess"] = compute_funky_ess(prior_samples.cpu().numpy())
 
         elif self.hparams.sample_set == "md":
 
@@ -536,6 +571,8 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             proposal_log_p = torch.ones(prior_samples.shape[0], device=self.device)
             proposal_samples = prior_samples.clone()
 
+            metrics[f"{prefix}/funky_ess"] = compute_funky_ess(prior_samples.cpu().numpy())
+
         elif self.hparams.sample_set == "bioemu":
 
             # Extract positions (in nanometers, shape: (n_frames, n_atoms, 3))
@@ -546,6 +583,34 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
 
             proposal_log_p = torch.ones(prior_samples.shape[0], device=self.device)
             proposal_samples = prior_samples.clone()
+
+        elif self.hparams.sample_set == "timewarp":
+
+            # Extract positions (in nanometers, shape: (n_frames, n_atoms, 3))
+            prior_samples = np.load(f"timewarp_results/{sequence}_traj_samples.npy")[:1000]
+
+            prior_samples = prior_samples - prior_samples.mean(axis=1, keepdims=True)  # Centering the samples
+            prior_samples = torch.tensor(prior_samples, dtype=torch.float32).view(-1, prior_samples.shape[1] * prior_samples.shape[2]).to(self.device)  # Reshape to (n_frames, n_atoms * 3)
+
+            proposal_log_p = torch.ones(prior_samples.shape[0], device=self.device)
+            proposal_samples = prior_samples.clone()
+
+            metrics[f"{prefix}/funky_ess"] = compute_funky_ess(prior_samples.cpu().numpy())
+
+        elif self.hparams.sample_set == "md_10k":
+
+            path = f"../scratch/HELP/data/md/{sequence}/{sequence}_310_10000"
+
+            # Extract positions (in nanometers, shape: (n_frames, n_atoms, 3))
+            prior_samples = np.load(f"{path}/9999.npz")["all_positions"][5000:]
+
+            prior_samples = prior_samples - prior_samples.mean(axis=1, keepdims=True)  # Centering the samples
+            prior_samples = torch.tensor(prior_samples, dtype=torch.float32).view(-1, prior_samples.shape[1] * prior_samples.shape[2]).to(self.device)  # Reshape to (n_frames, n_atoms * 3)
+
+            proposal_log_p = torch.ones(prior_samples.shape[0], device=self.device)
+            proposal_samples = prior_samples.clone()
+
+            metrics[f"{prefix}/funky_ess"] = compute_funky_ess(prior_samples.cpu().numpy())
 
         logging.info(f"Prior samples shape: {prior_samples.shape}")
         logging.info(f"Proposal samples shape: {proposal_samples.shape}")
@@ -571,7 +636,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
                 self.datamodule.topology_dict[sequence],
                 prefix=prefix + "/proposal",
             )
-            metrics = symmetry_metrics
+            metrics.update(symmetry_metrics)
             if not self.hparams.dont_fix_symmetry:
                 proposal_samples = proposal_samples[~symmetry_change]
                 proposal_log_p = proposal_log_p[~symmetry_change]
@@ -583,8 +648,6 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
                 self.datamodule.topology_dict[sequence],
             )
             proposal_samples[symmetry_change] *= -1
-        else:
-            metrics = {}
 
         # Datatype for easier metrics and plotting
         proposal_data = SamplesData(

@@ -18,7 +18,7 @@ for sequence in ["GYDPETGTWG", "YQNPDGSQA"]:
         all_arrays = []
         for i in range(500):
             try:
-                all_arrays.append(np.load(f"../scratch/bioemu_results/GYDPETGTWG_maxiter{maxiter}/GYDPETGTWG_md_equil__parallel{i}.npy"))
+                all_arrays.append(np.load(f"../scratch/bioemu_results/{sequence}_maxiter{maxiter}/{sequence}_md_equil__parallel{i}.npy"))
             except FileNotFoundError:
                 print(f"File not found for {sequence}, maxiter {maxiter}, parallel {i}")
                 not_found += 1

@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=unisim_eval
+#SBATCH --job-name=md_eval
 #SBATCH --get-user-env                # retrieve the users login environment
 #SBATCH --gres=gpu:rtx8000:1
 #SBATCH -c 4
@@ -7,8 +7,8 @@
 #SBATCH -t 12:00:00
 #SBATCH --partition=long
 #SBATCH --array=0-76
-#SBATCH --output=logs/unisim_%A_%a.out
-#SBATCH --error=logs/unisim_%A_%a.err
+#SBATCH --output=logs/md_%A_%a.out
+#SBATCH --error=logs/md_%A_%a.err
 
 sequences=(
     AC
@@ -88,28 +88,14 @@ sequences=(
     PPWRECNN
 )
 
-maxiters=(
-    1000
-)
-
 # Pick the sequence based on SLURM_ARRAY_TASK_ID
 seq=${sequences[$SLURM_ARRAY_TASK_ID]}
 
 python src/train.py -m \
     experiment=evaluation/tarflow_up_to_8aa \
     logger=wandb \
-    tags=[bioemu_eval_v4] \
+    tags=[md_10k_eval_v2] \
     model.eval_seq_name="$seq" \
+    +model.dont_fix_symmetry=True \
     +model.dont_fix_chirality=True \
-    +model.energy_maxiter=100 \
-    +model.sample_set=bioemu
-
-# for maxiter in "${maxiters[@]}"; do
-#     python src/train.py -m \
-#         experiment=evaluation/tarflow_up_to_8aa \
-#         logger=wandb \
-#         model.eval_seq_name="$seq" \
-#         +model.dont_fix_chirality=True \
-#         +model.energy_maxiter="$maxiter" \
-#         +model.sample_set=bioemu
-# done
+    +model.sample_set=md_10k
