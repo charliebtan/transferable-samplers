@@ -94,7 +94,7 @@ seq=${sequences[$SLURM_ARRAY_TASK_ID]}
 python src/train.py -m \
     experiment=evaluation/tarflow_up_to_8aa \
     logger=wandb \
-    tags=[md_10k_eval_v2] \
+    tags=[md_10k_eval_v3] \
     model.eval_seq_name="$seq" \
     +model.dont_fix_symmetry=True \
     +model.dont_fix_chirality=True \

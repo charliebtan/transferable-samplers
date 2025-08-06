@@ -98,7 +98,7 @@ seq=${sequences[$SLURM_ARRAY_TASK_ID]}
 python src/train.py -m \
     experiment=evaluation/tarflow_up_to_8aa \
     logger=wandb \
-    tags=[bioemu_eval_v4] \
+    tags=[bioemu_eval_v5] \
     model.eval_seq_name="$seq" \
     +model.dont_fix_chirality=True \
     +model.energy_maxiter=100 \
