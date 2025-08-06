@@ -612,9 +612,47 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
 
             metrics[f"{prefix}/funky_ess"] = compute_funky_ess(prior_samples.cpu().numpy())
 
+        elif self.hparams.sample_set == "tbg_leon_model":
+
+            path = f"../tbg/result_data"
+
+            arrays = []
+            for i in range(40):
+                try:
+                    arrays.append(np.load(f"{path}/tbg_full_{i}_{sequence}.npz"))
+                except FileNotFoundError:
+                    continue
+
+            prior_samples = np.concatenate([array["latent_np"] for array in arrays], axis=0)
+            proposal_samples = np.concatenate([array["samples_np"] for array in arrays], axis=0) / 30.0
+            proposal_dlog_p = np.concatenate([array["dlogp_np"] for array in arrays], axis=0)
+
+            data_dim = true_samples.shape[1]
+
+            prior_log_p = -self.prior.energy(torch.tensor(prior_samples)) * data_dim
+            proposal_log_q = prior_log_p.flatten() - proposal_dlog_p.flatten()
+
+            prior_samples = torch.tensor(prior_samples, dtype=torch.float32)
+            proposal_samples = torch.tensor(proposal_samples, dtype=torch.float32)
+            proposal_log_q = torch.tensor(proposal_log_q, dtype=torch.float32)
+            proposal_samples = self.datamodule.normalize(proposal_samples)
+    
+        elif self.hparams.sample_set == "tbg_leon_samples":
+
+            data_dim = true_samples.shape[1]
+
+            data = np.load(f"../scratch/result_data/Flow-Matching-2AA-wloss-9layer-128-encoding-long2_{sequence}.npz")
+
+            proposal_samples = self.datamodule.normalize(torch.tensor(data["samples_np"]) / 30.0)
+            proposal_dlog_p = torch.tensor(data["dlogp_np"])
+            prior_samples = torch.tensor(data["latent_np"])
+
+            prior_log_p = -self.prior.energy(torch.tensor(prior_samples)) * data_dim
+            proposal_log_q = prior_log_p.flatten() - proposal_dlog_p.flatten()
+
         logging.info(f"Prior samples shape: {prior_samples.shape}")
         logging.info(f"Proposal samples shape: {proposal_samples.shape}")
-        logging.info(f"Proposal log p shape: {proposal_log_p.shape}")
+        logging.info(f"Proposal log p shape: {proposal_log_q.shape}")
 
         # Compute energy
         proposal_samples_energy = energy_fn(proposal_samples)
@@ -627,27 +665,59 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
         prior_samples = prior_samples[~inf_mask]
         proposal_samples = proposal_samples[~inf_mask]
         proposal_samples_energy = proposal_samples_energy[~inf_mask]
-        proposal_log_p = proposal_log_p[~inf_mask]
+        proposal_log_q = proposal_log_q[~inf_mask]
 
-        if not self.hparams.dont_fix_chirality:
-            symmetry_metrics, symmetry_change = resolve_chirality(
-                self.datamodule.as_pointcloud(self.datamodule.unnormalize(true_samples)),
-                self.datamodule.as_pointcloud(self.datamodule.unnormalize(proposal_samples)),
-                self.datamodule.topology_dict[sequence],
-                prefix=prefix + "/proposal",
-            )
-            metrics.update(symmetry_metrics)
-            if not self.hparams.dont_fix_symmetry:
-                proposal_samples = proposal_samples[~symmetry_change]
-                proposal_log_p = proposal_log_p[~symmetry_change]
-                proposal_samples_energy = proposal_samples_energy[~symmetry_change]
+        # Datatype for easier metrics and plotting
+        proposal_data = SamplesData(
+            self.datamodule.unnormalize(proposal_samples),
+            proposal_samples_energy,
+        )
 
-            symmetry_change = get_symmetry_change(
-                self.datamodule.as_pointcloud(self.datamodule.unnormalize(true_samples)),
-                self.datamodule.as_pointcloud(self.datamodule.unnormalize(proposal_samples)),
-                self.datamodule.topology_dict[sequence],
-            )
-            proposal_samples[symmetry_change] *= -1
+        # Compute proposal center of mass std
+        coms = self.datamodule.center_of_mass(proposal_samples)
+        proposal_com_std = coms.std()
+        # TODO little scary relying on this class attribute! - gets used in self.proposal_energy
+        # when use_com_adjustment=True
+        self.proposal_com_std = proposal_com_std
+        logging.info(f"Proposal CoM std: {proposal_com_std}")
+        self.log(f"{prefix}/proposal_com_std", proposal_com_std, sync_dist=True)
+
+        temp_proposal_samples = proposal_samples.clone()
+
+        first_symmetry_change = get_symmetry_change(
+            self.datamodule.as_pointcloud(self.datamodule.unnormalize(true_samples)),
+            self.datamodule.as_pointcloud(self.datamodule.unnormalize(temp_proposal_samples)),
+            self.datamodule.topology_dict[sequence],
+        )
+
+        correct_symmetry_rate = 1 - first_symmetry_change.float().mean().item()
+
+        temp_proposal_samples[first_symmetry_change] *= -1
+
+        second_symmetry_change = get_symmetry_change(
+            self.datamodule.as_pointcloud(self.datamodule.unnormalize(true_samples)),
+            self.datamodule.as_pointcloud(self.datamodule.unnormalize(temp_proposal_samples)),
+            self.datamodule.topology_dict[sequence],
+        )
+
+        uncorrectable_symmetry_rate = second_symmetry_change.float().mean().item()
+
+        self.hparams.fix_symmetry = True
+        if self.hparams.fix_symmetry:
+            proposal_samples[first_symmetry_change] *= -1
+
+            self.hparams.drop_unfixable_symmetry = True
+            if self.hparams.drop_unfixable_symmetry:  # only makes sense to drop if symmetry is fixed
+                proposal_samples = proposal_samples[~second_symmetry_change]
+                proposal_log_q = proposal_log_q[~second_symmetry_change]
+                proposal_samples_energy = proposal_samples_energy[~second_symmetry_change]
+
+        metrics.update(
+            {
+                f"{prefix}/proposal/correct_symmetry_rate": correct_symmetry_rate,
+                f"{prefix}/proposal/uncorrectable_symmetry_rate": uncorrectable_symmetry_rate,
+            }
+        )
 
         # Datatype for easier metrics and plotting
         proposal_data = SamplesData(
@@ -655,7 +725,36 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             proposal_samples_energy,
         )
 
-        reweighted_data = None
+        # Apply CoM adjustment to energy, this must be done here for compatibility with CNFs
+        if self.hparams.sampling_config.get("use_com_adjustment", False):
+            logging.info("Applying center of mass energy adjustment")
+            proposal_log_q = proposal_log_q + self.com_energy_adjustment(proposal_samples)
+
+        # Compute resampling index
+        # proposal_log_p - proposal_log_q
+        resampling_logits = -proposal_samples_energy - proposal_log_q
+
+        # Filter samples based on logit clipping - this affects both IS and SMC
+        if self.hparams.sampling_config.clip_reweighting_logits:
+            clipped_logits_mask = resampling_logits > torch.quantile(
+                resampling_logits,
+                1 - float(self.hparams.sampling_config.clip_reweighting_logits),
+            )
+            proposal_samples = proposal_samples[~clipped_logits_mask]
+            proposal_samples_energy = proposal_samples_energy[~clipped_logits_mask]
+            resampling_logits = resampling_logits[~clipped_logits_mask]
+            logging.info("Clipped logits for resampling")
+
+        _, resampling_index = resample(proposal_samples, resampling_logits, return_index=True)
+
+        n_samples = proposal_samples.shape[0]
+
+        reweighted_data = SamplesData(
+            self.datamodule.unnormalize(proposal_samples[resampling_index]).reshape(n_samples, -1, 3),
+            proposal_samples_energy[resampling_index],
+            logits=resampling_logits,
+        )
+
         smc_data = None
 
         if self.local_rank == 0:
