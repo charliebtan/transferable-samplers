@@ -407,107 +407,6 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             if "dummy_ll" in self.hparams and self.hparams.dummy_ll:
                 proposal_generator = lambda x: self.batched_generate_samples(x, dummy_ll=True)
 
-        # if self.hparams.sampling_config.get("leon", False):
-        #     data_dim = true_samples.shape[1]
-
-        #     data = np.load(f"result_data/Flow-Matching-2AA-wloss-9layer-128-encoding-long2_{sequence}.npz")
-
-        #     proposal_samples = self.datamodule.normalize(torch.tensor(data["samples_np"]) / 30.0)
-        #     proposal_dlog_p = torch.tensor(data["dlogp_np"])
-        #     prior_samples = torch.tensor(data["latent_np"])
-
-        #     prior_log_p = -self.prior.energy(torch.tensor(prior_samples)) * data_dim
-        #     proposal_log_p = prior_log_p.flatten() - proposal_dlog_p.flatten()
-        # elif self.hparams.sampling_config.get("md", False):
-        #     data = np.load(
-        #         f"/network/scratch/t/tanc/md-runner-scbg-baselines/data/md/{sequence}/{sequence}_310_99500/99499.npz"
-        #     )
-        #     proposal_samples = torch.from_numpy(data["all_positions"]).float()
-        #     num_samples = proposal_samples.shape[0]
-        #     proposal_samples = self.datamodule.normalize(proposal_samples.view(num_samples, -1))
-        #     proposal_samples = proposal_samples[: self.hparams.sampling_config.num_samples_subset]
-        #     proposal_data = SamplesData(
-        #         self.datamodule.as_pointcloud(self.datamodule.unnormalize(proposal_samples)),
-        #         energy_fn(proposal_samples),
-        #     )
-        #     proposal_log_p = torch.zeros_like(proposal_data.energy)
-        #     prior_samples = np.zeros_like(proposal_samples)
-        #     logging.info(f"Proposal samples shape: {proposal_samples.shape}")
-
-        # elif self.datamodule.hparams.num_aa_max == 2:
-        #     BASE_DIR_1 = "/home/mila/t/tanc/scratch/self-consume-bg/logs/eval/multiruns/2025-05-11_22-22-44"
-
-        #     samples_dicts = []
-        #     for i in range(10):
-        #         found = False
-        #         for j in range(500):
-        #             path1 = f"{BASE_DIR_1}/{j}/{prefix}/samples_{i}.pt"
-
-        #             if os.path.exists(path1):
-        #                 samples_dicts.append(torch.load(path1))
-        #                 found = True
-        #                 break
-
-        #         if not found:
-        #             raise FileNotFoundError(f"Sample file samples_{i}.pt not found in either directory.")
-
-        #     prior_samples = torch.cat([d["prior_samples"] for d in samples_dicts], dim=0)
-        #     proposal_samples = torch.cat([d["proposal_samples"] for d in samples_dicts], dim=0)
-        #     proposal_log_p = torch.cat([d["proposal_log_p"] for d in samples_dicts], dim=0)
-
-        # if True:
-        #     BASE_ROOT = "/home/mila/t/tanc/scratch/self-consume-bg/logs/eval/multiruns"
-        #     ALL_DATES = [
-        #         "2025-05-10_02-21-17",
-        #         "2025-05-11_18-51-26",
-        #         "2025-05-11_18-49-32",
-        #         "2025-05-11_18-55-20",
-        #         "2025-05-11_18-55-02",
-        #         "2025-05-11_18-52-16",
-        #         "2025-05-11_01-44-04",
-        #         "2025-05-11_18-55-55",
-        #         "2025-05-11_18-49-08",
-        #         "2025-05-11_18-55-39",
-        #         "2025-05-11_18-49-54",
-        #         "2025-05-13_20-21-00",
-        #         "2025-05-13_20-19-58",
-        #     ]
-
-        #     samples_dicts = []
-
-        #     for i in range(10):  # samples_0.pt to samples_9.pt
-        #         found = False
-
-        #         for j in range(500):  # folders numbered 0 through 499
-        #             for date in ALL_DATES:
-        #                 path = f"{BASE_ROOT}/{date}/{j}/{prefix}/samples_{i}.pt"
-        #                 if os.path.exists(path):
-        #                     samples_dicts.append(torch.load(path))
-        #                     found = True
-        #                     break  # stop checking dates for this (i, j)
-
-        #             if found:
-        #                 break  # sample i found for some j/date combo
-
-        #         if not found:
-        #             logging.warning(f"Sample file samples_{i}.pt not found in any directory.")
-
-        #     prior_samples = torch.cat([d["prior_samples"] for d in samples_dicts], dim=0)
-        #     proposal_samples = torch.cat([d["proposal_samples"] for d in samples_dicts], dim=0)
-        #     proposal_log_p = torch.cat([d["proposal_log_p"] for d in samples_dicts], dim=0)
-
-        # if not self.hparams.sampling_config.get("md", False) and not self.hparams.sampling_config.get("leon", False):
-        #     self.bad_prior = BADNormalDistribution(mean_free=self.hparams.mean_free_prior)
-
-        #     num_particles = encoding["atom_type"].size(0)
-        #     data_dim = num_particles * self.datamodule.hparams.num_dimensions
-
-        #     bad_prior_log_p = self.bad_prior.energy(prior_samples).flatten() * data_dim
-        #     good_prior_log_p = self.prior.energy(prior_samples).flatten() * data_dim
-
-        #     dlog_p = proposal_log_p.flatten() + bad_prior_log_p
-        #     proposal_log_p = dlog_p - good_prior_log_p.flatten()
-
         metrics = {}
 
         if self.hparams.sample_set is None:
@@ -559,7 +458,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             prior_samples = prior_samples - prior_samples.mean(axis=1, keepdims=True)  # Centering the samples
             prior_samples = torch.tensor(prior_samples, dtype=torch.float32).view(-1, prior_samples.shape[1] * prior_samples.shape[2]).to(self.device)  # Reshape to (n_frames, n_atoms * 3)
 
-            proposal_log_p = torch.ones(prior_samples.shape[0], device=self.device)
+            proposal_log_q = torch.ones(prior_samples.shape[0], device=self.device)
             proposal_samples = prior_samples.clone()
 
             metrics[f"{prefix}/funky_ess"] = compute_funky_ess(prior_samples.cpu().numpy())
@@ -606,7 +505,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             prior_samples = prior_samples - prior_samples.mean(axis=1, keepdims=True)  # Centering the samples
             prior_samples = torch.tensor(prior_samples, dtype=torch.float32).view(-1, prior_samples.shape[1] * prior_samples.shape[2]).to(self.device)  # Reshape to (n_frames, n_atoms * 3)
 
-            proposal_log_p = torch.ones(prior_samples.shape[0], device=self.device)
+            proposal_log_q = torch.ones(prior_samples.shape[0], device=self.device)
             proposal_samples = prior_samples.clone()
 
             metrics[f"{prefix}/funky_ess"] = compute_funky_ess(prior_samples.cpu().numpy())
@@ -619,7 +518,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             prior_samples = prior_samples - prior_samples.mean(axis=1, keepdims=True)  # Centering the samples
             prior_samples = torch.tensor(prior_samples, dtype=torch.float32).view(-1, prior_samples.shape[1] * prior_samples.shape[2]).to(self.device)  # Reshape to (n_frames, n_atoms * 3)
 
-            proposal_log_p = torch.ones(prior_samples.shape[0], device=self.device)
+            proposal_log_q = torch.ones(prior_samples.shape[0], device=self.device)
             proposal_samples = prior_samples.clone()
 
         elif self.hparams.sample_set == "timewarp":
@@ -630,7 +529,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             prior_samples = prior_samples - prior_samples.mean(axis=1, keepdims=True)  # Centering the samples
             prior_samples = torch.tensor(prior_samples, dtype=torch.float32).view(-1, prior_samples.shape[1] * prior_samples.shape[2]).to(self.device)  # Reshape to (n_frames, n_atoms * 3)
 
-            proposal_log_p = torch.ones(prior_samples.shape[0], device=self.device)
+            proposal_log_q = torch.ones(prior_samples.shape[0], device=self.device)
             proposal_samples = prior_samples.clone()
 
             metrics[f"{prefix}/funky_ess"] = compute_funky_ess(prior_samples.cpu().numpy())
@@ -645,7 +544,7 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             prior_samples = prior_samples - prior_samples.mean(axis=1, keepdims=True)  # Centering the samples
             prior_samples = torch.tensor(prior_samples, dtype=torch.float32).view(-1, prior_samples.shape[1] * prior_samples.shape[2]).to(self.device)  # Reshape to (n_frames, n_atoms * 3)
 
-            proposal_log_p = torch.ones(prior_samples.shape[0], device=self.device)
+            proposal_log_q = torch.ones(prior_samples.shape[0], device=self.device)
             proposal_samples = prior_samples.clone()
 
             metrics[f"{prefix}/funky_ess"] = compute_funky_ess(prior_samples.cpu().numpy())
@@ -688,12 +587,122 @@ class TransferableBoltzmannGeneratorLitModule(LightningModule):
             prior_log_p = -self.prior.energy(torch.tensor(prior_samples)) * data_dim
             proposal_log_q = prior_log_p.flatten() - proposal_dlog_p.flatten()
 
+        elif self.hparams.sample_set == "ecnf++":
+            BASE_ROOT = "../scratch/ecnf_samples"
+            ALL_DATES = [
+                "2025-05-10_02-21-17",
+                "2025-05-11_18-51-26",
+                "2025-05-11_18-49-32",
+                "2025-05-11_18-55-20",
+                "2025-05-11_18-55-02",
+                "2025-05-11_18-52-16",
+                "2025-05-11_01-44-04",
+                "2025-05-11_18-55-55",
+                "2025-05-11_18-49-08",
+                "2025-05-11_18-55-39",
+                "2025-05-11_18-49-54",
+                "2025-05-13_20-21-00",
+                "2025-05-13_20-19-58",
+            ]
+
+            samples_dicts = []
+
+            for i in range(10):  # samples_0.pt to samples_9.pt
+                found = False
+
+                for j in range(500):  # folders numbered 0 through 499
+                    for date in ALL_DATES:
+                        path = f"{BASE_ROOT}/{date}/{j}/{prefix}/samples_{i}.pt"
+                        if os.path.exists(path):
+                            samples_dicts.append(torch.load(path))
+                            found = True
+                            break  # stop checking dates for this (i, j)
+
+                    if found:
+                        break  # sample i found for some j/date combo
+
+                if not found:
+                    logging.warning(f"Sample file samples_{i}.pt not found in any directory.")
+
+            prior_samples = torch.cat([d["prior_samples"] for d in samples_dicts], dim=0)
+            proposal_samples = torch.cat([d["proposal_samples"] for d in samples_dicts], dim=0) * 0.2621
+            proposal_log_q = torch.cat([d["proposal_log_p"] for d in samples_dicts], dim=0)
+
+        elif self.hparams.sample_set == "ecnf_2aa":
+            BASE_DIR_1 = "../scratch/my_tbg_samples"
+
+            samples_dicts = []
+
+            for i in range(10):  # samples_0.pt to samples_9.pt
+                found = False
+
+                for j in range(500):  # folders numbered 0 through 499
+                    path = f"{BASE_DIR_1}/{j}/{prefix}/samples_{i}.pt"
+                    if os.path.exists(path):
+                        samples_dicts.append(torch.load(path))
+                        found = True
+                        break  # stop checking dates for this (i, j)
+
+                    if found:
+                        break  # sample i found for some j/date combo
+
+                if not found:
+                    logging.warning(f"Sample file samples_{i}.pt not found in any directory.")
+
+            prior_samples = torch.cat([d["prior_samples"] for d in samples_dicts], dim=0)
+            proposal_samples = torch.cat([d["proposal_samples"] for d in samples_dicts], dim=0) * 0.209
+            proposal_log_q = torch.cat([d["proposal_log_p"] for d in samples_dicts], dim=0)
+
+            def mean_energy(alpha):
+                return energy_fn(proposal_samples * alpha).mean()
+
+        elif self.hparams.sample_set in ["base10k", "full10k"]:
+
+            BASE_DIR_1 = "../scratch/base10k" if self.hparams.sample_set == "base10k" else "../scratch/full10k"
+
+            samples_dicts = []
+            for i in range(100):
+                found = False
+                path1 = f"{BASE_DIR_1}/{i}/{prefix}/samples.pt"
+                if os.path.exists(path1):
+                    samples_dicts.append(torch.load(path1))
+                    found = True
+                    break
+
+            if not found:
+                raise FileNotFoundError(f"Sample file samples.pt not found in either directory.")
+
+            prior_samples = torch.cat([d["prior_samples"] for d in samples_dicts], dim=0)
+            proposal_samples = torch.cat([d["proposal_samples"] for d in samples_dicts], dim=0) * 0.334 * 0.997 # 0.9947
+            proposal_log_q = torch.cat([d["proposal_log_p"] for d in samples_dicts], dim=0)
+
+        # if self.hparams.sample_set in ["ecnf++", "ecnf_2aa"]:
+
+        #     self.bad_prior = BADNormalDistribution(mean_free=self.hparams.mean_free_prior)
+
+        #     num_particles = encoding["atom_type"].size(0)
+        #     data_dim = num_particles * self.datamodule.hparams.num_dimensions
+
+        #     bad_prior_log_p = self.bad_prior.energy(prior_samples).flatten() * data_dim
+        #     good_prior_log_p = self.prior.energy(prior_samples).flatten() * data_dim
+
+        #     dlog_q = proposal_log_q.flatten() + bad_prior_log_p
+        #     proposal_log_q = dlog_q - good_prior_log_p.flatten()
+
         logging.info(f"Prior samples shape: {prior_samples.shape}")
         logging.info(f"Proposal samples shape: {proposal_samples.shape}")
         logging.info(f"Proposal log p shape: {proposal_log_q.shape}")
 
         # Compute energy
         proposal_samples_energy = energy_fn(proposal_samples)
+
+        from src.evaluation.metrics.distribution_distances import energy_distances
+
+        def energy_w2(alpha):
+            return energy_distances(
+                energy_fn(proposal_samples * alpha),
+                energy_fn(true_samples),
+            )["/energy_w2"]
 
         # Remove NaN samples
         inf_mask = torch.isinf(proposal_samples_energy)

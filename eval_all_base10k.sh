@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=md_eval
+#SBATCH --job-name=jsd
 #SBATCH --get-user-env                # retrieve the users login environment
 #SBATCH --gres=gpu:rtx8000:1
 #SBATCH -c 4
@@ -7,8 +7,8 @@
 #SBATCH -t 1:00:00
 #SBATCH --partition=long,main,unkillable
 #SBATCH --array=0-76
-#SBATCH --output=logs/md_%A_%a.out
-#SBATCH --error=logs/md_%A_%a.err
+#SBATCH --output=logs/jsd_%A_%a.out
+#SBATCH --error=logs/jsd_%A_%a.err
 
 sequences=(
     AC
@@ -94,8 +94,13 @@ seq=${sequences[$SLURM_ARRAY_TASK_ID]}
 python src/train.py -m \
     experiment=evaluation/tarflow_up_to_8aa \
     logger=wandb \
-    tags=[jsd,md_10k_jsd_v1] \
+    tags=[jsd,base10k_jsd_v1] \
     model.eval_seq_name="$seq" \
-    +model.dont_fix_symmetry=True \
-    +model.dont_fix_chirality=True \
-    +model.sample_set=md_10k
+    +model.sample_set=base10k
+
+python src/train.py -m \
+    experiment=evaluation/tarflow_up_to_8aa \
+    logger=wandb \
+    tags=[jsd,full10k_jsd_v1] \
+    model.eval_seq_name="$seq" \
+    +model.sample_set=full10k
